@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	sqlcgen "github.com/winshare/zeroops/internal/server/db/sqlc"
@@ -160,6 +161,78 @@ LIMIT $2
 	}
 
 	return items, nil
+}
+
+// GetTeamAppBySlug returns a single team-scoped app by slug.
+func (r *Repository) GetTeamAppBySlug(ctx context.Context, teamID string, slug string) (App, error) {
+	parsedTeamID, err := parseUUID(teamID)
+	if err != nil {
+		return App{}, fmt.Errorf("parse team id: %w", err)
+	}
+
+	var row struct {
+		ID                pgtype.UUID
+		TeamID            pgtype.UUID
+		Slug              string
+		Name              pgtype.Text
+		RepoURL           pgtype.Text
+		RepoDefaultBranch pgtype.Text
+		ImageRef          pgtype.Text
+		Builder           pgtype.Text
+		Status            pgtype.Text
+		CreatedAt         pgtype.Timestamptz
+		UpdatedAt         pgtype.Timestamptz
+	}
+
+	err = r.pool.QueryRow(ctx, `
+SELECT
+  id,
+  team_id,
+  slug,
+  name,
+  repo_url,
+  repo_default_branch,
+  image_ref,
+  builder,
+  status,
+  created_at,
+  updated_at
+FROM app
+WHERE team_id = $1
+  AND slug = $2
+`, parsedTeamID, slug).Scan(
+		&row.ID,
+		&row.TeamID,
+		&row.Slug,
+		&row.Name,
+		&row.RepoURL,
+		&row.RepoDefaultBranch,
+		&row.ImageRef,
+		&row.Builder,
+		&row.Status,
+		&row.CreatedAt,
+		&row.UpdatedAt,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return App{}, err
+		}
+		return App{}, fmt.Errorf("query app by slug: %w", err)
+	}
+
+	return App{
+		ID:                row.ID.String(),
+		TeamID:            row.TeamID.String(),
+		Slug:              row.Slug,
+		Name:              textPtr(row.Name),
+		RepoURL:           textPtr(row.RepoURL),
+		RepoDefaultBranch: textPtr(row.RepoDefaultBranch),
+		ImageRef:          textPtr(row.ImageRef),
+		Builder:           textPtr(row.Builder),
+		Status:            textPtr(row.Status),
+		CreatedAt:         row.CreatedAt.Time,
+		UpdatedAt:         row.UpdatedAt.Time,
+	}, nil
 }
 
 // FindCliTokenByHash loads a token by hash.

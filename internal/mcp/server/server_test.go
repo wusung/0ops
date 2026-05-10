@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	serverpkg "github.com/winshare/zeroops/internal/server"
@@ -125,6 +126,60 @@ func TestListAppsToolReadsAuthConfig(t *testing.T) {
 	<-errCh
 }
 
+func TestGetAppToolRoundTrip(t *testing.T) {
+	store, token := newMCPFakeStore()
+	backend := httptest.NewServer(serverpkg.NewRouter(store))
+	t.Cleanup(backend.Close)
+
+	t.Setenv("OPS_HOST", backend.URL)
+	t.Setenv("OPS_BEARER_TOKEN", token)
+
+	server := New(slog.Default())
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- server.Run(ctx, serverTransport) }()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "get_app",
+		Arguments: map[string]any{
+			"team_slug": store.team.Slug,
+			"app_slug":  "alpha",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool() error = %v", err)
+	}
+	if result.IsError {
+		t.Fatal("expected success result")
+	}
+	if len(result.Content) == 0 {
+		t.Fatal("expected content")
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(result.Content[0].(*mcp.TextContent).Text), &decoded); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if decoded["slug"] != "alpha" {
+		t.Fatalf("slug = %#v, want alpha", decoded["slug"])
+	}
+
+	if err := session.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	cancel()
+	<-errCh
+}
+
 type mcpFakeStore struct {
 	token   db.CliToken
 	team    db.Team
@@ -165,6 +220,35 @@ func (f mcpFakeStore) ListTeamApps(ctx context.Context, teamID string, limit int
 	return f.apps, nil
 }
 
+func (f mcpFakeStore) GetTeamAppBySlug(ctx context.Context, teamID string, slug string) (db.App, error) {
+	if teamID != f.team.ID {
+		return db.App{}, os.ErrNotExist
+	}
+	for _, app := range f.apps {
+		if app.Slug == slug {
+			return app, nil
+		}
+	}
+	return db.App{}, pgx.ErrNoRows
+}
+
+func (f mcpFakeStore) ListUserTeams(ctx context.Context, userID string, limit int32, afterSlug *string) ([]db.TeamMembership, error) {
+	if userID != f.token.OwnerUserID || !f.members {
+		return nil, nil
+	}
+
+	return []db.TeamMembership{{
+		Team: db.Team{
+			ID:   f.team.ID,
+			Slug: f.team.Slug,
+			Name: f.team.Name,
+			Plan: f.team.Plan,
+		},
+		UserID: f.token.OwnerUserID,
+		Role:   f.role,
+	}}, nil
+}
+
 func newMCPFakeStore() (mcpFakeStore, string) {
 	token := "dev-token"
 	return mcpFakeStore{
@@ -173,12 +257,13 @@ func newMCPFakeStore() (mcpFakeStore, string) {
 			OwnerUserID: "user-1",
 			TeamID:      "team-1",
 			TokenHash:   auth.HashBearerToken(token),
-			Scopes:      []string{"apps:read"},
+			Scopes:      []string{"apps:read", "teams:read"},
 		},
 		team: db.Team{
 			ID:   "team-1",
 			Slug: "acme",
 			Name: "Acme",
+			Plan: "starter",
 		},
 		role:    "viewer",
 		members: true,

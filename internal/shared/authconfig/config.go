@@ -44,6 +44,27 @@ func Load() (File, error) {
 	return out, nil
 }
 
+// Save writes the shared auth.json file.
+func Save(file File) error {
+	if file.Version == 0 {
+		file.Version = 1
+	}
+
+	path, err := Path()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(file, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0o600)
+}
+
 // Path returns the canonical auth.json path.
 func Path() (string, error) {
 	dir, err := os.UserConfigDir()
@@ -91,6 +112,26 @@ func (f File) BearerForHost(host string) (string, bool) {
 		return "", false
 	}
 	return token.BearerToken, true
+}
+
+// SetDefaultTeamForHost updates the default team slug for the matching host entry.
+func (f *File) SetDefaultTeamForHost(host, teamSlug string) bool {
+	host = normalizeHost(host)
+	if host == "" {
+		if len(f.Tokens) == 0 {
+			return false
+		}
+		f.Tokens[0].DefaultTeamSlug = teamSlug
+		return true
+	}
+
+	for i := range f.Tokens {
+		if normalizeHost(f.Tokens[i].Host) == host {
+			f.Tokens[i].DefaultTeamSlug = teamSlug
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeHost(v string) string {

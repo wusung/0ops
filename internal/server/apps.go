@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/winshare/zeroops/internal/server/apperror"
 	"github.com/winshare/zeroops/internal/server/auth"
@@ -20,6 +22,12 @@ import (
 type appsStore interface {
 	auth.Store
 	ListTeamApps(ctx context.Context, teamID string, limit int32, afterID *string) ([]db.App, error)
+	GetTeamAppBySlug(ctx context.Context, teamID string, slug string) (db.App, error)
+}
+
+type routerStore interface {
+	appsStore
+	teamsStore
 }
 
 type appCursor struct {
@@ -63,19 +71,7 @@ func listAppsHandler(store appsStore) http.HandlerFunc {
 
 		items := make([]dto.AppRef, 0, len(rows))
 		for _, row := range rows {
-			items = append(items, dto.AppRef{
-				ID:                row.ID,
-				TeamID:            row.TeamID,
-				Slug:              row.Slug,
-				Name:              row.Name,
-				RepoURL:           row.RepoURL,
-				RepoDefaultBranch: row.RepoDefaultBranch,
-				ImageRef:          row.ImageRef,
-				Builder:           row.Builder,
-				Status:            row.Status,
-				CreatedAt:         row.CreatedAt,
-				UpdatedAt:         row.UpdatedAt,
-			})
+			items = append(items, newAppRef(row))
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -87,11 +83,38 @@ func listAppsHandler(store appsStore) http.HandlerFunc {
 	}
 }
 
+func getAppHandler(store appsStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		row, err := store.GetTeamAppBySlug(r.Context(), auth.TeamID(r.Context()), chi.URLParam(r, "app_slug"))
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				apperror.Write(w, "app_not_found", apperror.ClassNotFound, "app not found", map[string]any{
+					"app_slug": chi.URLParam(r, "app_slug"),
+				})
+				return
+			}
+			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to get app", nil)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(newAppRef(row))
+	}
+}
+
 // NewRouter returns the HTTP router for the server.
-func NewRouter(store appsStore) http.Handler {
+func NewRouter(store routerStore) http.Handler {
 	mw := auth.NewMiddleware(store)
 
 	r := chi.NewRouter()
+
+	r.Route("/v1/me", func(sr chi.Router) {
+		sr.Use(mw.Bearer)
+		sr.Use(func(next http.Handler) http.Handler {
+			return mw.CheckTokenScope(rbac.ActionListTeams, next)
+		})
+		sr.Get("/teams", listTeamsHandler(store))
+	})
 
 	r.Route("/v1/teams/{team_slug}", func(sr chi.Router) {
 		sr.Use(mw.Bearer)
@@ -101,9 +124,26 @@ func NewRouter(store appsStore) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionListApps, next)
 		})
 		sr.Get("/apps", listAppsHandler(store))
+		sr.Get("/apps/{app_slug}", getAppHandler(store))
 	})
 
 	return r
+}
+
+func newAppRef(row db.App) dto.AppRef {
+	return dto.AppRef{
+		ID:                row.ID,
+		TeamID:            row.TeamID,
+		Slug:              row.Slug,
+		Name:              row.Name,
+		RepoURL:           row.RepoURL,
+		RepoDefaultBranch: row.RepoDefaultBranch,
+		ImageRef:          row.ImageRef,
+		Builder:           row.Builder,
+		Status:            row.Status,
+		CreatedAt:         row.CreatedAt,
+		UpdatedAt:         row.UpdatedAt,
+	}
 }
 
 func encodeAppCursor(id string, ts time.Time) string {
