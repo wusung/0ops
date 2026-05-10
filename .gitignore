@@ -27,6 +27,8 @@ compose.override.yml
 *.test
 *.out
 coverage.*
+.cache/
+.worktrees/
 
 # OS junk
 .DS_Store
