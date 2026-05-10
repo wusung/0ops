@@ -29,17 +29,27 @@ ADR 之所以高於 plan：plan 為長期演進的廣泛規劃文件，可能殘
 1. `docs/0ops-business-plan.md`
 2. `docs/0ops-plan.md`
 3. `docs/agents-guide.md`
-4. `docs/adrs/*.md`
+4. `docs/adr-reading-strategy.md` ⭐ **必讀**（定義 ADR 讀取時機與深度）
+5. `docs/adrs/*.md`
 
-ADR 為不可違反的架構決策。讀法規約：
+### ADR 讀取策略
 
-- **依檔名數字順序閱讀**（0001 → 0002 → ... → 0008）；後者可能依賴前者，跳讀
-  會錯失依賴語境（例：ADR-0008 之 leader-only 任務語意源自 ADR-0002）。
-- **至少讀完每份 TL;DR 段**（「## 0. TL;DR（先讀本段）」）。實作或修改某 ADR
-  涵蓋之主題前，**必須讀完整份**該 ADR（含 Pros&Cons、Consequences、Revisit
-  Triggers 與 Open Questions）。
+ADR 為不可違反的架構決策。讀取分三層深度：
+
+- **Skim**（<1 分鐘，TL;DR Only）：低風險修改、模組內部重構、簡單 bug 修復
+- **Read**（3-5 分鐘，完整 ADR）：新 API、schema 變更、跨模組影響
+- **Deep**（5-10 分鐘，Consequences + Open Questions）：架構變更、權限邏輯、重大決策變更
+
+**讀法規約**：
+
+- **每次 agent 啟動前**：依 `docs/adr-reading-strategy.md` 第 1 節「讀取時機決策矩陣」判斷深度
+- **識別相關 ADR**：使用第 2 節「快速參考表」快速定位涉及 ADR（無需依序讀全部）
+- **依檔名數字順序深讀**：當需 Deep 讀時，若多個 ADR 涉及應按 0001 → 0002 → ... 順序
+  （後者可能依賴前者；例：ADR-0008 之 leader 職責源自 ADR-0002 冪等性決策）
+- **實作或修改時**：發現違反 ADR 立即停止 → 深讀該 ADR Consequences 與 Open Questions → 
+  評估是否應新增 ADR 而非違反現有決策
 - 新增 ADR 採 MADR 9-section 結構並接續編號；ADR 之間有跨引用時必須在 More
-  Information 段顯式列出。
+  Information 段顯式列出；新 ADR 應同步更新 `adr-reading-strategy.md` 第 2 節
 
 若當前任務有對應 `{FEATURE}`，完成共用文件閱讀後，必須一併閱讀以下兩類文件：
 
