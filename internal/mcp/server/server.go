@@ -1,3 +1,4 @@
+// Package server provides the 0ops MCP server implementation.
 package server
 
 import (
@@ -8,6 +9,7 @@ import (
 	"github.com/winshare/zeroops/internal/shared"
 )
 
+// Implementation returns the MCP server metadata.
 func Implementation() *mcp.Implementation {
 	return &mcp.Implementation{
 		Name:    "0ops-mcp",
@@ -15,6 +17,7 @@ func Implementation() *mcp.Implementation {
 	}
 }
 
+// New returns a configured MCP server.
 func New(logger *slog.Logger) *mcp.Server {
 	return mcp.NewServer(Implementation(), &mcp.ServerOptions{
 		Logger: logger,
