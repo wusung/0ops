@@ -19,8 +19,15 @@ compose.override.yml
 # editor
 .idea/
 .vscode/
+*.swp
+*.swo
+*~
 
 # Go
 *.test
 *.out
 coverage.*
+
+# OS junk
+.DS_Store
+Thumbs.db
