@@ -65,7 +65,7 @@ flowchart TB
         ClaudeC["claude code"]
         Codex["codex CLI"]
         Copilot["GitHub Copilot CLI"]
-        MCP["0ops-mcp<br/>(Go, mcp-go, stdio)"]
+        MCP["0ops-mcp<br/>(Go, MCP SDK, stdio)"]
     end
     subgraph BE["0ops-server (Go, chi)"]
         API["REST/SSE API<br/>v1/apps, v1/domains, v1/deploys, /webhooks"]
@@ -139,7 +139,7 @@ flowchart TB
 | Web framework | `go-chi/chi/v5` | 輕量、stdlib-aligned、原生支援 SSE |
 | Concurrency | goroutines + channels（stdlib） | 無外部 runtime |
 | HTTP client | `net/http`（+ `go-resty/resty/v2` 可選） | Cloudflare API、CLI/MCP 對 backend |
-| MCP SDK | `mark3labs/mcp-go` | stdio transport、tool registry；**TBD** 確認版本與穩定度 |
+| MCP SDK | `github.com/modelcontextprotocol/go-sdk` | 官方 SDK；stdio transport、tool registry；細節見 ADR-0003 |
 | CLI | `spf13/cobra` + `AlecAivazis/survey/v2`（互動 prompt）+ `olekukonko/tablewriter`（表格輸出）+ `encoding/json`/`gopkg.in/yaml.v3` | |
 | DB driver | `jackc/pgx/v5` + `sqlc`（codegen 產生 type-safe query） | Postgres 原生協定、無 ORM 開銷 |
 | Migration | `pressly/goose` 或 `golang-migrate/migrate` | |
@@ -351,13 +351,13 @@ PlanPreview 物件結構（所有 `*:preview` 回傳一致）：
 - `--output {table,json,yaml}`：適用所有讀取與最終結果
 
 ### MCP server（`cmd/mcp/` + `internal/mcp/`）
-- 套件：`mark3labs/mcp-go`（社群 Go MCP SDK）；ADR-003 同步評估官方 `modelcontextprotocol/go-sdk`
+- 套件：官方 `github.com/modelcontextprotocol/go-sdk`；fallback 條件與相容性矩陣見 ADR-0003
 - Transport：stdio；logging 走 `log/slog` + stderr
 - Tool registry：在 `init()` 或啟動時註冊；每個 tool 提供 `Name()`, `Schema() json.RawMessage`, `Description() string`, `Call(ctx, args) (Result, error)`
 - 寫入類拆兩個 tool：`<action>_preview` 與 `<action>`，後者必須帶前者回的 `preview_id`
 - 認證：啟動時讀 `~/.config/0ops/auth.json`；無 token 時 tool 回錯誤訊息要使用者跑 `0ops auth login`
 - 對 backend 的呼叫共用 `*http.Client`（含 timeout、retry middleware、429 處理）
-- 對 SSE 類（logs follow）：將事件以 MCP 工具的 streaming response 回送（mcp-go 支援度待確認，**TBD**；不行就改成分頁拉取）
+- 對 SSE 類（logs follow）：優先採官方 SDK 的 streaming 能力；若 spike 驗證不足，退為分頁拉取 + cursor（見 ADR-0003）
 
 #### Tool description 強制約定
 
@@ -1002,12 +1002,12 @@ $ 0ops domains verify nextdemo example.com --watch
    - 對策：v1 偵測失敗時 CLI / MCP 提示「請提供 Dockerfile，下版本支援」；v1.1 加 Dockerfile mode
 
 2. **客戶域名 TLS 邊緣終止**
-   - Cloudflare 自動 SSL 對 zone 不在客戶帳號下的 hostname 需要 Cloudflare for SaaS / Custom Hostnames API
-   - 另一條路：要求客戶 CNAME 到我們的 zone，靠 SaaS Custom Hostname
-   - **待技術 spike**
+   - 已採 Cloudflare for SaaS Custom Hostname API（見 ADR-0007）；TLS 在 Cloudflare edge 終止，cert 由 Cloudflare 自動簽發，0ops 不持 customer cert material
+   - apex domain 需客戶 DNS 供應商支援 CNAME flattening / ALIAS / ANAME；不相容供應商於 24h verification window 內自然失敗
+   - 殘餘風險：Cloudflare 服務中斷影響面、Cloudflare for SaaS 配額上限與訂閱費攤提（見 ADR-0007 Revisit Triggers）
 
 3. **MCP 跨 CLI 相容性**
-   - `mcp-go` 對 claude code / codex / copilot 的 MCP 實作版本相容性需驗證；同時評估官方 `modelcontextprotocol/go-sdk`
+   - 已採官方 `modelcontextprotocol/go-sdk` v1.x（見 ADR-0003）；M0 spike 驗證 claude code / codex / copilot 三家 client 對 tool registry、preview/confirm、streaming 的互通行為；spike 矩陣不通過任一格觸發 fallback 至 `mark3labs/mcp-go`（ADR-0003 Revisit Trigger #1）
    - preview-then-confirm 是 SKILL 層級的約定，三家 LLM 是否一致遵守需測；違反時 backend 仍能阻擋（write tool 沒有 preview_id 直接 4xx）
 
 4. **AI CLI confirm 流程不一致**
@@ -1035,10 +1035,10 @@ $ 0ops domains verify nextdemo example.com --watch
 
 9. **單一 chi service 可擴展性**
    - goroutines 即可；長 task（DNS polling、reconciler）走獨立 goroutine + ticker
-   - v1 單實例足夠；scale 多實例時 SSE 用 Redis pub/sub，preview / reconciliation_job 已是 DB-backed 自然 cluster-safe
+   - v1–M4 單實例；M5 升 2 replica + K8s Lease leader election（見 ADR-0008）；SSE 採 stateless cursor reconnection 任一 pod 接續，preview / reconciliation_job 為 DB-backed 自然 cluster-safe
 
 10. **Cgo 與 cross-compile**
-    - `pgx`、`client-go`、`go-github`、`mcp-go` 均為 pure Go；無 cgo 依賴
+    - `pgx`、`client-go`、`go-github`、`modelcontextprotocol/go-sdk` 均為 pure Go；無 cgo 依賴
     - `goreleaser` 可一鍵產 linux/amd64、linux/arm64、darwin、windows 靜態 binary
     - 編譯時間預期 < 60s，CI 用 `actions/cache` 對 `~/go/pkg/mod` 與 `~/.cache/go-build`
 
@@ -1075,12 +1075,12 @@ $ 0ops domains verify nextdemo example.com --watch
 2. **寫 ADR**（M0 阻擋項，先於程式碼）：
    - **ADR-001 多租戶與 RBAC**：team 一階、(team_id, slug) 唯一、role 矩陣、scope 列舉、URL routing（已於本 plan 確定方向，正式化進 `docs/adrs/`）
    - **ADR-002 Idempotency 與副作用補償**：preview_id 兼 idempotency key、`last_result` 回放、deploy_run 狀態機、reconciler 設計
-   - **ADR-003 MCP SDK 選型**：`mark3labs/mcp-go` vs 官方 `modelcontextprotocol/go-sdk` 比較矩陣
+   - **ADR-003 MCP SDK 選型**：已接受官方 `modelcontextprotocol/go-sdk`；保留 fallback 條件與相容性矩陣
    - **ADR-004 K3s 角色**：v1 stopgap 還是長期決策、v2 遷移路徑
    - **ADR-005 Build pipeline 觀察點**：HMAC callback 設計、image scan 強制度
    - **ADR-006 Observability baseline**：SLI/SLO 表、metrics 命名規約、trace propagation 鏈路
-   - **ADR-007 客戶自有域名 TLS**：Cloudflare for SaaS Custom Hostname 升級成本與替代方案
-   - **ADR-008 Backend HA**：v1 single replica → M5 2 replica + leader election；SSE 多實例 sticky vs Redis pub/sub
+   - **ADR-007 客戶自有域名 TLS**（已接受）：採 Cloudflare for SaaS Custom Hostname；apex 走 ALIAS / ANAME / CNAME flattening；7 天 grace；plan tier `pro` 才開
+   - **ADR-008 Backend HA**（已接受）：v1 single → M5 K8s Lease leader election + 2 replica；SSE 走 stateless cursor reconnection（不採 sticky cookie / Redis pub/sub）；application Postgres main + 1 streaming replica + WAL archive；v1.1 評估 Patroni
 3. 起 `M0` scaffold：
    - `go mod init github.com/winshare/zeroops`
    - 建立 `cmd/server/main.go`、`cmd/cli/main.go`、`cmd/mcp/main.go`
@@ -1097,22 +1097,25 @@ $ 0ops domains verify nextdemo example.com --watch
 - [ ] 專案名稱（`0ops` / 其他）
 - [ ] Repo 主機位置（自建 git server、GitHub org、其他）
 - [ ] Module path（建議 `github.com/winshare/zeroops`）
-- [ ] Cloudflare 是否升 Cloudflare for SaaS（影響客戶自有域名 TLS）
-- [ ] **Go MCP SDK**：`mark3labs/mcp-go`（社群）vs 官方 `modelcontextprotocol/go-sdk`；M0 spike 結論寫進 ADR-003
+- [ ] **Copilot CLI / Codex CLI 與官方 Go SDK 相容性矩陣**：M0 spike 驗證 tool registry、preview/confirm、streaming fallback
 - [ ] **Copilot CLI 是否原生支援 MCP**（影響 skill pack 形式：MCP 共用 / 退路 wrap CLI）
 - [ ] **CLI 套件分發**：`goreleaser` 預編 binary（推薦）+ `go install github.com/winshare/zeroops/cmd/cli@latest` 並行；Homebrew tap 由 goreleaser 自動產；自更新通知（`0ops version` 提示新版）
 - [ ] **K3s 長期決策**：ADR-004 待決；v1 是否提早切 etcd backend
 - [ ] **Codex / Copilot skill metadata 精確格式**（v1 起手時驗證）
-- [ ] Backend 是否需要 SSE → MCP streaming（mcp-go 支援度未知；不行則改分頁拉取）
+- [ ] Backend 是否需要 SSE → MCP streaming（官方 Go SDK 若支援不足，則改分頁拉取）
 - [ ] **Go 版本**：建議 1.23+（`log/slog` 穩定、`range over func` 可選用）
 - [ ] **DB 存取層**：`sqlc`（推薦，type-safe codegen）vs `pgx` 直寫 vs `bun`/`ent` ORM（不建議）
 
 > 已從 TBD 移除（本次設計補強已決議）：
-> - 租戶模型 / RBAC：team 為一階，四角色 + scope 矩陣
-> - Idempotency 模型：preview_id 兼 key，consumed 後 last_result 回放
+> - 租戶模型 / RBAC：team 為一階，四角色 + scope 矩陣（ADR-0001）
+> - Idempotency 模型：preview_id 兼 key，consumed 後 last_result 回放（ADR-0002）
+> - MCP SDK：採官方 `modelcontextprotocol/go-sdk` v1.x（ADR-0003）
+> - K3s 角色：v1 stopgap-acceptable + PostgreSQL via kine（ADR-0004）
+> - Build pipeline：GHA + HMAC SHA256 callback + 20min ephemeral token（ADR-0005）
+> - Observability：M2 必上，含 SLO/SLI、metrics、trace、burn-rate alert（ADR-0006）
+> - 客戶自有域名 TLS：Cloudflare for SaaS Custom Hostname；apex 走 ALIAS / ANAME / flattening（ADR-0007）
+> - Backend HA：v1 single → M5 K8s Lease + 2 replica；SSE 走 stateless cursor（ADR-0008）
 > - Auth：GitHub OAuth device flow + PAT（綁 team + scopes）
 > - Preview TTL：10 分鐘
 > - Domain verify TTL：24h，可 extend 兩次
 > - Webhook replay：webhook_dedup + ±5min timestamp window
-> - Build callback：HMAC + polling fallback
-> - Observability：M2 必上，含 SLO/SLI、metrics、trace、burn-rate alert
