@@ -23,3 +23,39 @@ SELECT EXISTS (
   WHERE team_id = $1
     AND user_id = $2
 );
+
+-- name: GetTeamMembershipRole :one
+SELECT role
+FROM team_membership
+WHERE team_id = $1
+  AND user_id = $2;
+
+-- name: ListAppsByTeam :many
+SELECT
+  id,
+  team_id,
+  slug,
+  name,
+  repo_url,
+  repo_default_branch,
+  image_ref,
+  builder,
+  status,
+  created_at,
+  updated_at
+FROM app
+WHERE team_id = $1
+  AND slug > $2
+ORDER BY slug
+LIMIT $3;
+
+-- name: FindCliTokenByHash :one
+SELECT
+  id,
+  owner_user_id,
+  team_id,
+  token_hash,
+  scopes,
+  revoked_at
+FROM cli_token
+WHERE token_hash = $1;

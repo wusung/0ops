@@ -32,6 +32,132 @@ func (q *Queries) CheckTeamMembership(ctx context.Context, arg CheckTeamMembersh
 	return exists, err
 }
 
+const getTeamMembershipRole = `-- name: GetTeamMembershipRole :one
+SELECT role
+FROM team_membership
+WHERE team_id = $1
+  AND user_id = $2
+`
+
+type GetTeamMembershipRoleParams struct {
+	TeamID pgtype.UUID
+	UserID pgtype.UUID
+}
+
+func (q *Queries) GetTeamMembershipRole(ctx context.Context, arg GetTeamMembershipRoleParams) (string, error) {
+	row := q.db.QueryRow(ctx, getTeamMembershipRole, arg.TeamID, arg.UserID)
+	var role string
+	err := row.Scan(&role)
+	return role, err
+}
+
+const listAppsByTeam = `-- name: ListAppsByTeam :many
+SELECT
+  id,
+  team_id,
+  slug,
+  name,
+  repo_url,
+  repo_default_branch,
+  image_ref,
+  builder,
+  status,
+  created_at,
+  updated_at
+FROM app
+WHERE team_id = $1
+  AND slug > $2
+ORDER BY slug
+LIMIT $3
+`
+
+type ListAppsByTeamParams struct {
+	TeamID  pgtype.UUID
+	Column2 string
+	Limit   int32
+}
+
+type ListAppsByTeamRow struct {
+	ID                pgtype.UUID
+	TeamID            pgtype.UUID
+	Slug              string
+	Name              pgtype.Text
+	RepoURL           pgtype.Text
+	RepoDefaultBranch pgtype.Text
+	ImageRef          pgtype.Text
+	Builder           pgtype.Text
+	Status            pgtype.Text
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+}
+
+func (q *Queries) ListAppsByTeam(ctx context.Context, arg ListAppsByTeamParams) ([]ListAppsByTeamRow, error) {
+	rows, err := q.db.Query(ctx, listAppsByTeam, arg.TeamID, arg.Column2, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAppsByTeamRow
+	for rows.Next() {
+		var i ListAppsByTeamRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TeamID,
+			&i.Slug,
+			&i.Name,
+			&i.RepoURL,
+			&i.RepoDefaultBranch,
+			&i.ImageRef,
+			&i.Builder,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const findCliTokenByHash = `-- name: FindCliTokenByHash :one
+SELECT
+  id,
+  owner_user_id,
+  team_id,
+  token_hash,
+  scopes,
+  revoked_at
+FROM cli_token
+WHERE token_hash = $1
+`
+
+type FindCliTokenByHashRow struct {
+	ID          pgtype.UUID
+	OwnerUserID pgtype.UUID
+	TeamID      pgtype.UUID
+	TokenHash   string
+	Scopes      []string
+	RevokedAt   pgtype.Timestamptz
+}
+
+func (q *Queries) FindCliTokenByHash(ctx context.Context, tokenHash string) (FindCliTokenByHashRow, error) {
+	row := q.db.QueryRow(ctx, findCliTokenByHash, tokenHash)
+	var i FindCliTokenByHashRow
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerUserID,
+		&i.TeamID,
+		&i.TokenHash,
+		&i.Scopes,
+		&i.RevokedAt,
+	)
+	return i, err
+}
+
 const listUserTeams = `-- name: ListUserTeams :many
 SELECT
   t.id,

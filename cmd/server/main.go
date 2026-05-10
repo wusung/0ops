@@ -14,6 +14,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	appserver "github.com/winshare/zeroops/internal/server"
+	"github.com/winshare/zeroops/internal/server/db"
 	"github.com/winshare/zeroops/internal/server/health"
 	"github.com/winshare/zeroops/internal/server/observability"
 	"github.com/winshare/zeroops/internal/shared"
@@ -25,6 +27,14 @@ func main() {
 
 	addr := envOr("OPS_LISTEN_ADDR", ":8080")
 	metrics := observability.NewMetrics()
+	pool, err := db.NewPool(context.Background(), db.ConfigFromEnv())
+	if err != nil {
+		logger.Error("failed to open database", "err", err)
+		os.Exit(1)
+	}
+	defer pool.Close()
+
+	repo := db.NewRepository(pool)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -34,6 +44,7 @@ func main() {
 
 	r.Get("/health", health.Handler())
 	r.Method(http.MethodGet, "/metrics", metrics.Handler())
+	r.Mount("/", appserver.NewRouter(repo))
 
 	srv := &http.Server{
 		Addr:              addr,
