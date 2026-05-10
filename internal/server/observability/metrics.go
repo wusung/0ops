@@ -1,3 +1,4 @@
+// Package observability provides HTTP metrics helpers.
 package observability
 
 import (
@@ -10,12 +11,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+// Metrics holds the Prometheus registry and HTTP collectors.
 type Metrics struct {
-	registry        *prometheus.Registry
-	httpDuration    *prometheus.HistogramVec
-	httpInflight    prometheus.Gauge
+	registry     *prometheus.Registry
+	httpDuration *prometheus.HistogramVec
+	httpInflight prometheus.Gauge
 }
 
+// NewMetrics creates the default HTTP metrics registry.
 func NewMetrics() *Metrics {
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(
@@ -42,6 +45,7 @@ func NewMetrics() *Metrics {
 	return m
 }
 
+// Handler returns the Prometheus scrape handler.
 func (m *Metrics) Handler() http.Handler {
 	return promhttp.HandlerFor(m.registry, promhttp.HandlerOpts{Registry: m.registry})
 }
@@ -49,6 +53,7 @@ func (m *Metrics) Handler() http.Handler {
 // Middleware records request duration and in-flight counts. The route label
 // is provided by chi via chi.RouteContext after routing; callers may pass
 // a static fallback label if the route is unknown.
+// Middleware records duration and in-flight counts for HTTP requests.
 func (m *Metrics) Middleware(routeLabel func(*http.Request) string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

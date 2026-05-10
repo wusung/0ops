@@ -1,3 +1,4 @@
+// Package main provides the 0ops MCP entrypoint.
 package main
 
 import (

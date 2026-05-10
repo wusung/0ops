@@ -1,3 +1,4 @@
+// Package db provides the database pool and query helpers.
 package db
 
 import (
@@ -9,8 +10,10 @@ import (
 	sqlcgen "github.com/winshare/zeroops/internal/server/db/sqlc"
 )
 
-type DBTX = sqlcgen.DBTX
+// TX matches the sqlc DB interface used by the repository.
+type TX = sqlcgen.DBTX
 
+// NewPool creates a pgx pool from the provided configuration.
 func NewPool(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 	cfg = cfg.withDefaults()
 
@@ -36,10 +39,12 @@ func NewPool(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
+// MustPing verifies that the pool can reach the database.
 func MustPing(ctx context.Context, pool *pgxpool.Pool) error {
 	return pool.Ping(ctx)
 }
 
-func NewQueries(db DBTX) *sqlcgen.Queries {
+// NewQueries returns a sqlc query wrapper for db.
+func NewQueries(db TX) *sqlcgen.Queries {
 	return sqlcgen.New(db)
 }

@@ -1,3 +1,4 @@
+// Package db provides database configuration helpers.
 package db
 
 import (
@@ -5,6 +6,7 @@ import (
 	"time"
 )
 
+// Config holds database connection settings.
 type Config struct {
 	URL             string
 	MaxConns        int32
@@ -13,6 +15,7 @@ type Config struct {
 	MaxConnIdleTime time.Duration
 }
 
+// ConfigFromEnv returns database settings loaded from environment defaults.
 func ConfigFromEnv() Config {
 	return Config{
 		URL:             os.Getenv("DATABASE_URL"),

@@ -1,3 +1,4 @@
+// Package db provides read-only repository queries for team data.
 package db
 
 import (
@@ -11,11 +12,13 @@ import (
 	sqlcgen "github.com/winshare/zeroops/internal/server/db/sqlc"
 )
 
+// Repository wraps the database pool and generated queries.
 type Repository struct {
 	pool    *pgxpool.Pool
 	queries *sqlcgen.Queries
 }
 
+// NewRepository returns a repository backed by the given pool.
 func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{
 		pool:    pool,
@@ -23,6 +26,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	}
 }
 
+// ResolveTeamBySlug loads a team by slug.
 func (r *Repository) ResolveTeamBySlug(ctx context.Context, slug string) (Team, error) {
 	var (
 		id         pgtype.UUID
@@ -45,6 +49,7 @@ WHERE slug = $1
 	return team, nil
 }
 
+// ListUserTeams returns a user's teams in slug order.
 func (r *Repository) ListUserTeams(ctx context.Context, userID string, limit int32, afterSlug *string) ([]TeamMembership, error) {
 	parsedUserID, err := parseUUID(userID)
 	if err != nil {
@@ -84,6 +89,7 @@ func (r *Repository) ListUserTeams(ctx context.Context, userID string, limit int
 	return items, nil
 }
 
+// CheckTeamMembership reports whether the user belongs to the team.
 func (r *Repository) CheckTeamMembership(ctx context.Context, teamID string, userID string) (bool, error) {
 	parsedTeamID, err := parseUUID(teamID)
 	if err != nil {

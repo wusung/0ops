@@ -1,3 +1,4 @@
+// Package main provides the 0ops CLI entrypoint.
 package main
 
 import (

@@ -22,8 +22,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 # --- dev：熱重載（air），bind-mount source via compose ---
 FROM golang:1.25-alpine AS dev
-RUN apk add --no-cache git wget && \
-    go install github.com/air-verse/air@v1.62.0
+RUN go install github.com/air-verse/air@v1.62.0
 WORKDIR /app
 EXPOSE 8080
 CMD ["air", "-c", ".air.toml"]

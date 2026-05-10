@@ -1,3 +1,4 @@
+// Package main provides the 0ops HTTP server entrypoint.
 package main
 
 import (
