@@ -1,0 +1,83 @@
+version: 2
+
+project_name: 0ops
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: 0ops
+    main: ./cmd/cli
+    binary: 0ops
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w -X github.com/winshare/zeroops/internal/shared.Version={{ .Version }}
+
+  - id: 0ops-mcp
+    main: ./cmd/mcp
+    binary: 0ops-mcp
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w -X github.com/winshare/zeroops/internal/shared.Version={{ .Version }}
+
+  - id: 0ops-server
+    main: ./cmd/server
+    binary: 0ops-server
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w -X github.com/winshare/zeroops/internal/shared.Version={{ .Version }}
+
+archives:
+  - ids:
+      - 0ops
+      - 0ops-mcp
+      - 0ops-server
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  github:
+    owner: winshare
+    name: zeroops

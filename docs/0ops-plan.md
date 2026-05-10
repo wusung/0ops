@@ -160,7 +160,7 @@ flowchart TB
 | 測試 | `testing` + `net/http/httptest` + `testcontainers/testcontainers-go` + `stretchr/testify` | 含 contract test：CLI/MCP DTO vs backend OpenAPI |
 | Lint | `golangci-lint`（含 govet、staticcheck、errcheck、gosec） | CI 強制 |
 | Build/Release | `goreleaser` | 跨平台靜態 binary、GitHub Release 自動化、Homebrew tap |
-| 容器化 | multi-stage `Dockerfile`（builder: `golang:1.23-alpine` → runtime: `gcr.io/distroless/static-debian12:nonroot`） | dev stage 內含 `air` 熱重載；CLI/MCP 僅 builder + runtime |
+| 容器化 | multi-stage `Dockerfile`（builder: `golang:1.25-alpine` → runtime: `gcr.io/distroless/static-debian12:nonroot`） | dev stage 內含 `air` 熱重載；CLI/MCP 僅 builder + runtime |
 | Container engine | `podman` rootless + `podman compose`（v2 內建，非 wrapper） | 與 docker compose v2 行為一致；禁用 docker 與 podman-compose |
 | Dockerfile lint | `hadolint` | CI 強制 |
 
@@ -494,6 +494,18 @@ ApplicationSet 採 list/git generator 模式，每個 app 對應 `apps/<slug>/` 
 ---
 
 ## DB schema
+
+> **下游 spec schema 補丁清單**（v1 起手 schema 為以下 sql block；下列 spec 各自規範須補的欄位 / 表，依 milestone 上線時回填本段）：
+>
+> - `cli_token`：補 `kind text not null check(kind in ('device','pat','ops_token')) default 'pat'`（`docs/features/auth-and-rbac/spec.md` § 4.3、`docs/features/build-pipeline-and-callback/spec.md` § 5.2）
+> - `app`：補 `status text not null default 'live' check(status in ('live','paused','deleting','delete_compensated'))`（`docs/features/delete-app-flow/spec.md` § 11、`docs/features/webhook-and-redeploy/spec.md` § 7）
+> - `domain_binding`：補 `is_apex bool`、`extends_used int default 0`、`health_check_failed_at timestamptz`、`status text not null default 'pending'`（`docs/features/custom-domain-and-verify/spec.md` § 4.1）
+> - `deploy_run`：補 `scan_high int`、`scan_critical int`、`gitops_commit_sha text`、`source text not null default 'user'`、`webhook_delivery_id text`；加 CHECK constraint `failure_classification IS NOT NULL` for final states（`docs/features/build-pipeline-and-callback/spec.md` § 11、`docs/features/webhook-and-redeploy/spec.md` § 12、`docs/features/reconciler-and-incident/spec.md` § 6.3）
+> - `reconciliation_job`：補 `trace_id text`、`status text not null default 'pending'`（`docs/features/reconciler-and-incident/spec.md` § 4）
+> - `audit_log`：補 `source text not null default 'user'`、`outcome text not null default 'success'`、`http_status int`；改為 partition by month（`docs/features/audit-log/spec.md` § 4.1, § 4.3）
+> - `team`：補 `plan` 之 CHECK constraint `plan in ('free','starter','pro','team')`；`free` 必對應 personal team（`slug LIKE 'personal-%'`）—— ADR-0011 § 4
+> - 新增 `incident` 表（`docs/features/reconciler-and-incident/spec.md` § 9.1）
+> - 新增 `audit_log_archive` 表（保留 `delete_app` 永久不刪之 row；`docs/features/audit-log/spec.md` § 9.2）
 
 ```sql
 -- 租戶與身份
@@ -1071,40 +1083,36 @@ $ 0ops domains verify nextdemo example.com --watch
 ---
 
 ## 立即下一步（執行階段）
-1. 確認專案名稱與 repo 位置（建議 `0ops`）
-2. **寫 ADR**（M0 阻擋項，先於程式碼）：
-   - **ADR-001 多租戶與 RBAC**：team 一階、(team_id, slug) 唯一、role 矩陣、scope 列舉、URL routing（已於本 plan 確定方向，正式化進 `docs/adrs/`）
-   - **ADR-002 Idempotency 與副作用補償**：preview_id 兼 idempotency key、`last_result` 回放、deploy_run 狀態機、reconciler 設計
-   - **ADR-003 MCP SDK 選型**：已接受官方 `modelcontextprotocol/go-sdk`；保留 fallback 條件與相容性矩陣
-   - **ADR-004 K3s 角色**：v1 stopgap 還是長期決策、v2 遷移路徑
-   - **ADR-005 Build pipeline 觀察點**：HMAC callback 設計、image scan 強制度
-   - **ADR-006 Observability baseline**：SLI/SLO 表、metrics 命名規約、trace propagation 鏈路
-   - **ADR-007 客戶自有域名 TLS**（已接受）：採 Cloudflare for SaaS Custom Hostname；apex 走 ALIAS / ANAME / CNAME flattening；7 天 grace；plan tier `pro` 才開
-   - **ADR-008 Backend HA**（已接受）：v1 single → M5 K8s Lease leader election + 2 replica；SSE 走 stateless cursor reconnection（不採 sticky cookie / Redis pub/sub）；application Postgres main + 1 streaming replica + WAL archive；v1.1 評估 Patroni
-3. 起 `M0` scaffold：
+1. **撰寫 feature spec**（M0–M5 阻擋項，先於程式碼）：以 `docs/features/dev-environment/spec.md` 為格式範本，逐 feature 落地於 `docs/features/{FEATURE}/spec.md`。
+   - ADR-0001..0008 已全部定稿，作為各 spec 之不可變前提
+   - 待補上游 ADR：migrations image 策略（dev-environment spec §12 待解項）、CLI 套件分發策略、plan tier→capability 矩陣
+2. 起 `M0` scaffold：
    - `go mod init github.com/winshare/zeroops`
    - 建立 `cmd/server/main.go`、`cmd/cli/main.go`、`cmd/mcp/main.go`
    - `.golangci.yml`、`.goreleaser.yaml`、`Makefile`、`.dockerignore`、`.env.example`
    - `compose.yaml`（root）起 db + migrate + server；三 binary 各自之 `cmd/{server,cli,mcp}/Dockerfile`；詳見 `docs/features/dev-environment/spec.md`
    - `goose create init sql` 建初始 schema（含 team / team_membership / app / preview / deploy_run / cli_token / webhook_dedup / audit_log / reconciliation_job）
    - server `/health` + `/metrics`；CLI `--version`；MCP 回 `initialize`
-4. 寫第一條 read-only chain：backend `GET /v1/teams/{team}/apps` → CLI `apps list` → MCP `list_apps`（經 RBAC middleware）
-5. 同步建 `0ops-gitops` 空 repo + ArgoCD ApplicationSet 雛型
+3. 寫第一條 read-only chain：backend `GET /v1/teams/{team}/apps` → CLI `apps list` → MCP `list_apps`（經 RBAC middleware）
+4. 同步建 `0ops-gitops` 空 repo + ArgoCD ApplicationSet 雛型
 
 ---
 
 ## TBD（執行前需 user 確認）
-- [ ] 專案名稱（`0ops` / 其他）
 - [ ] Repo 主機位置（自建 git server、GitHub org、其他）
-- [ ] Module path（建議 `github.com/winshare/zeroops`）
 - [ ] **Copilot CLI / Codex CLI 與官方 Go SDK 相容性矩陣**：M0 spike 驗證 tool registry、preview/confirm、streaming fallback
 - [ ] **Copilot CLI 是否原生支援 MCP**（影響 skill pack 形式：MCP 共用 / 退路 wrap CLI）
-- [ ] **CLI 套件分發**：`goreleaser` 預編 binary（推薦）+ `go install github.com/winshare/zeroops/cmd/cli@latest` 並行；Homebrew tap 由 goreleaser 自動產；自更新通知（`0ops version` 提示新版）
-- [ ] **K3s 長期決策**：ADR-004 待決；v1 是否提早切 etcd backend
 - [ ] **Codex / Copilot skill metadata 精確格式**（v1 起手時驗證）
 - [ ] Backend 是否需要 SSE → MCP streaming（官方 Go SDK 若支援不足，則改分頁拉取）
-- [ ] **Go 版本**：建議 1.23+（`log/slog` 穩定、`range over func` 可選用）
-- [ ] **DB 存取層**：`sqlc`（推薦，type-safe codegen）vs `pgx` 直寫 vs `bun`/`ent` ORM（不建議）
+> 已從 TBD 移除（上游已決議）：
+> - 專案名稱：`0ops`（agents-guide §2、dev-environment spec）
+> - Module path：`github.com/winshare/zeroops`（agents-guide §3.2）
+> - K3s 長期定位：stopgap-acceptable（ADR-0004 第 6 點）
+> - Go 版本：1.25（dev-environment spec §6.1；M0 scaffold 期由 1.23 上修為 1.25 以符 MCP go-sdk v1.6 之最低版本）
+> - DB 存取層：`sqlc + pgx`（agents-guide §3.1）
+> - migrations image 策略：自建 multi-stage distroless（ADR-0009）
+> - CLI 套件分發：goreleaser + brew tap + go install + 24h 自更新通知（ADR-0010）
+> - Plan tier→capability 矩陣：4 tier × 18 維度（ADR-0011）
 
 > 已從 TBD 移除（本次設計補強已決議）：
 > - 租戶模型 / RBAC：team 為一階，四角色 + scope 矩陣（ADR-0001）
