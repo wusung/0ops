@@ -66,6 +66,56 @@ func (f cliFakeStore) ListTeamApps(ctx context.Context, teamID string, limit int
 	return out, nil
 }
 
+func (f cliFakeStore) HasAnyOwner(ctx context.Context) (bool, error) { return false, nil }
+
+func (f cliFakeStore) BootstrapOwner(ctx context.Context, params db.BootstrapOwnerParams) (string, string, error) {
+	return "team-bootstrap", "user-bootstrap", nil
+}
+
+func (f cliFakeStore) ListTeamMembers(ctx context.Context, teamID string) ([]db.Member, error) {
+	return []db.Member{{UserID: "user-1", GithubLogin: strPtr("owner"), Role: "owner"}}, nil
+}
+
+func (f cliFakeStore) CreatePreview(ctx context.Context, teamID, actorUserID, action string, args json.RawMessage, summary string) (db.Preview, error) {
+	return db.Preview{
+		ID:          "preview-1",
+		TeamID:      teamID,
+		ActorUserID: actorUserID,
+		Action:      action,
+		Args:        args,
+		ExpiresAt:   time.Now().UTC().Add(time.Minute),
+	}, nil
+}
+
+func (f cliFakeStore) GetPreview(ctx context.Context, previewID string) (db.Preview, error) {
+	return db.Preview{
+		ID:          previewID,
+		TeamID:      f.team.ID,
+		ActorUserID: f.token.OwnerUserID,
+		Action:      "invite_member",
+		Args:        []byte(`{"github_login":"newbie","role":"member"}`),
+		ExpiresAt:   time.Now().UTC().Add(time.Minute),
+	}, nil
+}
+
+func (f cliFakeStore) ConsumePreview(ctx context.Context, previewID string) error { return nil }
+
+func (f cliFakeStore) InviteMember(ctx context.Context, params db.InviteMemberParams) (db.Member, error) {
+	now := time.Now().UTC()
+	return db.Member{
+		UserID:      "user-new",
+		GithubLogin: params.GithubLogin,
+		Email:       params.Email,
+		Role:        params.Role,
+		InvitedAt:   &now,
+		JoinedAt:    &now,
+	}, nil
+}
+
+func (f cliFakeStore) RemoveMember(ctx context.Context, teamID, actorUserID, targetUserID string) error {
+	return nil
+}
+
 func TestAppsListCommand(t *testing.T) {
 	store, token := newCLIFakeStore()
 	srv := httptest.NewServer(serverpkg.NewRouter(store))
@@ -127,6 +177,68 @@ func TestAppsListCommandUsesAuthConfig(t *testing.T) {
 	}
 }
 
+func TestMembersListCommand(t *testing.T) {
+	store, token := newCLIFakeStore()
+	srv := httptest.NewServer(serverpkg.NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	cmd := NewRootCommand()
+	cmd.SetArgs([]string{
+		"members", "list",
+		"--team", store.team.Slug,
+		"--host", srv.URL,
+		"--token", token,
+		"--output", "json",
+	})
+
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	items, ok := out["items"].([]any)
+	if !ok || len(items) == 0 {
+		t.Fatalf("unexpected items payload: %#v", out["items"])
+	}
+}
+
+func TestAdminBootstrapOwnerCommand(t *testing.T) {
+	store, _ := newCLIFakeStore()
+	srv := httptest.NewServer(serverpkg.NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	cmd := NewRootCommand()
+	cmd.SetArgs([]string{
+		"admin", "bootstrap-owner",
+		"--host", srv.URL,
+		"--team-slug", "bootstrap-acme",
+		"--team-name", "Bootstrap Acme",
+		"--github-login", "owner-login",
+		"--output", "json",
+	})
+
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if out["team_id"] == nil || out["user_id"] == nil {
+		t.Fatalf("unexpected bootstrap payload: %#v", out)
+	}
+}
+
 func newCLIFakeStore() (cliFakeStore, string) {
 	token := "dev-token"
 	store := cliFakeStore{
@@ -135,14 +247,14 @@ func newCLIFakeStore() (cliFakeStore, string) {
 			OwnerUserID: "user-1",
 			TeamID:      "team-1",
 			TokenHash:   auth.HashBearerToken(token),
-			Scopes:      []string{"apps:read"},
+			Scopes:      []string{"apps:read", "members:manage"},
 		},
 		team: db.Team{
 			ID:   "team-1",
 			Slug: "acme",
 			Name: "Acme",
 		},
-		role:    "viewer",
+		role:    "admin",
 		members: true,
 		apps: []db.App{
 			{

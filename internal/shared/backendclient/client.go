@@ -1,6 +1,7 @@
 package backendclient
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -70,11 +71,99 @@ func (c *Client) ListApps(ctx context.Context, teamSlug string, pageSize int, cu
 	return out, nil
 }
 
+func (c *Client) BootstrapOwner(ctx context.Context, reqBody dto.BootstrapOwnerRequest) (dto.BootstrapOwnerResponse, error) {
+	endpoint := c.BaseURL + "/v1/admin/bootstrap-owner"
+	var out dto.BootstrapOwnerResponse
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, reqBody, &out); err != nil {
+		return dto.BootstrapOwnerResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) ListMembers(ctx context.Context, teamSlug string) (dto.ListMembersResponse, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/members"
+	var out dto.ListMembersResponse
+	if err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &out); err != nil {
+		return dto.ListMembersResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) PreviewInviteMember(ctx context.Context, teamSlug string, reqBody dto.InviteMemberRequest) (dto.PreviewResponse, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/members:preview-invite"
+	var out dto.PreviewResponse
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, reqBody, &out); err != nil {
+		return dto.PreviewResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) InviteMember(ctx context.Context, teamSlug string, reqBody dto.ConfirmInviteMemberRequest) (dto.InviteMemberResponse, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/members:invite"
+	var out dto.InviteMemberResponse
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, reqBody, &out); err != nil {
+		return dto.InviteMemberResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) PreviewRemoveMember(ctx context.Context, teamSlug string, reqBody dto.RemoveMemberRequest) (dto.PreviewResponse, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/members:preview-remove"
+	var out dto.PreviewResponse
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, reqBody, &out); err != nil {
+		return dto.PreviewResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) RemoveMember(ctx context.Context, teamSlug string, reqBody dto.ConfirmRemoveMemberRequest) error {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/members:remove"
+	return c.doJSON(ctx, http.MethodPost, endpoint, reqBody, nil)
+}
+
 func (c *Client) httpClient() *http.Client {
 	if c.HTTP != nil {
 		return c.HTTP
 	}
 	return &http.Client{Timeout: 15 * time.Second}
+}
+
+func (c *Client) doJSON(ctx context.Context, method, endpoint string, in any, out any) error {
+	var bodyReader *bytes.Reader
+	if in != nil {
+		payload, err := json.Marshal(in)
+		if err != nil {
+			return err
+		}
+		bodyReader = bytes.NewReader(payload)
+	} else {
+		bodyReader = bytes.NewReader(nil)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, bodyReader)
+	if err != nil {
+		return err
+	}
+	if in != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if c.BearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.BearerToken)
+	}
+
+	res, err := c.httpClient().Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return decodeError(res)
+	}
+	if out == nil {
+		return nil
+	}
+	return json.NewDecoder(res.Body).Decode(out)
 }
 
 func decodeError(res *http.Response) error {

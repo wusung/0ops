@@ -1,0 +1,435 @@
+package db
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+)
+
+var (
+	ErrBootstrapAlreadyDone = errors.New("bootstrap already done")
+	ErrPreviewNotFound      = errors.New("preview not found")
+	ErrPreviewExpired       = errors.New("preview expired")
+	ErrPreviewConsumed      = errors.New("preview consumed")
+	ErrMemberNotFound       = errors.New("member not found")
+	ErrOwnerRemoval         = errors.New("cannot remove owner")
+)
+
+type BootstrapOwnerParams struct {
+	TeamSlug    string
+	TeamName    string
+	GithubLogin string
+	Email       *string
+}
+
+type Member struct {
+	UserID      string
+	GithubLogin *string
+	Email       *string
+	Role        string
+	InvitedAt   *time.Time
+	JoinedAt    *time.Time
+}
+
+type Preview struct {
+	ID          string
+	TeamID      string
+	ActorUserID string
+	Action      string
+	Args        json.RawMessage
+	ExpiresAt   time.Time
+	ConsumedAt  *time.Time
+}
+
+func (r *Repository) HasAnyOwner(ctx context.Context) (bool, error) {
+	var has bool
+	if err := r.pool.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM team_membership
+  WHERE role = 'owner'
+)
+`).Scan(&has); err != nil {
+		return false, err
+	}
+	return has, nil
+}
+
+func (r *Repository) BootstrapOwner(ctx context.Context, params BootstrapOwnerParams) (string, string, error) {
+	hasOwner, err := r.HasAnyOwner(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	if hasOwner {
+		return "", "", ErrBootstrapAlreadyDone
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var (
+		userID pgtype.UUID
+		teamID pgtype.UUID
+	)
+
+	if err := tx.QueryRow(ctx, `
+INSERT INTO user_account (github_login, email)
+VALUES ($1, $2)
+ON CONFLICT (github_login)
+DO UPDATE SET email = COALESCE(EXCLUDED.email, user_account.email)
+RETURNING id
+`, params.GithubLogin, textFromPtr(params.Email)).Scan(&userID); err != nil {
+		return "", "", err
+	}
+
+	if err := tx.QueryRow(ctx, `
+INSERT INTO team (slug, name)
+VALUES ($1, $2)
+RETURNING id
+`, params.TeamSlug, params.TeamName).Scan(&teamID); err != nil {
+		return "", "", err
+	}
+
+	if _, err := tx.Exec(ctx, `
+INSERT INTO team_membership (team_id, user_id, role, invited_at, joined_at, invited_by)
+VALUES ($1, $2, 'owner', now(), now(), $2)
+`, teamID, userID); err != nil {
+		return "", "", err
+	}
+
+	if _, err := tx.Exec(ctx, `
+INSERT INTO audit_log (team_id, actor_user_id, subject_type, subject_id, action, args, result)
+VALUES ($1, $2, 'team', $1, 'bootstrap_owner', '{}'::jsonb, '{"status":"created"}'::jsonb)
+`, teamID, userID); err != nil {
+		return "", "", err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", "", err
+	}
+	return teamID.String(), userID.String(), nil
+}
+
+func (r *Repository) ListTeamMembers(ctx context.Context, teamID string) ([]Member, error) {
+	parsedTeamID, err := parseUUID(teamID)
+	if err != nil {
+		return nil, fmt.Errorf("parse team id: %w", err)
+	}
+
+	rows, err := r.pool.Query(ctx, `
+SELECT
+  ua.id,
+  ua.github_login,
+  ua.email,
+  tm.role,
+  tm.invited_at,
+  tm.joined_at
+FROM team_membership tm
+JOIN user_account ua ON ua.id = tm.user_id
+WHERE tm.team_id = $1
+ORDER BY tm.joined_at NULLS LAST, ua.id
+`, parsedTeamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]Member, 0)
+	for rows.Next() {
+		var (
+			userID      pgtype.UUID
+			githubLogin pgtype.Text
+			email       pgtype.Text
+			role        string
+			invitedAt   pgtype.Timestamptz
+			joinedAt    pgtype.Timestamptz
+		)
+		if err := rows.Scan(&userID, &githubLogin, &email, &role, &invitedAt, &joinedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, Member{
+			UserID:      userID.String(),
+			GithubLogin: textPtr(githubLogin),
+			Email:       textPtr(email),
+			Role:        role,
+			InvitedAt:   timestamptzPtr(invitedAt),
+			JoinedAt:    timestamptzPtr(joinedAt),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (r *Repository) CreatePreview(ctx context.Context, teamID, actorUserID, action string, args json.RawMessage, actionSummary string) (Preview, error) {
+	parsedTeamID, err := parseUUID(teamID)
+	if err != nil {
+		return Preview{}, fmt.Errorf("parse team id: %w", err)
+	}
+	parsedActorID, err := parseUUID(actorUserID)
+	if err != nil {
+		return Preview{}, fmt.Errorf("parse actor id: %w", err)
+	}
+	if len(args) == 0 {
+		args = json.RawMessage(`{}`)
+	}
+
+	key, err := randomKey()
+	if err != nil {
+		return Preview{}, err
+	}
+
+	var (
+		id        pgtype.UUID
+		expiresAt pgtype.Timestamptz
+	)
+	if err := r.pool.QueryRow(ctx, `
+INSERT INTO preview (team_id, actor_user_id, action, args, action_summary, side_effects, idempotency_key, expires_at)
+VALUES ($1, $2, $3, $4::jsonb, $5, '[]'::jsonb, $6, now() + interval '10 minute')
+RETURNING id, expires_at
+`, parsedTeamID, parsedActorID, action, []byte(args), actionSummary, key).Scan(&id, &expiresAt); err != nil {
+		return Preview{}, err
+	}
+
+	return Preview{
+		ID:          id.String(),
+		TeamID:      teamID,
+		ActorUserID: actorUserID,
+		Action:      action,
+		Args:        args,
+		ExpiresAt:   expiresAt.Time,
+	}, nil
+}
+
+func (r *Repository) GetPreview(ctx context.Context, previewID string) (Preview, error) {
+	parsedPreviewID, err := parseUUID(previewID)
+	if err != nil {
+		return Preview{}, fmt.Errorf("parse preview id: %w", err)
+	}
+
+	var (
+		id          pgtype.UUID
+		teamID      pgtype.UUID
+		actorUserID pgtype.UUID
+		action      string
+		args        []byte
+		expiresAt   pgtype.Timestamptz
+		consumedAt  pgtype.Timestamptz
+	)
+
+	if err := r.pool.QueryRow(ctx, `
+SELECT id, team_id, actor_user_id, action, args, expires_at, consumed_at
+FROM preview
+WHERE id = $1
+`, parsedPreviewID).Scan(&id, &teamID, &actorUserID, &action, &args, &expiresAt, &consumedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Preview{}, ErrPreviewNotFound
+		}
+		return Preview{}, err
+	}
+
+	return Preview{
+		ID:          id.String(),
+		TeamID:      teamID.String(),
+		ActorUserID: actorUserID.String(),
+		Action:      action,
+		Args:        json.RawMessage(args),
+		ExpiresAt:   expiresAt.Time,
+		ConsumedAt:  timestamptzPtr(consumedAt),
+	}, nil
+}
+
+func (r *Repository) ConsumePreview(ctx context.Context, previewID string) error {
+	parsedPreviewID, err := parseUUID(previewID)
+	if err != nil {
+		return fmt.Errorf("parse preview id: %w", err)
+	}
+
+	tag, err := r.pool.Exec(ctx, `
+UPDATE preview
+SET consumed_at = now()
+WHERE id = $1
+  AND consumed_at IS NULL
+`, parsedPreviewID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrPreviewConsumed
+	}
+	return nil
+}
+
+type InviteMemberParams struct {
+	TeamID      string
+	ActorUserID string
+	GithubLogin *string
+	Email       *string
+	Role        string
+}
+
+func (r *Repository) InviteMember(ctx context.Context, params InviteMemberParams) (Member, error) {
+	parsedTeamID, err := parseUUID(params.TeamID)
+	if err != nil {
+		return Member{}, fmt.Errorf("parse team id: %w", err)
+	}
+	parsedActorID, err := parseUUID(params.ActorUserID)
+	if err != nil {
+		return Member{}, fmt.Errorf("parse actor id: %w", err)
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return Member{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var userID pgtype.UUID
+	if params.GithubLogin != nil && *params.GithubLogin != "" {
+		err = tx.QueryRow(ctx, `
+SELECT id FROM user_account WHERE github_login = $1
+`, *params.GithubLogin).Scan(&userID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = tx.QueryRow(ctx, `
+INSERT INTO user_account (github_login, email)
+VALUES ($1, $2)
+RETURNING id
+`, *params.GithubLogin, textFromPtr(params.Email)).Scan(&userID)
+		}
+	} else if params.Email != nil && *params.Email != "" {
+		err = tx.QueryRow(ctx, `
+SELECT id FROM user_account WHERE email = $1 ORDER BY created_at LIMIT 1
+`, *params.Email).Scan(&userID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = tx.QueryRow(ctx, `
+INSERT INTO user_account (email)
+VALUES ($1)
+RETURNING id
+`, *params.Email).Scan(&userID)
+		}
+	} else {
+		return Member{}, errors.New("github_login or email required")
+	}
+	if err != nil {
+		return Member{}, err
+	}
+
+	if _, err := tx.Exec(ctx, `
+INSERT INTO team_membership (team_id, user_id, role, invited_at, joined_at, invited_by)
+VALUES ($1, $2, $3, now(), now(), $4)
+ON CONFLICT (team_id, user_id)
+DO UPDATE SET role = EXCLUDED.role, invited_at = EXCLUDED.invited_at, invited_by = EXCLUDED.invited_by
+`, parsedTeamID, userID, params.Role, parsedActorID); err != nil {
+		return Member{}, err
+	}
+
+	var (
+		githubLogin pgtype.Text
+		email       pgtype.Text
+		invitedAt   pgtype.Timestamptz
+		joinedAt    pgtype.Timestamptz
+	)
+	if err := tx.QueryRow(ctx, `
+SELECT ua.github_login, ua.email, tm.invited_at, tm.joined_at
+FROM team_membership tm
+JOIN user_account ua ON ua.id = tm.user_id
+WHERE tm.team_id = $1 AND tm.user_id = $2
+`, parsedTeamID, userID).Scan(&githubLogin, &email, &invitedAt, &joinedAt); err != nil {
+		return Member{}, err
+	}
+
+	if _, err := tx.Exec(ctx, `
+INSERT INTO audit_log (team_id, actor_user_id, subject_type, subject_id, action, args, result)
+VALUES ($1, $2, 'user', $3, 'member_invite', '{}'::jsonb, '{"status":"ok"}'::jsonb)
+`, parsedTeamID, parsedActorID, userID); err != nil {
+		return Member{}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return Member{}, err
+	}
+
+	return Member{
+		UserID:      userID.String(),
+		GithubLogin: textPtr(githubLogin),
+		Email:       textPtr(email),
+		Role:        params.Role,
+		InvitedAt:   timestamptzPtr(invitedAt),
+		JoinedAt:    timestamptzPtr(joinedAt),
+	}, nil
+}
+
+func (r *Repository) RemoveMember(ctx context.Context, teamID, actorUserID, targetUserID string) error {
+	parsedTeamID, err := parseUUID(teamID)
+	if err != nil {
+		return fmt.Errorf("parse team id: %w", err)
+	}
+	parsedActorID, err := parseUUID(actorUserID)
+	if err != nil {
+		return fmt.Errorf("parse actor id: %w", err)
+	}
+	parsedTargetID, err := parseUUID(targetUserID)
+	if err != nil {
+		return fmt.Errorf("parse target user id: %w", err)
+	}
+
+	var role string
+	if err := r.pool.QueryRow(ctx, `
+SELECT role
+FROM team_membership
+WHERE team_id = $1 AND user_id = $2
+`, parsedTeamID, parsedTargetID).Scan(&role); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrMemberNotFound
+		}
+		return err
+	}
+	if role == "owner" {
+		return ErrOwnerRemoval
+	}
+
+	tag, err := r.pool.Exec(ctx, `
+DELETE FROM team_membership
+WHERE team_id = $1 AND user_id = $2
+`, parsedTeamID, parsedTargetID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrMemberNotFound
+	}
+
+	if _, err := r.pool.Exec(ctx, `
+INSERT INTO audit_log (team_id, actor_user_id, subject_type, subject_id, action, args, result)
+VALUES ($1, $2, 'user', $3, 'member_remove', '{}'::jsonb, '{"status":"ok"}'::jsonb)
+`, parsedTeamID, parsedActorID, parsedTargetID); err != nil {
+		return err
+	}
+	return nil
+}
+
+func textFromPtr(value *string) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func randomKey() (string, error) {
+	var buf [16]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf[:]), nil
+}

@@ -9,10 +9,11 @@ import (
 type Class string
 
 const (
-	ClassBadRequest  Class = "bad_request"
+	ClassBadRequest   Class = "bad_request"
 	ClassUnauthorized Class = "unauthorized"
 	ClassForbidden    Class = "forbidden"
 	ClassNotFound     Class = "not_found"
+	ClassConflict     Class = "conflict"
 	ClassInternal     Class = "internal"
 )
 
@@ -47,6 +48,8 @@ func Status(class Class) int {
 		return http.StatusForbidden
 	case ClassNotFound:
 		return http.StatusNotFound
+	case ClassConflict:
+		return http.StatusConflict
 	case ClassInternal:
 		return http.StatusInternalServerError
 	default:

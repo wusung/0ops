@@ -4,7 +4,10 @@ package rbac
 type Action string
 
 const (
-	ActionListApps Action = "list_apps"
+	ActionListApps      Action = "list_apps"
+	ActionListMembers   Action = "list_members"
+	ActionInviteMembers Action = "invite_members"
+	ActionRemoveMembers Action = "remove_members"
 )
 
 // Requirement couples minimum role with required scope.
@@ -18,6 +21,12 @@ func RequiredFor(action Action) Requirement {
 	switch action {
 	case ActionListApps:
 		return Requirement{MinRole: RoleViewer, RequiredScope: ScopeAppsRead}
+	case ActionListMembers:
+		return Requirement{MinRole: RoleAdmin, RequiredScope: ScopeMembersManage}
+	case ActionInviteMembers:
+		return Requirement{MinRole: RoleAdmin, RequiredScope: ScopeMembersManage}
+	case ActionRemoveMembers:
+		return Requirement{MinRole: RoleAdmin, RequiredScope: ScopeMembersManage}
 	default:
 		return Requirement{}
 	}

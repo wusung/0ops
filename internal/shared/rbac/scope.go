@@ -4,5 +4,6 @@ package rbac
 type Scope string
 
 const (
-	ScopeAppsRead Scope = "apps:read"
+	ScopeAppsRead      Scope = "apps:read"
+	ScopeMembersManage Scope = "members:manage"
 )
