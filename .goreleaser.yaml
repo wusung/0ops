@@ -4,7 +4,6 @@ project_name: 0ops
 
 before:
   hooks:
-    - go mod tidy
     - go test ./...
 
 builds:
@@ -79,5 +78,5 @@ checksum:
 
 release:
   github:
-    owner: winshare
-    name: zeroops
+    owner: wusung
+    name: 0ops
