@@ -18,7 +18,7 @@ func TestNewPoolAndRepositorySmoke(t *testing.T) {
 
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
-		t.Fatal("DATABASE_URL is required for db smoke tests")
+		t.Skip("DATABASE_URL is required for db smoke tests")
 	}
 
 	ctx := context.Background()
@@ -117,7 +117,7 @@ func newTestRepository(t *testing.T) (*dbpkg.Repository, context.Context, *pgxpo
 
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
-		t.Fatal("DATABASE_URL is required for db smoke tests")
+		t.Skip("DATABASE_URL is required for db smoke tests")
 	}
 
 	ctx := context.Background()
