@@ -39,6 +39,13 @@ type listAppsInput struct {
 	Cursor   string `json:"cursor,omitempty"`
 }
 
+type getAppInput struct {
+	TeamSlug string `json:"team_slug"`
+	AppSlug  string `json:"app_slug"`
+}
+
+type listTeamsInput struct{}
+
 type listMembersInput struct {
 	TeamSlug string `json:"team_slug"`
 }
@@ -67,22 +74,55 @@ type removeMemberInput struct {
 
 func registerTools(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "list_teams",
+		Description: "List teams available to the current actor.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ listTeamsInput) (*mcp.CallToolResult, dto.ListTeamsResponse, error) {
+		host, token, err := resolveBackendAuth()
+		if err != nil {
+			return nil, dto.ListTeamsResponse{}, err
+		}
+		out, err := backendclient.New(host, token).ListTeams(ctx)
+		if err != nil {
+			return nil, dto.ListTeamsResponse{}, err
+		}
+		return nil, out, nil
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_apps",
 		Description: "List apps in a team.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input listAppsInput) (*mcp.CallToolResult, dto.ListAppsResponse, error) {
 		if input.TeamSlug == "" {
 			return nil, dto.ListAppsResponse{}, fmt.Errorf("team_slug is required")
 		}
-
 		host, token, err := resolveBackendAuth()
 		if err != nil {
 			return nil, dto.ListAppsResponse{}, err
 		}
-
-		client := backendclient.New(host, token)
-		out, err := client.ListApps(ctx, input.TeamSlug, input.PageSize, input.Cursor)
+		out, err := backendclient.New(host, token).ListApps(ctx, input.TeamSlug, input.PageSize, input.Cursor)
 		if err != nil {
 			return nil, dto.ListAppsResponse{}, err
+		}
+		return nil, out, nil
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "get_app",
+		Description: "Get an app in a team.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getAppInput) (*mcp.CallToolResult, dto.AppRef, error) {
+		if input.TeamSlug == "" {
+			return nil, dto.AppRef{}, fmt.Errorf("team_slug is required")
+		}
+		if input.AppSlug == "" {
+			return nil, dto.AppRef{}, fmt.Errorf("app_slug is required")
+		}
+		host, token, err := resolveBackendAuth()
+		if err != nil {
+			return nil, dto.AppRef{}, err
+		}
+		out, err := backendclient.New(host, token).GetApp(ctx, input.TeamSlug, input.AppSlug)
+		if err != nil {
+			return nil, dto.AppRef{}, err
 		}
 		return nil, out, nil
 	})

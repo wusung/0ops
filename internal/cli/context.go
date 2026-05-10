@@ -9,33 +9,22 @@ import (
 )
 
 type appsContext struct {
-	TeamSlug   string
-	Host       string
+	TeamSlug    string
+	Host        string
 	BearerToken string
 }
 
 func resolveAppsContext(teamFlag, hostFlag, tokenFlag string) (appsContext, error) {
+	base, err := resolveBackendContext(hostFlag, tokenFlag)
+	if err != nil {
+		return appsContext{}, err
+	}
+
 	cfg, _ := authconfig.Load()
-
-	host := firstNonEmpty(hostFlag, os.Getenv("OPS_HOST"))
-	if host == "" {
-		if token, ok := cfg.First(); ok && strings.TrimSpace(token.Host) != "" {
-			host = token.Host
-		} else {
-			host = "http://127.0.0.1:8080"
-		}
-	}
-
-	token := firstNonEmpty(tokenFlag, os.Getenv("OPS_BEARER_TOKEN"))
-	if token == "" {
-		if fromFile, ok := cfg.BearerForHost(host); ok {
-			token = fromFile
-		}
-	}
 
 	team := firstNonEmpty(teamFlag, os.Getenv("OPS_TEAM"))
 	if team == "" {
-		if fromFile, ok := cfg.DefaultTeamForHost(host); ok {
+		if fromFile, ok := cfg.DefaultTeamForHost(base.Host); ok {
 			team = fromFile
 		}
 	}
@@ -43,15 +32,48 @@ func resolveAppsContext(teamFlag, hostFlag, tokenFlag string) (appsContext, erro
 	if strings.TrimSpace(team) == "" {
 		return appsContext{}, fmt.Errorf("no team in context. run 0ops teams use <slug> or pass --team")
 	}
-	if strings.TrimSpace(token) == "" {
-		return appsContext{}, fmt.Errorf("no bearer token found. run 0ops auth login or pass --token")
-	}
 
 	return appsContext{
 		TeamSlug:    team,
+		Host:        base.Host,
+		BearerToken: base.BearerToken,
+	}, nil
+}
+
+type backendContext struct {
+	Host        string
+	BearerToken string
+}
+
+func resolveBackendContext(hostFlag, tokenFlag string) (backendContext, error) {
+	cfg, _ := authconfig.Load()
+
+	host := resolveHost(hostFlag, cfg)
+	token := firstNonEmpty(tokenFlag, os.Getenv("OPS_BEARER_TOKEN"))
+	if token == "" {
+		if fromFile, ok := cfg.BearerForHost(host); ok {
+			token = fromFile
+		}
+	}
+	if strings.TrimSpace(token) == "" {
+		return backendContext{}, fmt.Errorf("no bearer token found. run 0ops auth login or pass --token")
+	}
+
+	return backendContext{
 		Host:        host,
 		BearerToken: token,
 	}, nil
+}
+
+func resolveHost(hostFlag string, cfg authconfig.File) string {
+	host := firstNonEmpty(hostFlag, os.Getenv("OPS_HOST"))
+	if host != "" {
+		return host
+	}
+	if token, ok := cfg.First(); ok && strings.TrimSpace(token.Host) != "" {
+		return token.Host
+	}
+	return "http://127.0.0.1:8080"
 }
 
 func firstNonEmpty(values ...string) string {

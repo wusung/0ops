@@ -5,5 +5,6 @@ type Scope string
 
 const (
 	ScopeAppsRead      Scope = "apps:read"
+	ScopeTeamsRead     Scope = "teams:read"
 	ScopeMembersManage Scope = "members:manage"
 )

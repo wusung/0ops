@@ -101,7 +101,7 @@ func (m *Middleware) CheckMembership(next http.Handler) http.Handler {
 func (m *Middleware) CheckTokenScope(action rbac.Action, next http.Handler) http.Handler {
 	requirement := rbac.RequiredFor(action)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !rbac.AtLeast(rbac.Role(ActorRole(r.Context())), requirement.MinRole) {
+		if requirement.MinRole != "" && !rbac.AtLeast(rbac.Role(ActorRole(r.Context())), requirement.MinRole) {
 			apperror.Write(w, "forbidden_role", apperror.ClassForbidden, "forbidden role", map[string]any{
 				"required_role": string(requirement.MinRole),
 				"actor_role":    ActorRole(r.Context()),
