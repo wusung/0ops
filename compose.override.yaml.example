@@ -1,0 +1,20 @@
+# 個人本機 compose 覆寫範本（spec § 12 open issue 之解決機制）
+#
+# 使用：
+#   cp compose.override.yaml.example compose.override.yaml
+#   # 編輯後啟動：podman compose 會自動 merge root compose.yaml + 本檔
+#
+# 本檔不入版本控制（與 .env 同模式）。允許覆寫項目：
+#   - host port mapping（解 8080 衝突）
+#   - 開放 5432 給本機 GUI 客戶端 debug
+#   - 個人額外 volume / env 注入
+#
+# 不應在本檔變更 image / build target / depends_on / healthcheck 等服務拓樸；那些屬 root compose.yaml 之契約。
+
+services:
+  # server.ports 之 host port 衝突，請改 .env 之 OPS_HOST_PORT 即可，不需在此處覆寫
+  # （compose 之 ports list 為 append 合併，於此覆寫只會多開一條映射，不會取消原 port）
+  #
+  # db:
+  #   ports:
+  #     - "5432:5432"  # 暴露 db 給本機 psql / GUI（注意 .env password 為 dev 預設）

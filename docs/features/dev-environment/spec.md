@@ -11,7 +11,7 @@
   - 禁止 `docker`、禁止 `podman-compose`（v1 wrapper、行為與 v2 不一致）
 - compose 入口固定為 root `compose.yaml`（podman compose v2 預設探索檔名）
 - 三 binary 各自有 `cmd/{server,cli,mcp}/Dockerfile`
-- Dockerfile 採 multi-stage：`golang:1.23-alpine` builder → `gcr.io/distroless/static-debian12:nonroot` runtime
+- Dockerfile 採 multi-stage：`golang:1.25-alpine` builder → `gcr.io/distroless/static-debian12:nonroot` runtime
 - `0ops-server` 額外提供 `dev` stage，內含 `air` 熱重載；CLI 與 MCP 不提供 dev stage（CLI 互動式、MCP 為 stdio，皆 host 執行）
 - 提供 root `.dockerignore` 與 `.env.example`；`.env` 由貢獻者複製後填寫，禁止 commit
 - 開發 workflow 經 `Makefile` 收口；契約 target：`make dev` / `make dev-down` / `make migrate` / `make lint-compose` / `make lint-docker` / `make build-images`
@@ -56,7 +56,7 @@
 | Image 命名 | `localhost/0ops-{server,cli,mcp}:{dev,runtime}` | rootless registry-less 本機 image，避免命名空間衝突 |
 | 檔名選擇 | `Dockerfile`（不使用 `Containerfile`） | podman 兩者皆讀；保留與 docker 相容性，降低貢獻者切換成本 |
 | Userns | `keep-id`（預設） | 解決 host volume mount 權限衝突（rootless podman 必要） |
-| SELinux | volume 加 `:Z` 標記 | 在 SELinux enforcing 環境（含 CachyOS、Fedora）必要 |
+| SELinux | 僅 bind mount 加 `:Z` 標記；named volume 不加 | `:Z` 只適用 host path relabel；套到 named volume 會產生無效 `bind` 選項 warning |
 
 ## 5. Compose 服務拓樸
 
@@ -78,7 +78,7 @@ server (build: cmd/server, target=dev)
 | 欄位 | 值 |
 |---|---|
 | image | `docker.io/library/postgres:17-alpine` |
-| volume | named volume `pgdata` → `/var/lib/postgresql/data` |
+| volume | named volume `pgdata` → `/var/lib/postgresql/data`（不加 `:Z`） |
 | env 來源 | `.env`：`POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` |
 | ports | 預設僅 compose network 內可存取；本機 debug 可開 `5432:5432`（透過 `compose.override.yaml`） |
 | healthcheck | `pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB`，interval 5s、timeout 3s、retries 10 |
@@ -86,19 +86,20 @@ server (build: cmd/server, target=dev)
 ### 5.2 `migrate`
 | 欄位 | 值 |
 |---|---|
-| image | 需新增專屬 ADR 或在實作時於本 spec 明確定稿；不得再引用與主題無關的 ADR-002 |
+| image | `localhost/0ops-migrations:runtime`（自建 multi-stage：builder 拉 goose binary → distroless static runtime）；詳見 ADR-0009 |
+| build | `{ context: ., dockerfile: migrations/Dockerfile }` |
 | restart | `no`（一次性） |
 | depends_on | `db: { condition: service_healthy }` |
-| command | `goose -dir /migrations postgres "$DATABASE_URL" up` |
+| command | `["$DATABASE_URL", "up"]`（image entrypoint 為 `goose -dir /migrations postgres`；command 帶 args） |
 | 失敗行為 | exit code 非 0 時，`server` 因 `depends_on.service_completed_successfully` 不啟動 |
 
-> `migrations/` 是否含 `Dockerfile` 目前仍待定。此決策不屬於 ADR-002 範圍，應以專屬 ADR 或本 feature spec 後續定稿處理；在定稿前，不得把待定內容寫成既定結構。
+> `migrations/Dockerfile` 結構與行為由 [ADR-0009](../../adrs/0009-migrations-image-strategy.md) 定稿；本 spec 引用該 ADR 為 source。
 
 ### 5.3 `server`
 | 欄位 | 值 |
 |---|---|
 | build | `{ context: ., dockerfile: cmd/server/Dockerfile, target: dev }` |
-| ports | `8080:8080` |
+| ports | `${OPS_HOST_PORT:-8080}:8080`（host port 由 `.env` 之 `OPS_HOST_PORT` 控制，預設 8080；容器內固定 8080） |
 | volumes | `.:/app:Z`（SELinux relabel）+ named volume `go-mod-cache:/go/pkg/mod` |
 | env 來源 | `.env`（含 `DATABASE_URL`、`OPS_LISTEN_ADDR`、`OPS_LOG_LEVEL`、`OPS_CALLBACK_SECRET` 等） |
 | healthcheck | `wget -qO- http://localhost:8080/health || exit 1`，interval 10s、timeout 3s、retries 5、start_period 30s |
@@ -112,7 +113,7 @@ server (build: cmd/server, target=dev)
 # syntax=docker/dockerfile:1.7
 
 # --- deps：拉模組，最大化快取 ---
-FROM golang:1.23-alpine AS deps
+FROM golang:1.25-alpine AS deps
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -128,7 +129,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     -o /out/0ops-server ./cmd/server
 
 # --- dev：熱重載（僅 server 提供） ---
-FROM golang:1.23-alpine AS dev
+FROM golang:1.25-alpine AS dev
 RUN apk add --no-cache git wget && \
     go install github.com/air-verse/air@latest
 WORKDIR /app
@@ -239,12 +240,12 @@ OPS_CLOUDFLARE_ACCOUNT_ID=
 
 ## 12. Open issues
 
-- `migrate` service image 與 migration 執行模式尚未定稿。
+- ~~`migrate` service image 與 migration 執行模式尚未定稿。~~ → 由 [ADR-0009](../../adrs/0009-migrations-image-strategy.md) 定稿
 - `.gitignore` 是否已與 `.dockerignore` 同步納入 `.env`，需在實作階段一併驗證。
-- 本 spec 僅能引用已接受且主題直接相關的 ADR；若後續新增待定點，優先補專屬 ADR，再回填 spec。
 
-- **`compose.override.yaml` 機制**：是否提供範本給貢獻者覆寫個人設定（如 host port 衝突、開放 5432 給本機 GUI 客戶端）→ M0 spike 後決議
-- **migrate 服務 image 策略**：自建 minimal image vs 直接以 `golang:alpine` + `go run` 跑 goose → 需新增專屬 ADR 或在本 spec 定稿時拍板
+- ~~**`compose.override.yaml` 機制**：是否提供範本給貢獻者覆寫個人設定（如 host port 衝突、開放 5432 給本機 GUI 客戶端）→ M0 spike 後決議~~ → M0 spike 結論：
+  - server host port 衝突走 `.env` 之 `OPS_HOST_PORT`（compose.yaml 已 `${OPS_HOST_PORT:-8080}:8080`），**不**走 override.yaml；compose v2 對 `ports` list 採 append 合併，覆寫無法取消原 port。
+  - 其他個人覆寫（如開放 5432 給本機 GUI）走 `compose.override.yaml`（已新增 `compose.override.yaml.example`、git 與 docker ignore 雙含本檔）。
 - **rootless userns mapping**：distroless `nonroot`（uid 65532）與 host volume mount 的權限對齊細節 → 寫入 `docs/runbooks/dev-env-troubleshooting.md`
 - **跨平台**：macOS 上 podman 走 VM（podman machine）的 file mount 效能與 SELinux `:Z` 行為差異 → 補 runbook
 - **CI image 快取**：GitHub Actions 上以 podman 跑 build 是否需自建 runner（GHA 預設 runner 無 podman）→ 與 `deploy/workflows/` 一併規劃
