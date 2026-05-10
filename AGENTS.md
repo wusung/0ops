@@ -31,6 +31,8 @@ ADR 之所以高於 plan：plan 為長期演進的廣泛規劃文件，可能殘
 3. `docs/agents-guide.md`
 4. `docs/adr-reading-strategy.md` ⭐ **必讀**（定義 ADR 讀取時機與深度）
 5. `docs/adrs/*.md`
+6. `tasks/todo.md`（完成的 task 需先查閱，確認收尾狀態與後續項目）
+7. `tasks/lessons.md`（經驗談／複盤參考）
 
 ### ADR 讀取策略
 
