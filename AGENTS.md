@@ -15,7 +15,11 @@
 
 1. 使用者明確要求
 2. 本文件
-3. `docs/0ops-plan.md`
+3. `docs/adrs/*.md`（已接受之 ADR）
+4. `docs/0ops-plan.md`
+
+ADR 之所以高於 plan：plan 為長期演進的廣泛規劃文件，可能殘留 ADR 已 supersede
+的措辭；正式決策以 ADR 為準。
 
 ## Document Reading Order
 
@@ -24,6 +28,17 @@
 1. `docs/0ops-business-plan.md`
 2. `docs/0ops-plan.md`
 3. `docs/agents-guide.md`
+4. `docs/adrs/*.md`
+
+ADR 為不可違反的架構決策。讀法規約：
+
+- **依檔名數字順序閱讀**（0001 → 0002 → ... → 0008）；後者可能依賴前者，跳讀
+  會錯失依賴語境（例：ADR-0008 之 leader-only 任務語意源自 ADR-0002）。
+- **至少讀完每份 TL;DR 段**（「## 0. TL;DR（先讀本段）」）。實作或修改某 ADR
+  涵蓋之主題前，**必須讀完整份**該 ADR（含 Pros&Cons、Consequences、Revisit
+  Triggers 與 Open Questions）。
+- 新增 ADR 採 MADR 9-section 結構並接續編號；ADR 之間有跨引用時必須在 More
+  Information 段顯式列出。
 
 若當前任務有對應 `{FEATURE}`，完成共用文件閱讀後，必須一併閱讀以下兩類文件：
 
@@ -35,12 +50,13 @@ flowchart TD
     A["docs/0ops-business-plan.md"]
     B["docs/0ops-plan.md"]
     C["docs/agents-guide.md"]
-    D["docs/features/{FEATURE}/*.md"]
-    E["docs/features/{FEATURE}/release/**.md"]
+    D["docs/adrs/0001 → 0008<br/>(依檔名數字順序)"]
+    E["docs/features/{FEATURE}/*.md"]
+    F["docs/features/{FEATURE}/release/**.md"]
 
-    A --> B --> C
-    C --> D
-    C --> E
+    A --> B --> C --> D
+    D --> E
+    D --> F
 ```
 
 ## Naming
