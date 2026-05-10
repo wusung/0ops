@@ -5,6 +5,7 @@ SHELL := /bin/bash
 
 VERSION ?= dev
 LDFLAGS := -s -w -X github.com/winshare/zeroops/internal/shared.Version=$(VERSION)
+SQLC_IMAGE ?= docker.io/sqlc/sqlc:1.31.1
 
 .PHONY: help dev dev-down dev-clean dev-logs dev-shell migrate migrate-down \
         build-images lint-compose lint-docker lint-go test build tidy sqlc
@@ -69,4 +70,4 @@ tidy: ## go mod tidy
 	go mod tidy
 
 sqlc: ## 產生 sqlc 程式碼
-	podman run --rm --userns=keep-id -v $(CURDIR):/src -w /src docker.io/sqlc/sqlc generate
+	podman run --rm --userns=keep-id -v $(CURDIR):/src -w /src $(SQLC_IMAGE) generate

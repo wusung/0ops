@@ -25,7 +25,7 @@ goose create add_team_plan_check sql
 2. 若 schema 或 query shape 有變：直接跑 container 版 `sqlc`
 
 ```bash
-podman run --rm --userns=keep-id -v "$PWD":/src -w /src docker.io/sqlc/sqlc generate
+podman run --rm --userns=keep-id -v "$PWD":/src -w /src docker.io/sqlc/sqlc:1.31.1 generate
 ```
 
 3. `go test ./internal/server/db -v`
