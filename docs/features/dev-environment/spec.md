@@ -86,13 +86,13 @@ server (build: cmd/server, target=dev)
 ### 5.2 `migrate`
 | 欄位 | 值 |
 |---|---|
-| image | 由 ADR-002 決議（候選：自建 `migrations/Dockerfile` 含 `goose` + sql 檔；或直接以 `golang:1.23-alpine` 跑 `go run` 注入 goose） |
+| image | 需新增專屬 ADR 或在實作時於本 spec 明確定稿；不得再引用與主題無關的 ADR-002 |
 | restart | `no`（一次性） |
 | depends_on | `db: { condition: service_healthy }` |
 | command | `goose -dir /migrations postgres "$DATABASE_URL" up` |
 | 失敗行為 | exit code 非 0 時，`server` 因 `depends_on.service_completed_successfully` 不啟動 |
 
-> 在 ADR-002 敲定前，`migrations/` 目錄是否含 `Dockerfile` 為待定；spec 第 3 節結構暫不列出，待決議後同步補入。
+> `migrations/` 是否含 `Dockerfile` 目前仍待定。此決策不屬於 ADR-002 範圍，應以專屬 ADR 或本 feature spec 後續定稿處理；在定稿前，不得把待定內容寫成既定結構。
 
 ### 5.3 `server`
 | 欄位 | 值 |
@@ -239,8 +239,12 @@ OPS_CLOUDFLARE_ACCOUNT_ID=
 
 ## 12. Open issues
 
+- `migrate` service image 與 migration 執行模式尚未定稿。
+- `.gitignore` 是否已與 `.dockerignore` 同步納入 `.env`，需在實作階段一併驗證。
+- 本 spec 僅能引用已接受且主題直接相關的 ADR；若後續新增待定點，優先補專屬 ADR，再回填 spec。
+
 - **`compose.override.yaml` 機制**：是否提供範本給貢獻者覆寫個人設定（如 host port 衝突、開放 5432 給本機 GUI 客戶端）→ M0 spike 後決議
-- **migrate 服務 image 策略**：自建 minimal image vs 直接以 `golang:alpine` + `go run` 跑 goose → 待 ADR-002 決定 migration 工具後敲定
+- **migrate 服務 image 策略**：自建 minimal image vs 直接以 `golang:alpine` + `go run` 跑 goose → 需新增專屬 ADR 或在本 spec 定稿時拍板
 - **rootless userns mapping**：distroless `nonroot`（uid 65532）與 host volume mount 的權限對齊細節 → 寫入 `docs/runbooks/dev-env-troubleshooting.md`
 - **跨平台**：macOS 上 podman 走 VM（podman machine）的 file mount 效能與 SELinux `:Z` 行為差異 → 補 runbook
 - **CI image 快取**：GitHub Actions 上以 podman 跑 build 是否需自建 runner（GHA 預設 runner 無 podman）→ 與 `deploy/workflows/` 一併規劃
