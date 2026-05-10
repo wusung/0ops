@@ -3,13 +3,14 @@
 ## Purpose
 
 本文件定義 `0ops` 專案的貢獻規範。
-只聚焦五類規則：
+只聚焦三類規則：
 
-- 命名
-- 目錄
 - 測試
 - 提交
 - 文件
+
+命名、目錄結構、租戶邊界等架構級規則由 `docs/adrs/*.md` 與 `docs/0ops-plan.md`
+落地，本文件不重述。
 
 若與其他文件衝突，優先順序如下：
 
@@ -58,17 +59,6 @@ flowchart TD
     D --> E
     D --> F
 ```
-
-## Naming
-
-- 後端語言固定為 Go。
-- Go module path 與 package name 不可用數字開頭。
-- 專案內部 package 名稱使用 `server`、`cli`、`mcp`、`shared` 這類語意明確名稱。
-- binary 輸出名稱可使用 `0ops`、`0ops-mcp`、`0ops-server`。
-- app slug 只保證在 `team` 內唯一，不可假設全域唯一。
-- team-scoped 資源命名與查詢必須顯式帶入 `team_slug` 或 `team_id`。
-- 名稱應反映責任，不可新增 `utils`、`misc`、`helper`、`common` 這類模糊命名作為逃生艙。
-
 
 ## Testing
 
