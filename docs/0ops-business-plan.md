@@ -28,9 +28,9 @@
 | 部署模式 | Self-host + Managed 雙軌 | 純 Managed | 純 Self-host |
 
 ### 商業模式速覽
-- **Phase 1（2026 H1–Q3）**：自用為主，Winshare 內部專案先行（dogfooding）
-- **Phase 2（2026 Q4–2027 H1）**：台灣中小團隊與 AI-native 工作室付費 Beta
-- **Phase 3（2027 H2 起）**：開源 self-host 版 + 商業 managed 雲（雙軌營利）
+- **Phase 1（2026 H1）**：完成技術驗證、內部試點準備、design partner discovery
+- **Phase 2（2026 H2）**：限定範圍 dogfooding + 付費 Beta 準備
+- **Phase 3（2027 起）**：付費 Beta、self-host 商業化、managed 雲驗證
 
 ### 募資需求（Initial）
 - **種子輪目標**：USD 500K – 1M（NT$ 16M – 32M）
@@ -166,16 +166,16 @@
 ## 六、產品（Product）
 
 ### v1 範圍（M0–M5）
-參見技術規劃 `docs/0ops-plan.md` 的 Milestones 表，重點如下：
+參見技術規劃 `docs/0ops-plan.md` 的 Milestones 表。下表是目前規劃狀態，不代表已完成或已驗證：
 
 | 里程碑 | 目標 | 商業意義 |
 |---|---|---|
-| **M0** | 三 binary scaffold + dev env | 開發起點 |
-| **M1** | Read-only API + CLI + MCP | 內部 demo 可用 |
-| **M2** | `create_app` 兩階段 + winshare 子網域 | **Winshare 內部正式 dogfooding** |
-| **M3** | 客戶自有域名 + DNS verify | 可給外部 alpha 客戶 |
-| **M4** | Webhook 自動 redeploy + 手動 redeploy | 完整 CI/CD 體驗 |
-| **M5** | `delete_app` + audit log + observability | 對外 Beta（首批付費） |
+| **M0** | 三 binary scaffold + dev env | 進入可執行實作，而非停留在文件設計 |
+| **M1** | Read-only API + CLI + MCP | 建立第一條可驗證 vertical slice |
+| **M2** | `create_app` 兩階段 + winshare 子網域 | 達成 dogfooding entry criteria |
+| **M3** | 客戶自有域名 + DNS verify | 可啟動限定範圍 design partner 試點 |
+| **M4** | Webhook 自動 redeploy + 手動 redeploy | 建立可重複的 CI/CD 體驗 |
+| **M5** | `delete_app` + audit log + observability | 達成對外 Beta 前置條件 |
 | **M6** | Web UI（Vue 3 + Vite + Tailwind + shadcn-vue） | 拓寬非 CLI 使用者 |
 
 ### v2 規劃（2027 起）
@@ -230,37 +230,45 @@
 
 ### 三階段 GTM
 
-#### 階段一：Dogfooding（2026 H1）
-- Winshare 內部所有專案統一遷至 0ops
-- 累積真實 failure mode 與 buildpack adapter
-- 撰寫使用案例（Case Study）作為對外 marketing 素材
+#### 階段一：技術驗證與試點準備（2026 H1）
+- 完成 M0–M1，建立第一條可運行 vertical slice
+- 定義 dogfooding entry criteria 並逐項驗證
+- 選定 1 個內部低風險服務作為首個試點目標
 
-#### 階段二：開發者社群滲透（2026 Q3–Q4）
-- **內容行銷**：技術部落格、AI CLI 教學系列（中英雙語）
-- **社群種子**：MCP / claude code / Hacker News 相關討論串
-- **AI CLI 文件 SEO**：成為「claude code 部署」「codex deploy」搜尋第一名
-- **Open SKILL packs**：將 SKILL.md 開源至 GitHub，吸引 AI CLI 使用者試用
-- **目標**：100 個註冊團隊、20 個活躍 Beta
+#### 階段二：限定範圍 dogfooding 與 design partner 驗證（2026 H2）
+- Winshare 內部首個服務進入限定範圍 dogfooding
+- 與 3–5 家 design partner 驗證部署流程、權限模型、可審計性
+- 在取得可重現案例後，再釋出技術內容與 SKILL packs
+- **目標**：3 個 LOI、2 個實際 design partner、1 個內部服務穩定運行 30 天
 
-#### 階段三：垂直擴張（2027 H1 起）
+#### 階段三：對外 Beta 與垂直擴張（2027 H1 起）
 - **Vibe coder / 接案工作室**：強打「AI 寫一句、自動上線」工作流
 - **教育市場**：與台灣大學資工系合作，作為實驗課程基礎設施
 - **企業內部 PaaS**：以 self-host license 切入有資料落地需求的中型企業
-- **目標**：500 註冊、100 付費、ARR USD 200K
+- **目標**：在 design partner 成功轉換後，再追求付費擴張與 ARR
 
 ### 關鍵渠道優先序
-1. **AI CLI 內建發現**：透過 MCP SKILL 註冊，使用者首次安裝 claude code / codex 時即可探索
-2. **GitHub README badge**：類似「Deploy to Vercel」按鈕的「Deploy to 0ops」
-3. **內容**：技術部落格 + YouTube demo + 中英雙語 docs
-4. **社群**：Discord / Slack 頻道、Office Hours
-5. **合作**：與 AI CLI 廠商（Anthropic、OpenAI、GitHub）建立官方 SKILL pack 生態
+1. **Winshare 內部試點**：先證明團隊自己願意把低風險服務交給 0ops
+2. **Design partners**：3–5 家有 AI CLI 與自動部署需求的團隊
+3. **Case study**：輸出可重現的部署案例、失敗模式與治理機制
+4. **內容與社群**：技術部落格、demo、中英雙語 docs、社群互動
+5. **平台合作**：與 AI CLI 廠商建立生態合作，列為加速器，不列為前提
 
 ---
 
 ## 九、團隊（Team）
 
-### 創辦團隊（待補）
-*（此處由創辦人填入：背景、過往成果、為何能做此題）*
+### 創辦團隊（必補）
+本節目前未完成，屬於對外溝通阻斷項。
+
+對投資人、design partner、早期客戶，至少需要明確回答以下問題：
+
+1. 創辦團隊是否實際管理過 production infra、deployment platform、或開發者工具。
+2. 團隊是否具備 Go、Kubernetes、GitOps、GitHub Actions、Cloudflare 整合經驗。
+3. 團隊為何比既有 PaaS 或平台團隊更早看見 `AI CLI -> deployment` 的斷層。
+4. 團隊是否有足夠 credibility 讓早期客戶願意把 repo、token、domain 與 deployment workflow 交給 0ops。
+
+若以上內容無法具體回答，應優先補齊共同創辦人、核心顧問、或可驗證的實戰經驗，而不是先擴大募資敘事。
 
 ### v1 必要編制（12 個月內擴編）
 | 角色 | 人數 | 優先序 | 工作重心 |
@@ -285,8 +293,8 @@
 
 | 期間 | 註冊團隊 | 付費團隊 | MRR (USD) | 累積投入 (USD) | 備註 |
 |---|---|---|---|---|---|
-| 2026 H1 | 0 | 0 | 0 | 100K | 純 dogfooding |
-| 2026 H2 | 50 | 5 | 500 | 250K | Alpha → 早期 Beta |
+| 2026 H1 | 0 | 0 | 0 | 100K | 技術驗證與試點準備 |
+| 2026 H2 | 5 | 0 | 0 | 250K | 限定範圍 dogfooding + design partner 驗證；2–5 家 design partner 進場但尚未付費 |
 | 2027 H1 | 200 | 30 | 3,000 | 450K | Beta GA |
 | 2027 H2 | 500 | 100 | 12,000 | 700K | 商業化啟動 |
 | 2028 H1 | 1,200 | 250 | 30,000 | 950K | 損益兩平接近 |
@@ -299,10 +307,10 @@
 - 2028 ARR：USD 200K–400K，需準備二輪募資或調整為純 self-host 軟體授權商業模式
 
 ### 關鍵假設
-1. v1 GA 於 2026 Q4 達成（M5 完成）
-2. 早期付費轉換率：alpha → 10%、beta → 20–30%
-3. 月流失率：Beta 期 5–8%；GA 後降至 2–4%
-4. AI CLI 市場至少維持目前 30% 季成長率
+1. 若 M2 於 2026 Q3 前完成，且內部試點連續穩定 30 天，則 v1 GA 目標維持 2026 Q4；否則整體商業時程順延至少一季。
+2. 早期付費轉換率：LOI -> design partner -> beta 需逐段驗證，不預設直接成立。
+3. 月流失率：Beta 期 5–8%；GA 後降至 2–4%，此處僅為情境假設，不是已驗證數據。
+4. AI CLI 市場成長存在平台依賴風險，不作為單一成立前提。
 
 ---
 
@@ -312,7 +320,7 @@
 | 風險 | 影響 | 緩解 |
 |---|---|---|
 | Buildpack 偵測失敗於冷僻語言 | M | v1 提示後續支援；v1.1 加 Dockerfile mode |
-| MCP SDK（mark3labs/mcp-go）穩定度不足 | M | 早期 prototype 驗證；必要時 fork 維護 |
+| MCP SDK 與多家 AI CLI 相容性不一致 | M | 以官方 `go-sdk` 為主，對三家 CLI 逐一做相容性矩陣驗證 |
 | Cloudflare for SaaS 整合複雜（客戶自有域名 TLS） | M | v1 先用 Cloudflare Tunnel + DNS 驗證；v2 升級 |
 | GitOps repo 高並發衝突 | L | retry + rebase；後期切多 repo |
 
@@ -352,10 +360,10 @@
   - 預備金（5%）
 
 ### 12 個月關鍵 KPI
-- v1 GA（M5 完成）
-- 50 個付費團隊、ARR USD 100K–200K
-- 1 個 self-host license 簽約（驗證 enterprise 商業模式）
-- 至少 2 家 AI CLI 廠商（Anthropic / GitHub / OpenAI）官方推薦或 SKILL pack 收錄
+- 完成 M0–M2，建立可重複 demo 與 dogfooding entry criteria
+- 3 個 LOI、2 個 design partner、1 個內部服務穩定運行 30 天
+- 至少 10 次真實 create/redeploy 操作紀錄可供回顧
+- 1 個 self-host license 或企業試點機會，用於驗證 enterprise 路徑
 
 ### 投資人輪廓
 - 熟悉 DevTools / Infra / 開源商業模式
@@ -381,6 +389,16 @@
 3. CI / lint / release pipeline（GitHub Actions + goreleaser）
 4. 第一條 read-only chain：`GET /v1/apps` → `0ops apps list` → MCP `list_apps`
 5. 同步建 `0ops-gitops` 空 repo 與 ArgoCD ApplicationSet
+
+### Dogfooding Entry Criteria
+只有同時滿足以下條件，才應把狀態表述為「進入 dogfooding」：
+
+1. repo 已具備 `cmd/server`、`cmd/cli`、`cmd/mcp` 三個可建置入口。
+2. 第一條 vertical slice 已跑通：`GET /v1/apps` → CLI → MCP。
+3. `create_app_preview` / `create_app` contract 已定稿並完成最小驗證。
+4. 至少 1 個內部 demo repo 可成功部署到 `*.winshare.tw`。
+5. 同一部署流程可重跑且結果冪等。
+6. 基本 audit log 與 failure trace 可回看。
 
 ### 待決事項（TBD）
 - [ ] 公司法律主體
