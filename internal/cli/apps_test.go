@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	serverpkg "github.com/winshare/zeroops/internal/server"
 	"github.com/winshare/zeroops/internal/server/auth"
 	"github.com/winshare/zeroops/internal/server/db"
@@ -64,6 +66,35 @@ func (f cliFakeStore) ListTeamApps(ctx context.Context, teamID string, limit int
 		}
 	}
 	return out, nil
+}
+
+func (f cliFakeStore) GetTeamAppBySlug(ctx context.Context, teamID string, slug string) (db.App, error) {
+	if teamID != f.team.ID {
+		return db.App{}, errors.New("team mismatch")
+	}
+	for _, app := range f.apps {
+		if app.Slug == slug {
+			return app, nil
+		}
+	}
+	return db.App{}, pgx.ErrNoRows
+}
+
+func (f cliFakeStore) ListUserTeams(ctx context.Context, userID string, limit int32, afterSlug *string) ([]db.TeamMembership, error) {
+	if userID != f.token.OwnerUserID || !f.members {
+		return nil, nil
+	}
+
+	return []db.TeamMembership{{
+		Team: db.Team{
+			ID:   f.team.ID,
+			Slug: f.team.Slug,
+			Name: f.team.Name,
+			Plan: f.team.Plan,
+		},
+		UserID: f.token.OwnerUserID,
+		Role:   f.role,
+	}}, nil
 }
 
 func TestAppsListCommand(t *testing.T) {
@@ -127,6 +158,37 @@ func TestAppsListCommandUsesAuthConfig(t *testing.T) {
 	}
 }
 
+func TestAppsGetCommand(t *testing.T) {
+	store, token := newCLIFakeStore()
+	srv := httptest.NewServer(serverpkg.NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	cmd := NewRootCommand()
+	cmd.SetArgs([]string{
+		"apps", "get", "alpha",
+		"--team", store.team.Slug,
+		"--host", srv.URL,
+		"--token", token,
+		"--output", "json",
+	})
+
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	var out map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if out["slug"] != "alpha" {
+		t.Fatalf("slug = %#v, want alpha", out["slug"])
+	}
+}
+
 func newCLIFakeStore() (cliFakeStore, string) {
 	token := "dev-token"
 	store := cliFakeStore{
@@ -135,12 +197,13 @@ func newCLIFakeStore() (cliFakeStore, string) {
 			OwnerUserID: "user-1",
 			TeamID:      "team-1",
 			TokenHash:   auth.HashBearerToken(token),
-			Scopes:      []string{"apps:read"},
+			Scopes:      []string{"apps:read", "teams:read"},
 		},
 		team: db.Team{
 			ID:   "team-1",
 			Slug: "acme",
 			Name: "Acme",
+			Plan: "starter",
 		},
 		role:    "viewer",
 		members: true,

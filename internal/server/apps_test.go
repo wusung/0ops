@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/winshare/zeroops/internal/server/auth"
 	"github.com/winshare/zeroops/internal/server/db"
 	"github.com/winshare/zeroops/internal/shared/backendclient"
@@ -63,6 +65,35 @@ func (f fakeStore) ListTeamApps(ctx context.Context, teamID string, limit int32,
 		}
 	}
 	return out, nil
+}
+
+func (f fakeStore) GetTeamAppBySlug(ctx context.Context, teamID string, slug string) (db.App, error) {
+	if teamID != f.team.ID {
+		return db.App{}, errors.New("team mismatch")
+	}
+	for _, app := range f.apps {
+		if app.Slug == slug {
+			return app, nil
+		}
+	}
+	return db.App{}, pgx.ErrNoRows
+}
+
+func (f fakeStore) ListUserTeams(ctx context.Context, userID string, limit int32, afterSlug *string) ([]db.TeamMembership, error) {
+	if userID != f.token.OwnerUserID || !f.members {
+		return nil, nil
+	}
+
+	return []db.TeamMembership{{
+		Team: db.Team{
+			ID:   f.team.ID,
+			Slug: f.team.Slug,
+			Name: f.team.Name,
+			Plan: f.team.Plan,
+		},
+		UserID: f.token.OwnerUserID,
+		Role:   f.role,
+	}}, nil
 }
 
 func TestNewRouterListApps(t *testing.T) {
@@ -130,6 +161,52 @@ func TestListAppsPagination(t *testing.T) {
 	}
 }
 
+func TestNewRouterGetApp(t *testing.T) {
+	store, token := newFakeStore()
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	out, err := backendclient.New(srv.URL, token).GetApp(context.Background(), store.team.Slug, "alpha")
+	if err != nil {
+		t.Fatalf("GetApp() error = %v", err)
+	}
+	if out.Slug != "alpha" {
+		t.Fatalf("Slug = %q, want alpha", out.Slug)
+	}
+	if out.Name == nil || *out.Name != "Alpha" {
+		t.Fatalf("Name = %#v, want Alpha", out.Name)
+	}
+}
+
+func TestNewRouterGetAppNotFound(t *testing.T) {
+	store, token := newFakeStore()
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/teams/"+store.team.Slug+"/apps/missing", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", res.StatusCode)
+	}
+
+	var payload struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if payload.Error.Code != "app_not_found" {
+		t.Fatalf("error.code = %q, want app_not_found", payload.Error.Code)
+	}
+}
+
 func newFakeStore() (fakeStore, string) {
 	token := "dev-token"
 	store := fakeStore{
@@ -138,12 +215,13 @@ func newFakeStore() (fakeStore, string) {
 			OwnerUserID: "user-1",
 			TeamID:      "team-1",
 			TokenHash:   auth.HashBearerToken(token),
-			Scopes:      []string{"apps:read"},
+			Scopes:      []string{"apps:read", "teams:read"},
 		},
 		team: db.Team{
 			ID:   "team-1",
 			Slug: "acme",
 			Name: "Acme",
+			Plan: "starter",
 		},
 		role:    "viewer",
 		members: true,

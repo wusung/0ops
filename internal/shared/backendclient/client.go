@@ -70,6 +70,61 @@ func (c *Client) ListApps(ctx context.Context, teamSlug string, pageSize int, cu
 	return out, nil
 }
 
+// GetApp fetches a team-scoped app by slug.
+func (c *Client) GetApp(ctx context.Context, teamSlug, appSlug string) (dto.AppRef, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/apps/" + url.PathEscape(appSlug)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return dto.AppRef{}, err
+	}
+	if c.BearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.BearerToken)
+	}
+
+	res, err := c.httpClient().Do(req)
+	if err != nil {
+		return dto.AppRef{}, err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		return dto.AppRef{}, decodeError(res)
+	}
+
+	var out dto.AppRef
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		return dto.AppRef{}, err
+	}
+	return out, nil
+}
+
+// ListTeams fetches the current actor's teams.
+func (c *Client) ListTeams(ctx context.Context) (dto.ListTeamsResponse, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/v1/me/teams", nil)
+	if err != nil {
+		return dto.ListTeamsResponse{}, err
+	}
+	if c.BearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.BearerToken)
+	}
+
+	res, err := c.httpClient().Do(req)
+	if err != nil {
+		return dto.ListTeamsResponse{}, err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		return dto.ListTeamsResponse{}, decodeError(res)
+	}
+
+	var out dto.ListTeamsResponse
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		return dto.ListTeamsResponse{}, err
+	}
+	return out, nil
+}
+
 func (c *Client) httpClient() *http.Client {
 	if c.HTTP != nil {
 		return c.HTTP
