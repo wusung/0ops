@@ -46,6 +46,32 @@ type getAppInput struct {
 
 type listTeamsInput struct{}
 
+type listMembersInput struct {
+	TeamSlug string `json:"team_slug"`
+}
+
+type inviteMemberPreviewInput struct {
+	TeamSlug    string  `json:"team_slug"`
+	Role        string  `json:"role"`
+	GithubLogin *string `json:"github_login,omitempty"`
+	Email       *string `json:"email,omitempty"`
+}
+
+type inviteMemberInput struct {
+	TeamSlug  string `json:"team_slug"`
+	PreviewID string `json:"preview_id"`
+}
+
+type removeMemberPreviewInput struct {
+	TeamSlug string `json:"team_slug"`
+	UserID   string `json:"user_id"`
+}
+
+type removeMemberInput struct {
+	TeamSlug  string `json:"team_slug"`
+	PreviewID string `json:"preview_id"`
+}
+
 func registerTools(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_teams",
@@ -55,7 +81,6 @@ func registerTools(srv *mcp.Server) {
 		if err != nil {
 			return nil, dto.ListTeamsResponse{}, err
 		}
-
 		out, err := backendclient.New(host, token).ListTeams(ctx)
 		if err != nil {
 			return nil, dto.ListTeamsResponse{}, err
@@ -70,14 +95,11 @@ func registerTools(srv *mcp.Server) {
 		if input.TeamSlug == "" {
 			return nil, dto.ListAppsResponse{}, fmt.Errorf("team_slug is required")
 		}
-
 		host, token, err := resolveBackendAuth()
 		if err != nil {
 			return nil, dto.ListAppsResponse{}, err
 		}
-
-		client := backendclient.New(host, token)
-		out, err := client.ListApps(ctx, input.TeamSlug, input.PageSize, input.Cursor)
+		out, err := backendclient.New(host, token).ListApps(ctx, input.TeamSlug, input.PageSize, input.Cursor)
 		if err != nil {
 			return nil, dto.ListAppsResponse{}, err
 		}
@@ -94,17 +116,117 @@ func registerTools(srv *mcp.Server) {
 		if input.AppSlug == "" {
 			return nil, dto.AppRef{}, fmt.Errorf("app_slug is required")
 		}
-
 		host, token, err := resolveBackendAuth()
 		if err != nil {
 			return nil, dto.AppRef{}, err
 		}
-
 		out, err := backendclient.New(host, token).GetApp(ctx, input.TeamSlug, input.AppSlug)
 		if err != nil {
 			return nil, dto.AppRef{}, err
 		}
 		return nil, out, nil
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "list_members",
+		Description: "List members in a team.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input listMembersInput) (*mcp.CallToolResult, dto.ListMembersResponse, error) {
+		if input.TeamSlug == "" {
+			return nil, dto.ListMembersResponse{}, fmt.Errorf("team_slug is required")
+		}
+		host, token, err := resolveBackendAuth()
+		if err != nil {
+			return nil, dto.ListMembersResponse{}, err
+		}
+		out, err := backendclient.New(host, token).ListMembers(ctx, input.TeamSlug)
+		if err != nil {
+			return nil, dto.ListMembersResponse{}, err
+		}
+		return nil, out, nil
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "invite_member_preview",
+		Description: "Create preview for inviting a team member.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input inviteMemberPreviewInput) (*mcp.CallToolResult, dto.PreviewResponse, error) {
+		if input.TeamSlug == "" {
+			return nil, dto.PreviewResponse{}, fmt.Errorf("team_slug is required")
+		}
+		if input.Role == "" {
+			return nil, dto.PreviewResponse{}, fmt.Errorf("role is required")
+		}
+		host, token, err := resolveBackendAuth()
+		if err != nil {
+			return nil, dto.PreviewResponse{}, err
+		}
+		out, err := backendclient.New(host, token).PreviewInviteMember(ctx, input.TeamSlug, dto.InviteMemberRequest{
+			Role:        input.Role,
+			GithubLogin: input.GithubLogin,
+			Email:       input.Email,
+		})
+		if err != nil {
+			return nil, dto.PreviewResponse{}, err
+		}
+		return nil, out, nil
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "invite_member",
+		Description: "Confirm member invite using preview_id.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input inviteMemberInput) (*mcp.CallToolResult, dto.InviteMemberResponse, error) {
+		if input.TeamSlug == "" || input.PreviewID == "" {
+			return nil, dto.InviteMemberResponse{}, fmt.Errorf("team_slug and preview_id are required")
+		}
+		host, token, err := resolveBackendAuth()
+		if err != nil {
+			return nil, dto.InviteMemberResponse{}, err
+		}
+		out, err := backendclient.New(host, token).InviteMember(ctx, input.TeamSlug, dto.ConfirmInviteMemberRequest{
+			PreviewID: input.PreviewID,
+		})
+		if err != nil {
+			return nil, dto.InviteMemberResponse{}, err
+		}
+		return nil, out, nil
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "remove_member_preview",
+		Description: "Create preview for removing a member.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input removeMemberPreviewInput) (*mcp.CallToolResult, dto.PreviewResponse, error) {
+		if input.TeamSlug == "" || input.UserID == "" {
+			return nil, dto.PreviewResponse{}, fmt.Errorf("team_slug and user_id are required")
+		}
+		host, token, err := resolveBackendAuth()
+		if err != nil {
+			return nil, dto.PreviewResponse{}, err
+		}
+		out, err := backendclient.New(host, token).PreviewRemoveMember(ctx, input.TeamSlug, dto.RemoveMemberRequest{
+			UserID: input.UserID,
+		})
+		if err != nil {
+			return nil, dto.PreviewResponse{}, err
+		}
+		return nil, out, nil
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "remove_member",
+		Description: "Confirm member removal using preview_id.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input removeMemberInput) (*mcp.CallToolResult, map[string]string, error) {
+		if input.TeamSlug == "" || input.PreviewID == "" {
+			return nil, nil, fmt.Errorf("team_slug and preview_id are required")
+		}
+		host, token, err := resolveBackendAuth()
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := backendclient.New(host, token).RemoveMember(ctx, input.TeamSlug, dto.ConfirmRemoveMemberRequest{
+			PreviewID: input.PreviewID,
+		}); err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]string{"status": "removed"}, nil
 	})
 }
 

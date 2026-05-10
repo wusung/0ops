@@ -83,7 +83,7 @@ func TestListTeamsResponseJSONShape(t *testing.T) {
 func TestNewRouterListTeamsReturnsAllPages(t *testing.T) {
 	baseStore, token := newFakeStore()
 	store := &paginatedTeamsStore{
-		fakeStore: baseStore,
+		fakeStore: *baseStore,
 	}
 	for i := 1; i <= 205; i++ {
 		store.teams = append(store.teams, db.TeamMembership{

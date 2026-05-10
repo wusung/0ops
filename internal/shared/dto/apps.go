@@ -4,17 +4,17 @@ import "time"
 
 // AppRef is the wire DTO for a listed app.
 type AppRef struct {
-	ID                string     `json:"id"`
-	TeamID            string     `json:"team_id"`
-	Slug              string     `json:"slug"`
-	Name              *string    `json:"name,omitempty"`
-	RepoURL           *string    `json:"repo_url,omitempty"`
-	RepoDefaultBranch *string    `json:"repo_default_branch,omitempty"`
-	ImageRef          *string    `json:"image_ref,omitempty"`
-	Builder           *string    `json:"builder,omitempty"`
-	Status            *string    `json:"status,omitempty"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
+	ID                string    `json:"id"`
+	TeamID            string    `json:"team_id"`
+	Slug              string    `json:"slug"`
+	Name              *string   `json:"name,omitempty"`
+	RepoURL           *string   `json:"repo_url,omitempty"`
+	RepoDefaultBranch *string   `json:"repo_default_branch,omitempty"`
+	ImageRef          *string   `json:"image_ref,omitempty"`
+	Builder           *string   `json:"builder,omitempty"`
+	Status            *string   `json:"status,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 // ListAppsQuery describes team-scoped list parameters.

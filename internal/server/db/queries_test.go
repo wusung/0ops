@@ -112,6 +112,28 @@ func TestRepositoryCheckTeamMembership(t *testing.T) {
 	}
 }
 
+func TestRepositoryHasAnyOwner(t *testing.T) {
+	repo, ctx, pool := newTestRepository(t)
+
+	hasOwner, err := repo.HasAnyOwner(ctx)
+	if err != nil {
+		t.Fatalf("HasAnyOwner() error = %v", err)
+	}
+	initial := hasOwner
+
+	userID := seedUser(ctx, t, pool, "owner-user")
+	teamID, _ := seedTeam(ctx, t, pool, "owner-team", "Owner Team")
+	seedMembership(ctx, t, pool, teamID, userID, "owner")
+
+	hasOwner, err = repo.HasAnyOwner(ctx)
+	if err != nil {
+		t.Fatalf("HasAnyOwner() after seed error = %v", err)
+	}
+	if !hasOwner {
+		t.Fatalf("expected hasOwner=true, got false (initial=%v)", initial)
+	}
+}
+
 func newTestRepository(t *testing.T) (*dbpkg.Repository, context.Context, *pgxpool.Pool) {
 	t.Helper()
 

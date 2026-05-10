@@ -29,6 +29,8 @@ func NewRootCommand() *cobra.Command {
 	root.SetVersionTemplate("0ops {{.Version}}\n")
 	root.AddCommand(newAppsCommand())
 	root.AddCommand(newTeamsCommand())
+	root.AddCommand(newMembersCommand())
+	root.AddCommand(newAdminCommand())
 	return root
 }
 

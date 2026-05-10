@@ -6,11 +6,11 @@ type contextKey string
 
 const (
 	keyActorUserID contextKey = "actor_user_id"
-	keyTokenTeamID  contextKey = "token_team_id"
-	keyTokenScopes  contextKey = "token_scopes"
-	keyTeamID       contextKey = "team_id"
-	keyTeamSlug     contextKey = "team_slug"
-	keyActorRole    contextKey = "actor_role"
+	keyTokenTeamID contextKey = "token_team_id"
+	keyTokenScopes contextKey = "token_scopes"
+	keyTeamID      contextKey = "team_id"
+	keyTeamSlug    contextKey = "team_slug"
+	keyActorRole   contextKey = "actor_role"
 )
 
 func withActorUserID(ctx context.Context, value string) context.Context {
