@@ -48,13 +48,13 @@ func (f fakeStore) GetTeamMembershipRole(ctx context.Context, teamID string, use
 	return f.role, nil
 }
 
-func (f fakeStore) ListTeamApps(ctx context.Context, teamID string, limit int32, afterSlug string) ([]db.App, error) {
+func (f fakeStore) ListTeamApps(ctx context.Context, teamID string, limit int32, afterID *string) ([]db.App, error) {
 	if teamID != f.team.ID {
 		return nil, errors.New("team mismatch")
 	}
 	out := make([]db.App, 0, len(f.apps))
 	for _, app := range f.apps {
-		if afterSlug != "" && app.Slug <= afterSlug {
+		if afterID != nil && app.ID <= *afterID {
 			continue
 		}
 		out = append(out, app)
@@ -118,8 +118,15 @@ func TestListAppsPagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListApps() error = %v", err)
 	}
-	if out.NextCursor == nil || *out.NextCursor != "beta" {
-		t.Fatalf("next_cursor = %#v, want beta", out.NextCursor)
+	if out.NextCursor == nil {
+		t.Fatal("expected next cursor")
+	}
+	cursor, err := decodeAppCursor(*out.NextCursor)
+	if err != nil {
+		t.Fatalf("decodeAppCursor() error = %v", err)
+	}
+	if cursor == nil || *cursor != "2" {
+		t.Fatalf("decoded cursor = %#v, want 2", cursor)
 	}
 }
 

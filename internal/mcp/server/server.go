@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/winshare/zeroops/internal/shared"
+	"github.com/winshare/zeroops/internal/shared/authconfig"
 	"github.com/winshare/zeroops/internal/shared/backendclient"
 	"github.com/winshare/zeroops/internal/shared/dto"
 )
@@ -46,7 +48,12 @@ func registerTools(srv *mcp.Server) {
 			return nil, dto.ListAppsResponse{}, fmt.Errorf("team_slug is required")
 		}
 
-		client := backendclient.New(envOr("OPS_HOST", "http://127.0.0.1:8080"), os.Getenv("OPS_BEARER_TOKEN"))
+		host, token, err := resolveBackendAuth()
+		if err != nil {
+			return nil, dto.ListAppsResponse{}, err
+		}
+
+		client := backendclient.New(host, token)
 		out, err := client.ListApps(ctx, input.TeamSlug, input.PageSize, input.Cursor)
 		if err != nil {
 			return nil, dto.ListAppsResponse{}, err
@@ -55,9 +62,30 @@ func registerTools(srv *mcp.Server) {
 	})
 }
 
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
+func resolveBackendAuth() (string, string, error) {
+	cfg, _ := authconfig.Load()
+
+	host := ""
+	if token, ok := cfg.First(); ok {
+		host = token.Host
 	}
-	return fallback
+	if host == "" {
+		host = "http://127.0.0.1:8080"
+	}
+
+	if envHost := os.Getenv("OPS_HOST"); envHost != "" {
+		host = envHost
+	}
+
+	token := os.Getenv("OPS_BEARER_TOKEN")
+	if token == "" {
+		if fromFile, ok := cfg.BearerForHost(host); ok {
+			token = fromFile
+		}
+	}
+	if strings.TrimSpace(token) == "" {
+		return "", "", fmt.Errorf("unauthorized: please run 0ops auth login")
+	}
+
+	return host, token, nil
 }

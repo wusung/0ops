@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"text/tabwriter"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/winshare/zeroops/internal/shared"
 	"github.com/winshare/zeroops/internal/shared/backendclient"
 	"github.com/winshare/zeroops/internal/shared/dto"
+	"gopkg.in/yaml.v3"
 )
 
 // NewRootCommand returns the root 0ops CLI command.
@@ -44,9 +44,9 @@ func newAppsCommand() *cobra.Command {
 		Use:   "apps",
 		Short: "List apps",
 	}
-	cmd.PersistentFlags().StringVar(&teamSlug, "team", os.Getenv("OPS_TEAM"), "team slug")
-	cmd.PersistentFlags().StringVar(&baseURL, "host", envOr("OPS_HOST", "http://127.0.0.1:8080"), "backend host")
-	cmd.PersistentFlags().StringVar(&token, "token", os.Getenv("OPS_BEARER_TOKEN"), "bearer token")
+	cmd.PersistentFlags().StringVar(&teamSlug, "team", "", "team slug")
+	cmd.PersistentFlags().StringVar(&baseURL, "host", "", "backend host")
+	cmd.PersistentFlags().StringVar(&token, "token", "", "bearer token")
 	cmd.PersistentFlags().IntVar(&pageSize, "page-size", 50, "page size")
 	cmd.PersistentFlags().StringVar(&cursor, "cursor", "", "pagination cursor")
 	cmd.PersistentFlags().BoolVar(&allPages, "all", false, "fetch all pages")
@@ -56,18 +56,19 @@ func newAppsCommand() *cobra.Command {
 		Use:   "list",
 		Short: "List apps in the current team",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if strings.TrimSpace(teamSlug) == "" {
-				return fmt.Errorf("no team in context. run 0ops teams use <slug> or pass --team")
+			ctxInfo, err := resolveAppsContext(teamSlug, baseURL, token)
+			if err != nil {
+				return err
 			}
 
-			client := backendclient.New(baseURL, token)
+			client := backendclient.New(ctxInfo.Host, ctxInfo.BearerToken)
 			ctx := cmd.Context()
 			if ctx == nil {
 				ctx = context.Background()
 			}
 
 			if !allPages {
-				out, err := client.ListApps(ctx, teamSlug, pageSize, cursor)
+				out, err := client.ListApps(ctx, ctxInfo.TeamSlug, pageSize, cursor)
 				if err != nil {
 					return err
 				}
@@ -77,7 +78,7 @@ func newAppsCommand() *cobra.Command {
 			var merged dto.ListAppsResponse
 			next := cursor
 			for {
-				out, err := client.ListApps(ctx, teamSlug, pageSize, next)
+				out, err := client.ListApps(ctx, ctxInfo.TeamSlug, pageSize, next)
 				if err != nil {
 					return err
 				}
@@ -98,7 +99,16 @@ func newAppsCommand() *cobra.Command {
 func renderApps(cmd *cobra.Command, out dto.ListAppsResponse, outputFmt string) error {
 	switch strings.ToLower(outputFmt) {
 	case "json":
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(out)
+	case "yaml":
+		data, err := yaml.Marshal(out)
+		if err != nil {
+			return err
+		}
+		_, err = cmd.OutOrStdout().Write(data)
+		return err
 	case "table":
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 		for _, item := range out.Items {
@@ -115,11 +125,4 @@ func strOrDash(v *string) string {
 		return "-"
 	}
 	return *v
-}
-
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }

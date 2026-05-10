@@ -53,24 +53,94 @@ func (r *Repository) GetTeamMembershipRole(ctx context.Context, teamID string, u
 	})
 }
 
-// ListTeamApps returns apps for a team ordered by slug.
-func (r *Repository) ListTeamApps(ctx context.Context, teamID string, limit int32, afterSlug string) ([]App, error) {
+// ListTeamApps returns apps for a team ordered by app id.
+func (r *Repository) ListTeamApps(ctx context.Context, teamID string, limit int32, afterID *string) ([]App, error) {
 	parsedTeamID, err := parseUUID(teamID)
 	if err != nil {
 		return nil, fmt.Errorf("parse team id: %w", err)
 	}
 
-	rows, err := r.queries.ListAppsByTeam(ctx, sqlcgen.ListAppsByTeamParams{
-		TeamID:  parsedTeamID,
-		Column2: afterSlug,
-		Limit:   limit,
-	})
+	var query string
+	args := []any{parsedTeamID}
+	if afterID != nil && *afterID != "" {
+		query = `
+SELECT
+  id,
+  team_id,
+  slug,
+  name,
+  repo_url,
+  repo_default_branch,
+  image_ref,
+  builder,
+  status,
+  created_at,
+  updated_at
+FROM app
+WHERE team_id = $1
+  AND id > $2::uuid
+ORDER BY id
+LIMIT $3
+`
+		args = append(args, *afterID, limit)
+	} else {
+		query = `
+SELECT
+  id,
+  team_id,
+  slug,
+  name,
+  repo_url,
+  repo_default_branch,
+  image_ref,
+  builder,
+  status,
+  created_at,
+  updated_at
+FROM app
+WHERE team_id = $1
+ORDER BY id
+LIMIT $2
+`
+		args = append(args, limit)
+	}
+
+	resultRows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
+	defer resultRows.Close()
 
-	items := make([]App, 0, len(rows))
-	for _, row := range rows {
+	items := make([]App, 0)
+	for resultRows.Next() {
+		var row struct {
+			ID                pgtype.UUID
+			TeamID            pgtype.UUID
+			Slug              string
+			Name              pgtype.Text
+			RepoURL           pgtype.Text
+			RepoDefaultBranch pgtype.Text
+			ImageRef          pgtype.Text
+			Builder           pgtype.Text
+			Status            pgtype.Text
+			CreatedAt         pgtype.Timestamptz
+			UpdatedAt         pgtype.Timestamptz
+		}
+		if err := resultRows.Scan(
+			&row.ID,
+			&row.TeamID,
+			&row.Slug,
+			&row.Name,
+			&row.RepoURL,
+			&row.RepoDefaultBranch,
+			&row.ImageRef,
+			&row.Builder,
+			&row.Status,
+			&row.CreatedAt,
+			&row.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
 		items = append(items, App{
 			ID:                row.ID.String(),
 			TeamID:            row.TeamID.String(),
@@ -84,6 +154,9 @@ func (r *Repository) ListTeamApps(ctx context.Context, teamID string, limit int3
 			CreatedAt:         row.CreatedAt.Time,
 			UpdatedAt:         row.UpdatedAt.Time,
 		})
+	}
+	if err := resultRows.Err(); err != nil {
+		return nil, err
 	}
 
 	return items, nil

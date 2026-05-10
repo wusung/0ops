@@ -2,9 +2,11 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -17,7 +19,12 @@ import (
 
 type appsStore interface {
 	auth.Store
-	ListTeamApps(ctx context.Context, teamID string, limit int32, afterSlug string) ([]db.App, error)
+	ListTeamApps(ctx context.Context, teamID string, limit int32, afterID *string) ([]db.App, error)
+}
+
+type appCursor struct {
+	ID string    `json:"id"`
+	TS time.Time `json:"ts"`
 }
 
 func listAppsHandler(store appsStore) http.HandlerFunc {
@@ -35,7 +42,13 @@ func listAppsHandler(store appsStore) http.HandlerFunc {
 			pageSize = n
 		}
 
-		rows, err := store.ListTeamApps(r.Context(), auth.TeamID(r.Context()), int32(pageSize+1), r.URL.Query().Get("cursor"))
+		afterID, err := decodeAppCursor(r.URL.Query().Get("cursor"))
+		if err != nil {
+			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "invalid cursor", map[string]any{"field": "cursor"})
+			return
+		}
+
+		rows, err := store.ListTeamApps(r.Context(), auth.TeamID(r.Context()), int32(pageSize+1), afterID)
 		if err != nil {
 			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to list apps", nil)
 			return
@@ -43,8 +56,8 @@ func listAppsHandler(store appsStore) http.HandlerFunc {
 
 		var nextCursor *string
 		if len(rows) > pageSize {
-			v := rows[pageSize-1].Slug
-			nextCursor = &v
+			encoded := encodeAppCursor(rows[pageSize-1].ID, rows[pageSize-1].CreatedAt)
+			nextCursor = &encoded
 			rows = rows[:pageSize]
 		}
 
@@ -91,4 +104,29 @@ func NewRouter(store appsStore) http.Handler {
 	})
 
 	return r
+}
+
+func encodeAppCursor(id string, ts time.Time) string {
+	data, _ := json.Marshal(appCursor{ID: id, TS: ts.UTC()})
+	return base64.StdEncoding.EncodeToString(data)
+}
+
+func decodeAppCursor(raw string) (*string, error) {
+	if raw == "" {
+		return nil, nil
+	}
+
+	data, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return nil, err
+	}
+
+	var cursor appCursor
+	if err := json.Unmarshal(data, &cursor); err != nil {
+		return nil, err
+	}
+	if cursor.ID == "" {
+		return nil, nil
+	}
+	return &cursor.ID, nil
 }

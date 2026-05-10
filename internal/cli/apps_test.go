@@ -3,14 +3,16 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http/httptest"
-	"strings"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/winshare/zeroops/internal/server/auth"
 	serverpkg "github.com/winshare/zeroops/internal/server"
+	"github.com/winshare/zeroops/internal/server/auth"
 	"github.com/winshare/zeroops/internal/server/db"
 )
 
@@ -47,13 +49,13 @@ func (f cliFakeStore) GetTeamMembershipRole(ctx context.Context, teamID string, 
 	return f.role, nil
 }
 
-func (f cliFakeStore) ListTeamApps(ctx context.Context, teamID string, limit int32, afterSlug string) ([]db.App, error) {
+func (f cliFakeStore) ListTeamApps(ctx context.Context, teamID string, limit int32, afterID *string) ([]db.App, error) {
 	if teamID != f.team.ID {
 		return nil, errors.New("team mismatch")
 	}
 	out := make([]db.App, 0, len(f.apps))
 	for _, app := range f.apps {
-		if afterSlug != "" && app.Slug <= afterSlug {
+		if afterID != nil && app.ID <= *afterID {
 			continue
 		}
 		out = append(out, app)
@@ -85,8 +87,43 @@ func TestAppsListCommand(t *testing.T) {
 	if err := cmd.ExecuteContext(context.Background()); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if !strings.Contains(stdout.String(), `"slug":"alpha"`) {
-		t.Fatalf("stdout = %s", stdout.String())
+	var out map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	items, ok := out["items"].([]any)
+	if !ok || len(items) != 2 {
+		t.Fatalf("unexpected items payload: %#v", out["items"])
+	}
+}
+
+func TestAppsListCommandUsesAuthConfig(t *testing.T) {
+	store, token := newCLIFakeStore()
+	srv := httptest.NewServer(serverpkg.NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	t.Setenv("OPS_HOST", "")
+	t.Setenv("OPS_BEARER_TOKEN", "")
+	t.Setenv("OPS_TEAM", "")
+	writeAuthFile(t, srv.URL, token, store.team.Slug)
+
+	cmd := NewRootCommand()
+	cmd.SetArgs([]string{"apps", "list", "--output", "json"})
+
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	items, ok := out["items"].([]any)
+	if !ok || len(items) != 2 {
+		t.Fatalf("unexpected items payload: %#v", out["items"])
 	}
 }
 
@@ -132,3 +169,33 @@ func newCLIFakeStore() (cliFakeStore, string) {
 }
 
 func strPtr(v string) *string { return &v }
+
+func writeAuthFile(t *testing.T, host, token, team string) {
+	t.Helper()
+
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	path := filepath.Join(dir, "0ops")
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	payload := map[string]any{
+		"version": 1,
+		"tokens": []map[string]any{
+			{
+				"host":              host,
+				"default_team_slug": team,
+				"bearer_token":      token,
+			},
+		},
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "auth.json"), data, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+}
