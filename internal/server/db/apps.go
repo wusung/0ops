@@ -2,8 +2,6 @@ package db
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -12,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	sqlcgen "github.com/winshare/zeroops/internal/server/db/sqlc"
+	sharedtoken "github.com/winshare/zeroops/internal/shared/token"
 )
 
 // App describes a team app record.
@@ -34,8 +33,13 @@ type CliToken struct {
 	ID          string
 	OwnerUserID string
 	TeamID      string
+	Kind        string
+	Name        string
 	TokenHash   string
 	Scopes      []string
+	CreatedAt   time.Time
+	LastUsedAt  *time.Time
+	ExpiresAt   *time.Time
 	RevokedAt   *time.Time
 }
 
@@ -413,9 +417,9 @@ func (r *Repository) ListDeployLogLines(ctx context.Context, teamID string, appS
 	return append([]DeployLogLine(nil), deploy.LogLines[:limit]...), nil
 }
 
-// FindCliTokenByHash loads a token by hash.
-func (r *Repository) FindCliTokenByHash(ctx context.Context, tokenHash string) (CliToken, error) {
-	row, err := r.queries.FindCliTokenByHash(ctx, tokenHash)
+// FindCliTokenByID loads a token by primary key.
+func (r *Repository) FindCliTokenByID(ctx context.Context, tokenID string) (CliToken, error) {
+	row, err := r.queries.FindCliTokenByID(ctx, tokenID)
 	if err != nil {
 		return CliToken{}, err
 	}
@@ -424,10 +428,94 @@ func (r *Repository) FindCliTokenByHash(ctx context.Context, tokenHash string) (
 		ID:          row.ID.String(),
 		OwnerUserID: row.OwnerUserID.String(),
 		TeamID:      row.TeamID.String(),
+		Kind:        row.Kind,
+		Name:        row.Name,
 		TokenHash:   row.TokenHash,
 		Scopes:      append([]string(nil), row.Scopes...),
+		CreatedAt:   row.CreatedAt.Time,
+		LastUsedAt:  timestamptzPtr(row.LastUsedAt),
+		ExpiresAt:   timestamptzPtr(row.ExpiresAt),
 		RevokedAt:   timestamptzPtr(row.RevokedAt),
 	}, nil
+}
+
+// ListTeamTokens returns team-scoped tokens ordered by creation time.
+func (r *Repository) ListTeamTokens(ctx context.Context, teamID string) ([]CliToken, error) {
+	parsedTeamID, err := parseUUID(teamID)
+	if err != nil {
+		return nil, fmt.Errorf("parse team id: %w", err)
+	}
+
+	rows, err := r.pool.Query(ctx, `
+SELECT
+  id,
+  owner_user_id,
+  team_id,
+  kind,
+  name,
+  token_hash,
+  scopes,
+  created_at,
+  last_used_at,
+  expires_at,
+  revoked_at
+FROM cli_token
+WHERE team_id = $1
+ORDER BY created_at DESC, name
+`, parsedTeamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]CliToken, 0)
+	for rows.Next() {
+		var row struct {
+			ID          pgtype.UUID
+			OwnerUserID pgtype.UUID
+			TeamID      pgtype.UUID
+			Kind        string
+			Name        string
+			TokenHash   string
+			Scopes      []string
+			CreatedAt   pgtype.Timestamptz
+			LastUsedAt  pgtype.Timestamptz
+			ExpiresAt   pgtype.Timestamptz
+			RevokedAt   pgtype.Timestamptz
+		}
+		if err := rows.Scan(
+			&row.ID,
+			&row.OwnerUserID,
+			&row.TeamID,
+			&row.Kind,
+			&row.Name,
+			&row.TokenHash,
+			&row.Scopes,
+			&row.CreatedAt,
+			&row.LastUsedAt,
+			&row.ExpiresAt,
+			&row.RevokedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, CliToken{
+			ID:          row.ID.String(),
+			OwnerUserID: row.OwnerUserID.String(),
+			TeamID:      row.TeamID.String(),
+			Kind:        row.Kind,
+			Name:        row.Name,
+			TokenHash:   row.TokenHash,
+			Scopes:      append([]string(nil), row.Scopes...),
+			CreatedAt:   row.CreatedAt.Time,
+			LastUsedAt:  timestamptzPtr(row.LastUsedAt),
+			ExpiresAt:   timestamptzPtr(row.ExpiresAt),
+			RevokedAt:   timestamptzPtr(row.RevokedAt),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 // ResolveUserDefaultTeamByGithubLogin resolves a user and one of their team memberships.
@@ -467,29 +555,62 @@ func (r *Repository) CreateCLIToken(ctx context.Context, ownerUserID, teamID str
 	if err != nil {
 		return "", fmt.Errorf("parse team id: %w", err)
 	}
-	raw, err := randomKey()
+	secret, err := sharedtoken.NewBearerTokenSecret()
 	if err != nil {
 		return "", err
 	}
-	token := "ops_" + raw
-	_, err = r.pool.Exec(ctx, `
-INSERT INTO cli_token (owner_user_id, team_id, token_hash, name, scopes)
-VALUES ($1, $2, $3, $4, $5)
-`, parsedUserID, parsedTeamID, hashBearerToken(token), "device-login", scopes)
+	hash, err := sharedtoken.HashBearerToken(secret)
 	if err != nil {
 		return "", err
 	}
-	return token, nil
+	var tokenID string
+	if err := r.pool.QueryRow(ctx, `
+INSERT INTO cli_token (owner_user_id, team_id, kind, token_hash, name, scopes)
+VALUES ($1, $2, 'device', $3, $4, $5)
+RETURNING id
+`, parsedUserID, parsedTeamID, hash, "device-login", scopes).Scan(&tokenID); err != nil {
+		return "", err
+	}
+	return sharedtoken.FormatBearerToken("device", tokenID, secret), nil
 }
 
-// RevokeCLITokenByHash marks a token as revoked.
-func (r *Repository) RevokeCLITokenByHash(ctx context.Context, tokenHash string) error {
+// CreatePAT creates a new personal access token and returns the raw secret once.
+func (r *Repository) CreatePAT(ctx context.Context, ownerUserID, teamID, name string, scopes []string, expiresAt time.Time) (string, error) {
+	parsedUserID, err := parseUUID(ownerUserID)
+	if err != nil {
+		return "", fmt.Errorf("parse owner user id: %w", err)
+	}
+	parsedTeamID, err := parseUUID(teamID)
+	if err != nil {
+		return "", fmt.Errorf("parse team id: %w", err)
+	}
+	secret, err := sharedtoken.NewBearerTokenSecret()
+	if err != nil {
+		return "", err
+	}
+	hash, err := sharedtoken.HashBearerToken(secret)
+	if err != nil {
+		return "", err
+	}
+	var tokenID string
+	if err := r.pool.QueryRow(ctx, `
+INSERT INTO cli_token (owner_user_id, team_id, kind, token_hash, name, scopes, expires_at)
+VALUES ($1, $2, 'pat', $3, $4, $5, $6)
+RETURNING id
+`, parsedUserID, parsedTeamID, hash, name, scopes, expiresAt).Scan(&tokenID); err != nil {
+		return "", err
+	}
+	return sharedtoken.FormatBearerToken("pat", tokenID, secret), nil
+}
+
+// RevokeCLITokenByID marks a token as revoked.
+func (r *Repository) RevokeCLITokenByID(ctx context.Context, tokenID string) error {
 	tag, err := r.pool.Exec(ctx, `
 UPDATE cli_token
 SET revoked_at = now()
-WHERE token_hash = $1
+WHERE id = $1
   AND revoked_at IS NULL
-`, tokenHash)
+`, tokenID)
 	if err != nil {
 		return err
 	}
@@ -499,9 +620,27 @@ WHERE token_hash = $1
 	return nil
 }
 
-func hashBearerToken(token string) string {
-	sum := sha256.Sum256([]byte(token))
-	return "sha256:" + hex.EncodeToString(sum[:])
+// RevokePATByName marks a PAT as revoked.
+func (r *Repository) RevokePATByName(ctx context.Context, teamID, name string) error {
+	parsedTeamID, err := parseUUID(teamID)
+	if err != nil {
+		return fmt.Errorf("parse team id: %w", err)
+	}
+	tag, err := r.pool.Exec(ctx, `
+UPDATE cli_token
+SET revoked_at = now()
+WHERE team_id = $1
+  AND kind = 'pat'
+  AND name = $2
+  AND revoked_at IS NULL
+`, parsedTeamID, name)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
 }
 
 func textPtr(v pgtype.Text) *string {

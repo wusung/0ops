@@ -36,5 +36,32 @@ Status string `json:"status"`
 }
 
 type DevicePollPendingResponse struct {
-Status string `json:"status"`
+	Status string `json:"status"`
+}
+
+type PATCreateRequest struct {
+	Name        string   `json:"name"`
+	Scopes      []string `json:"scopes"`
+	ExpiresDays int      `json:"expires_days"`
+}
+
+type PATCreateResponse struct {
+	Token     string    `json:"token"`
+	Name      string    `json:"name"`
+	Scopes    []string  `json:"scopes"`
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+type PATListResponse struct {
+	Items []PATListItem `json:"items"`
+}
+
+type PATListItem struct {
+	Name      string     `json:"name"`
+	Scopes    []string   `json:"scopes"`
+	CreatedAt time.Time  `json:"created_at"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	RevokedAt *time.Time `json:"revoked_at,omitempty"`
 }

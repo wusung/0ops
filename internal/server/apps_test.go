@@ -13,6 +13,7 @@ import (
 
 	"github.com/winshare/zeroops/internal/server/auth"
 	"github.com/winshare/zeroops/internal/server/db"
+	"github.com/winshare/zeroops/internal/server/services/githuboauth"
 	"github.com/winshare/zeroops/internal/shared/backendclient"
 	"github.com/winshare/zeroops/internal/shared/dto"
 )
@@ -31,11 +32,28 @@ type fakeStore struct {
 	previews   map[string]db.Preview
 }
 
-func (f *fakeStore) FindCliTokenByHash(ctx context.Context, tokenHash string) (db.CliToken, error) {
-	if tokenHash == f.token.TokenHash {
+type mockGitHubOAuthClient struct {
+	challenge githuboauth.DeviceAuthorization
+	user      githuboauth.UserProfile
+}
+
+func (m mockGitHubOAuthClient) StartDeviceAuthorization(context.Context) (githuboauth.DeviceAuthorization, error) {
+	return m.challenge, nil
+}
+
+func (m mockGitHubOAuthClient) ExchangeDeviceCode(context.Context, string) (githuboauth.AccessTokenResponse, error) {
+	return githuboauth.AccessTokenResponse{AccessToken: "test-access-token", TokenType: "bearer", Scope: "user:email"}, nil
+}
+
+func (m mockGitHubOAuthClient) FetchUser(context.Context, string) (githuboauth.UserProfile, error) {
+	return m.user, nil
+}
+
+func (f *fakeStore) FindCliTokenByID(ctx context.Context, tokenID string) (db.CliToken, error) {
+	if tokenID == f.token.ID {
 		return f.token, nil
 	}
-	if tok, ok := f.tokens[tokenHash]; ok {
+	if tok, ok := f.tokens[tokenID]; ok {
 		return tok, nil
 	}
 	return db.CliToken{}, errors.New("not found")
@@ -149,6 +167,16 @@ func (f *fakeStore) ListTeamMembers(ctx context.Context, teamID string) ([]db.Me
 	return append([]db.Member(nil), f.memberRows...), nil
 }
 
+func (f *fakeStore) ListTeamTokens(ctx context.Context, teamID string) ([]db.CliToken, error) {
+	out := make([]db.CliToken, 0, len(f.tokens))
+	for _, tok := range f.tokens {
+		if tok.TeamID == teamID && tok.Kind == "pat" {
+			out = append(out, tok)
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeStore) CreatePreview(ctx context.Context, teamID, actorUserID, action string, args json.RawMessage, summary string) (db.Preview, error) {
 	p := db.Preview{
 		ID:          "preview-1",
@@ -198,27 +226,69 @@ func (f *fakeStore) ResolveUserDefaultTeamByGithubLogin(ctx context.Context, git
 }
 
 func (f *fakeStore) CreateCLIToken(ctx context.Context, ownerUserID, teamID string, scopes []string) (string, error) {
-	raw := "issued-token"
-	hash := auth.HashBearerToken(raw)
-	f.tokens[hash] = db.CliToken{
-		ID:          "token-issued",
+	token, err := auth.NewBearerToken("device", "token-issued")
+	if err != nil {
+		return "", err
+	}
+	parsed, err := auth.ParseBearerToken(token)
+	if err != nil {
+		return "", err
+	}
+	f.tokens[parsed.ID] = db.CliToken{
+		ID:          parsed.ID,
 		OwnerUserID: ownerUserID,
 		TeamID:      teamID,
-		TokenHash:   hash,
+		TokenHash:   auth.HashBearerToken(parsed.Secret),
 		Scopes:      append([]string(nil), scopes...),
 	}
-	return raw, nil
+	return token, nil
 }
 
-func (f *fakeStore) RevokeCLITokenByHash(ctx context.Context, tokenHash string) error {
-	tok, ok := f.tokens[tokenHash]
+func (f *fakeStore) CreatePAT(ctx context.Context, ownerUserID, teamID, name string, scopes []string, expiresAt time.Time) (string, error) {
+	token, err := auth.NewBearerToken("pat", "token-pat")
+	if err != nil {
+		return "", err
+	}
+	parsed, err := auth.ParseBearerToken(token)
+	if err != nil {
+		return "", err
+	}
+	now := time.Now().UTC()
+	f.tokens[parsed.ID] = db.CliToken{
+		ID:          parsed.ID,
+		OwnerUserID: ownerUserID,
+		TeamID:      teamID,
+		Kind:        "pat",
+		Name:        name,
+		TokenHash:   auth.HashBearerToken(parsed.Secret),
+		Scopes:      append([]string(nil), scopes...),
+		CreatedAt:   now,
+		ExpiresAt:   &expiresAt,
+	}
+	return token, nil
+}
+
+func (f *fakeStore) RevokeCLITokenByID(ctx context.Context, tokenID string) error {
+	tok, ok := f.tokens[tokenID]
 	if !ok {
 		return pgx.ErrNoRows
 	}
 	now := time.Now().UTC()
 	tok.RevokedAt = &now
-	f.tokens[tokenHash] = tok
+	f.tokens[tokenID] = tok
 	return nil
+}
+
+func (f *fakeStore) RevokePATByName(ctx context.Context, teamID, name string) error {
+	for id, tok := range f.tokens {
+		if tok.TeamID == teamID && tok.Kind == "pat" && tok.Name == name {
+			now := time.Now().UTC()
+			tok.RevokedAt = &now
+			f.tokens[id] = tok
+			return nil
+		}
+	}
+	return pgx.ErrNoRows
 }
 
 func (f *fakeStore) GetOrCreateUserAndPersonalTeam(ctx context.Context, githubLogin string) (string, string, string, error) {
@@ -311,7 +381,16 @@ func TestNewRouterListDomains(t *testing.T) {
 
 func TestDeviceLoginAndLogoutFlow(t *testing.T) {
 	store, _ := newFakeStore()
-	srv := httptest.NewServer(NewRouter(store))
+	srv := httptest.NewServer(NewRouterWithGitHubOAuth(store, mockGitHubOAuthClient{
+		challenge: githuboauth.DeviceAuthorization{
+			DeviceCode:       "device-abc",
+			UserCode:         "ABCD-EFGH",
+			VerificationURI:  "https://github.com/login/device",
+			ExpiresInSeconds: 600,
+			IntervalSeconds:  1,
+		},
+		user: githuboauth.UserProfile{Login: "owner", Email: "owner@example.com"},
+	}))
 	t.Cleanup(srv.Close)
 
 	client := backendclient.New(srv.URL, "")
@@ -432,18 +511,63 @@ func TestMembersPreviewInviteAndInvite(t *testing.T) {
 	}
 }
 
+func TestAuthTokensCreateDefaultsToNinetyDays(t *testing.T) {
+	store, token := newFakeStore()
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	client := backendclient.New(srv.URL, token)
+	now := time.Now().UTC()
+	out, err := client.CreateTeamToken(context.Background(), store.team.Slug, dto.PATCreateRequest{
+		Name:   "default-expiry",
+		Scopes: []string{"apps:read"},
+	})
+	if err != nil {
+		t.Fatalf("CreateTeamToken() error = %v", err)
+	}
+	delta := out.ExpiresAt.Sub(out.CreatedAt)
+	if delta < 89*24*time.Hour || delta > 91*24*time.Hour {
+		t.Fatalf("expires_at delta = %s, want about 90d (now=%s)", delta, now)
+	}
+}
+
+func TestAuthMiddlewareRejectsExpiredToken(t *testing.T) {
+	store, token := newFakeStore()
+	tok := store.tokens["token-1"]
+	past := time.Now().UTC().Add(-time.Hour)
+	tok.ExpiresAt = &past
+	store.tokens["token-1"] = tok
+	store.token.ExpiresAt = &past
+
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	client := backendclient.New(srv.URL, token)
+	_, err := client.ListTeams(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "token_expired") {
+		t.Fatalf("ListTeams() error = %v, want token_expired", err)
+	}
+}
+
 func newFakeStore() (*fakeStore, string) {
-	token := "dev-token"
+	token, err := auth.NewBearerToken("device", "token-1")
+	if err != nil {
+		panic(err)
+	}
+	parsed, err := auth.ParseBearerToken(token)
+	if err != nil {
+		panic(err)
+	}
 	baseToken := db.CliToken{
 		ID:          "token-1",
 		OwnerUserID: "user-1",
 		TeamID:      "team-1",
-		TokenHash:   auth.HashBearerToken(token),
+		TokenHash:   auth.HashBearerToken(parsed.Secret),
 		Scopes:      []string{"apps:read", "teams:read", "members:manage"},
 	}
 	return &fakeStore{
 		token:   baseToken,
-		tokens:  map[string]db.CliToken{baseToken.TokenHash: baseToken},
+		tokens:  map[string]db.CliToken{baseToken.ID: baseToken},
 		team:    db.Team{ID: "team-1", Slug: "acme", Name: "Acme", Plan: "starter"},
 		role:    "admin",
 		members: true,

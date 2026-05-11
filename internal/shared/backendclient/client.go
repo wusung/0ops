@@ -220,6 +220,29 @@ func (c *Client) Logout(ctx context.Context) error {
 	return c.doJSON(ctx, http.MethodPost, endpoint, nil, nil)
 }
 
+func (c *Client) CreateTeamToken(ctx context.Context, teamSlug string, reqBody dto.PATCreateRequest) (dto.PATCreateResponse, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/tokens/"
+	var out dto.PATCreateResponse
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, reqBody, &out); err != nil {
+		return dto.PATCreateResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) ListTeamTokens(ctx context.Context, teamSlug string) (dto.PATListResponse, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/tokens/"
+	var out dto.PATListResponse
+	if err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &out); err != nil {
+		return dto.PATListResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) RevokeTeamToken(ctx context.Context, teamSlug, name string) error {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/tokens/" + url.PathEscape(name)
+	return c.doJSON(ctx, http.MethodDelete, endpoint, nil, nil)
+}
+
 // ListTeams fetches the current actor's teams.
 func (c *Client) ListTeams(ctx context.Context) (dto.ListTeamsResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/v1/me/teams", nil)
