@@ -320,6 +320,24 @@ func (c *Client) RemoveMember(ctx context.Context, teamSlug string, reqBody dto.
 	return c.doJSON(ctx, http.MethodPost, endpoint, reqBody, nil)
 }
 
+func (c *Client) PreviewGitHubInstall(ctx context.Context, teamSlug string) (dto.PreviewResponse, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/github:preview-install"
+	var out dto.PreviewResponse
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, nil, &out); err != nil {
+		return dto.PreviewResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) ConfirmGitHubInstall(ctx context.Context, teamSlug, previewID string) (dto.GitHubInstallResponse, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/github:install"
+	var out dto.GitHubInstallResponse
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, map[string]string{"preview_id": previewID}, &out); err != nil {
+		return dto.GitHubInstallResponse{}, err
+	}
+	return out, nil
+}
+
 func (c *Client) httpClient() *http.Client {
 	if c.HTTP != nil {
 		return c.HTTP
