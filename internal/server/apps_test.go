@@ -324,6 +324,21 @@ func TestDeviceLoginAndLogoutFlow(t *testing.T) {
 	if start.PollToken == "" {
 		t.Fatal("expected poll token")
 	}
+	if start.UserCode == "" {
+		t.Fatal("expected user code")
+	}
+
+	// Callback to verify the user code
+	cbResp, err := client.CallbackDeviceLogin(context.Background(), dto.DeviceCallbackRequest{
+		UserCode:    start.UserCode,
+		AccessToken: "test-access-token",
+	})
+	if err != nil {
+		t.Fatalf("CallbackDeviceLogin() error = %v", err)
+	}
+	if cbResp.Status != "verified" {
+		t.Fatalf("expected status=verified, got %s", cbResp.Status)
+	}
 
 	poll, err := client.PollDeviceLogin(context.Background(), dto.DevicePollRequest{PollToken: start.PollToken})
 	if err != nil {

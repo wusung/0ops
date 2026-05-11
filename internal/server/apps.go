@@ -61,6 +61,9 @@ const (
 
 type deviceLoginSession struct {
 	GithubLogin string
+	UserCode    string
+	AccessToken string
+	Status      string // "pending" or "verified"
 	ExpiresAt   time.Time
 }
 
@@ -465,19 +468,67 @@ func startDeviceLoginHandler(store appsStore) http.HandlerFunc {
 			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to start device login", nil)
 			return
 		}
+		
+		userCode := newDeviceUserCode()
 		now := time.Now().UTC()
 		deviceLoginSessions.Store(pollToken, deviceLoginSession{
 			GithubLogin: req.GithubLogin,
-			ExpiresAt:   now.Add(5 * time.Minute),
+			UserCode:    userCode,
+			Status:      "pending",
+			ExpiresAt:   now.Add(10 * time.Minute),
 		})
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(dto.DeviceStartResponse{
-			UserCode:        newDeviceUserCode(),
+			UserCode:        userCode,
 			VerificationURI: "https://github.com/login/device",
 			PollToken:       pollToken,
 			IntervalSeconds: 1,
-			TTLSeconds:      300,
+			TTLSeconds:      600,
+		})
+	}
+}
+
+func callbackDeviceLoginHandler(store appsStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req dto.DeviceCallbackRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+
+		// Find session by user_code
+		var foundToken string
+		var foundSession deviceLoginSession
+		deviceLoginSessions.Range(func(key, value interface{}) bool {
+			session := value.(deviceLoginSession)
+			if session.UserCode == req.UserCode {
+				foundToken = key.(string)
+				foundSession = session
+				return false // Stop iteration
+			}
+			return true
+		})
+
+		if foundToken == "" {
+			apperror.Write(w, "invalid_user_code", apperror.ClassBadRequest, "user code not found or expired", nil)
+			return
+		}
+
+		if time.Now().UTC().After(foundSession.ExpiresAt) {
+			deviceLoginSessions.Delete(foundToken)
+			apperror.Write(w, "user_code_expired", apperror.ClassBadRequest, "user code expired", nil)
+			return
+		}
+
+		// Mark session as verified
+		foundSession.Status = "verified"
+		foundSession.AccessToken = req.AccessToken
+		deviceLoginSessions.Store(foundToken, foundSession)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(dto.DeviceCallbackResponse{
+			Status: "verified",
 		})
 	}
 }
@@ -505,6 +556,23 @@ func pollDeviceLoginHandler(store appsStore) http.HandlerFunc {
 			return
 		}
 
+		// Check session status
+		if session.Status == "pending" {
+			// Return 202 Accepted - authentication is pending
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusAccepted)
+			_ = json.NewEncoder(w).Encode(dto.DevicePollPendingResponse{
+				Status: "pending",
+			})
+			return
+		}
+
+		if session.Status != "verified" {
+			apperror.Write(w, "invalid_session_state", apperror.ClassInternal, "session in invalid state", nil)
+			return
+		}
+
+		// Session verified - create user and team, issue token
 		userID, teamID, teamSlug, err := store.GetOrCreateUserAndPersonalTeam(r.Context(), session.GithubLogin)
 		if err != nil {
 			apperror.Write(w, "internal_error", apperror.ClassInternal, fmt.Sprintf("failed to resolve or create github user: %v", err), nil)
@@ -554,6 +622,7 @@ func NewRouter(store routerStore) http.Handler {
 	r.Post("/v1/admin/bootstrap-owner", bootstrapOwnerHandler(store))
 	r.Route("/v1/auth", func(sr chi.Router) {
 		sr.Post("/device/start", startDeviceLoginHandler(store))
+		sr.Post("/device/callback", callbackDeviceLoginHandler(store))
 		sr.Post("/device/poll", pollDeviceLoginHandler(store))
 		sr.With(mw.Bearer).Post("/logout", logoutHandler(store))
 	})

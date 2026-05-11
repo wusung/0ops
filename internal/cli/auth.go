@@ -8,6 +8,7 @@ import (
 	osuser "os/user"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -149,9 +150,25 @@ func runAuthLogin(cmd *cobra.Command, hostFlag, githubLogin, email string) error
 		return err
 	}
 
-	poll, err := client.PollDeviceLogin(ctx, dto.DevicePollRequest{PollToken: start.PollToken})
-	if err != nil {
-		return err
+	// Poll until authorization is complete or error occurs
+	var poll dto.DevicePollResponse
+	for {
+		var err error
+		poll, err = client.PollDeviceLogin(ctx, dto.DevicePollRequest{PollToken: start.PollToken})
+		if err != nil {
+			if err.Error() == "authorization_pending" {
+				// Still pending, wait a bit and retry
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(1 * time.Second):
+					continue
+				}
+			}
+			return err
+		}
+		// Success - we have a token
+		break
 	}
 
 	cfg, _ = authconfig.Load()

@@ -25,3 +25,16 @@ type DevicePollResponse struct {
 	GithubLogin     string    `json:"github_login"`
 	IssuedAt        time.Time `json:"issued_at"`
 }
+
+type DeviceCallbackRequest struct {
+UserCode    string `json:"user_code"`
+AccessToken string `json:"access_token"`
+}
+
+type DeviceCallbackResponse struct {
+Status string `json:"status"`
+}
+
+type DevicePollPendingResponse struct {
+Status string `json:"status"`
+}

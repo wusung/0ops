@@ -170,9 +170,47 @@ func (c *Client) StartDeviceLogin(ctx context.Context, reqBody dto.DeviceStartRe
 
 func (c *Client) PollDeviceLogin(ctx context.Context, reqBody dto.DevicePollRequest) (dto.DevicePollResponse, error) {
 	endpoint := c.BaseURL + "/v1/auth/device/poll"
-	var out dto.DevicePollResponse
-	if err := c.doJSON(ctx, http.MethodPost, endpoint, reqBody, &out); err != nil {
+	payload, err := json.Marshal(reqBody)
+	if err != nil {
 		return dto.DevicePollResponse{}, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return dto.DevicePollResponse{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.BearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.BearerToken)
+	}
+
+	res, err := c.httpClient().Do(req)
+	if err != nil {
+		return dto.DevicePollResponse{}, err
+	}
+	defer res.Body.Close()
+
+	// Handle 202 Accepted - authentication still pending
+	if res.StatusCode == http.StatusAccepted {
+		return dto.DevicePollResponse{}, fmt.Errorf("authorization_pending")
+	}
+
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return dto.DevicePollResponse{}, decodeError(res)
+	}
+
+	var out dto.DevicePollResponse
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		return dto.DevicePollResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) CallbackDeviceLogin(ctx context.Context, reqBody dto.DeviceCallbackRequest) (dto.DeviceCallbackResponse, error) {
+	endpoint := c.BaseURL + "/v1/auth/device/callback"
+	var out dto.DeviceCallbackResponse
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, reqBody, &out); err != nil {
+		return dto.DeviceCallbackResponse{}, err
 	}
 	return out, nil
 }
