@@ -20,3 +20,34 @@ type TeamMembership struct {
 	JoinedAt  *time.Time
 	InvitedAt *time.Time
 }
+
+type DomainBinding struct {
+	ID         string
+	TeamID     string
+	AppID      string
+	AppSlug    string
+	Hostname   string
+	Kind       *string
+	Verified   bool
+	ExpiresAt  *time.Time
+	VerifiedAt *time.Time
+}
+
+type DeployLogLine struct {
+	Timestamp time.Time
+	Message   string
+}
+
+type DeployRun struct {
+	ID           string
+	TeamID       string
+	AppID        string
+	AppSlug      string
+	Status       string
+	CommitSHA    *string
+	Ref          *string
+	ErrorSummary *string
+	StartedAt    *time.Time
+	FinishedAt   *time.Time
+	LogLines     []DeployLogLine
+}

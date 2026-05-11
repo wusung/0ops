@@ -22,6 +22,8 @@ type fakeStore struct {
 	team       db.Team
 	role       string
 	apps       []db.App
+	domains    []db.DomainBinding
+	deploys    []db.DeployRun
 	memberRows []db.Member
 	members    bool
 	hasOwner   bool
@@ -91,6 +93,42 @@ func (f *fakeStore) GetTeamAppBySlug(ctx context.Context, teamID string, slug st
 		}
 	}
 	return db.App{}, pgx.ErrNoRows
+}
+
+func (f *fakeStore) ListDomainsByAppSlug(ctx context.Context, teamID string, appSlug string) ([]db.DomainBinding, error) {
+	if teamID != f.team.ID {
+		return nil, errors.New("team mismatch")
+	}
+	out := make([]db.DomainBinding, 0)
+	for _, item := range f.domains {
+		if item.AppSlug == appSlug {
+			out = append(out, item)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeStore) GetLatestDeployByAppSlug(ctx context.Context, teamID string, appSlug string) (db.DeployRun, error) {
+	if teamID != f.team.ID {
+		return db.DeployRun{}, errors.New("team mismatch")
+	}
+	for _, row := range f.deploys {
+		if row.AppSlug == appSlug {
+			return row, nil
+		}
+	}
+	return db.DeployRun{}, pgx.ErrNoRows
+}
+
+func (f *fakeStore) ListDeployLogLines(ctx context.Context, teamID string, appSlug string, limit int) ([]db.DeployLogLine, error) {
+	row, err := f.GetLatestDeployByAppSlug(ctx, teamID, appSlug)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > len(row.LogLines) {
+		limit = len(row.LogLines)
+	}
+	return append([]db.DeployLogLine(nil), row.LogLines[:limit]...), nil
 }
 
 func (f *fakeStore) HasAnyOwner(ctx context.Context) (bool, error) { return f.hasOwner, nil }
@@ -176,6 +214,86 @@ func TestNewRouterGetApp(t *testing.T) {
 	}
 }
 
+func TestNewRouterInspectRepo(t *testing.T) {
+	store, token := newFakeStore()
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	out, err := backendclient.New(srv.URL, token).InspectRepo(context.Background(), store.team.Slug, "alpha")
+	if err != nil {
+		t.Fatalf("InspectRepo() error = %v", err)
+	}
+	if out.AppSlug != "alpha" {
+		t.Fatalf("AppSlug = %q, want alpha", out.AppSlug)
+	}
+}
+
+func TestNewRouterGetDeployStatus(t *testing.T) {
+	store, token := newFakeStore()
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	out, err := backendclient.New(srv.URL, token).GetDeployStatus(context.Background(), store.team.Slug, "alpha")
+	if err != nil {
+		t.Fatalf("GetDeployStatus() error = %v", err)
+	}
+	if out.Status != "succeeded" {
+		t.Fatalf("Status = %q, want succeeded", out.Status)
+	}
+}
+
+func TestNewRouterTailLogs(t *testing.T) {
+	store, token := newFakeStore()
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	out, err := backendclient.New(srv.URL, token).TailLogs(context.Background(), store.team.Slug, "alpha", 10)
+	if err != nil {
+		t.Fatalf("TailLogs() error = %v", err)
+	}
+	if len(out.Items) != 2 {
+		t.Fatalf("len(items) = %d, want 2", len(out.Items))
+	}
+}
+
+func TestNewRouterListDomains(t *testing.T) {
+	store, token := newFakeStore()
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	out, err := backendclient.New(srv.URL, token).ListDomains(context.Background(), store.team.Slug, "alpha")
+	if err != nil {
+		t.Fatalf("ListDomains() error = %v", err)
+	}
+	if len(out.Items) != 2 {
+		t.Fatalf("len(items) = %d, want 2", len(out.Items))
+	}
+}
+
+func TestReadEndpointsCrossTeamReturnNotFound(t *testing.T) {
+	store, token := newFakeStore()
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	client := backendclient.New(srv.URL, token)
+	_, err := client.InspectRepo(context.Background(), "other-team", "alpha")
+	if err == nil || !strings.Contains(err.Error(), "team_not_found") {
+		t.Fatalf("InspectRepo cross-team error = %v, want team_not_found", err)
+	}
+	_, err = client.GetDeployStatus(context.Background(), "other-team", "alpha")
+	if err == nil || !strings.Contains(err.Error(), "team_not_found") {
+		t.Fatalf("GetDeployStatus cross-team error = %v, want team_not_found", err)
+	}
+	_, err = client.TailLogs(context.Background(), "other-team", "alpha", 10)
+	if err == nil || !strings.Contains(err.Error(), "team_not_found") {
+		t.Fatalf("TailLogs cross-team error = %v, want team_not_found", err)
+	}
+	_, err = client.ListDomains(context.Background(), "other-team", "alpha")
+	if err == nil || !strings.Contains(err.Error(), "team_not_found") {
+		t.Fatalf("ListDomains cross-team error = %v, want team_not_found", err)
+	}
+}
+
 func TestBootstrapOwnerOneShot(t *testing.T) {
 	store, _ := newFakeStore()
 	srv := httptest.NewServer(NewRouter(store))
@@ -240,6 +358,23 @@ func newFakeStore() (*fakeStore, string) {
 		apps: []db.App{
 			{ID: "1", TeamID: "team-1", Slug: "alpha", Name: strPtr("Alpha"), CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
 			{ID: "2", TeamID: "team-1", Slug: "beta", Name: strPtr("Beta"), CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
+		},
+		domains: []db.DomainBinding{
+			{ID: "d1", TeamID: "team-1", AppID: "1", AppSlug: "alpha", Hostname: "alpha.example.com", Kind: strPtr("primary"), Verified: true},
+			{ID: "d2", TeamID: "team-1", AppID: "1", AppSlug: "alpha", Hostname: "www.alpha.example.com", Kind: strPtr("extra"), Verified: false},
+		},
+		deploys: []db.DeployRun{
+			{
+				ID:      "deploy-1",
+				TeamID:  "team-1",
+				AppID:   "1",
+				AppSlug: "alpha",
+				Status:  "succeeded",
+				LogLines: []db.DeployLogLine{
+					{Timestamp: time.Now().UTC().Add(-time.Minute), Message: "build started"},
+					{Timestamp: time.Now().UTC(), Message: "deploy succeeded"},
+				},
+			},
 		},
 		memberRows: []db.Member{{UserID: "user-1", GithubLogin: strPtr("owner"), Role: "owner"}},
 		previews:   map[string]db.Preview{},

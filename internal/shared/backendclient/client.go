@@ -99,6 +99,66 @@ func (c *Client) GetApp(ctx context.Context, teamSlug, appSlug string) (dto.AppR
 	return out, nil
 }
 
+func (c *Client) InspectRepo(ctx context.Context, teamSlug, appSlug string) (dto.RepoInspectResponse, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/repos/" + url.PathEscape(appSlug) + ":inspect"
+	var out dto.RepoInspectResponse
+	if err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &out); err != nil {
+		return dto.RepoInspectResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) GetDeployStatus(ctx context.Context, teamSlug, appSlug string) (dto.DeployStatusResponse, error) {
+	endpoint, err := url.Parse(c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/deploys/status")
+	if err != nil {
+		return dto.DeployStatusResponse{}, err
+	}
+	q := endpoint.Query()
+	q.Set("app_slug", appSlug)
+	endpoint.RawQuery = q.Encode()
+
+	var out dto.DeployStatusResponse
+	if err := c.doJSON(ctx, http.MethodGet, endpoint.String(), nil, &out); err != nil {
+		return dto.DeployStatusResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) TailLogs(ctx context.Context, teamSlug, appSlug string, limit int) (dto.TailLogsResponse, error) {
+	endpoint, err := url.Parse(c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/deploys/logs")
+	if err != nil {
+		return dto.TailLogsResponse{}, err
+	}
+	q := endpoint.Query()
+	q.Set("app_slug", appSlug)
+	if limit > 0 {
+		q.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	endpoint.RawQuery = q.Encode()
+
+	var out dto.TailLogsResponse
+	if err := c.doJSON(ctx, http.MethodGet, endpoint.String(), nil, &out); err != nil {
+		return dto.TailLogsResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) ListDomains(ctx context.Context, teamSlug, appSlug string) (dto.ListDomainsResponse, error) {
+	endpoint, err := url.Parse(c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/domains")
+	if err != nil {
+		return dto.ListDomainsResponse{}, err
+	}
+	q := endpoint.Query()
+	q.Set("app_slug", appSlug)
+	endpoint.RawQuery = q.Encode()
+
+	var out dto.ListDomainsResponse
+	if err := c.doJSON(ctx, http.MethodGet, endpoint.String(), nil, &out); err != nil {
+		return dto.ListDomainsResponse{}, err
+	}
+	return out, nil
+}
+
 // ListTeams fetches the current actor's teams.
 func (c *Client) ListTeams(ctx context.Context) (dto.ListTeamsResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/v1/me/teams", nil)

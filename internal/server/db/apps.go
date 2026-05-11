@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -233,6 +234,181 @@ WHERE team_id = $1
 		CreatedAt:         row.CreatedAt.Time,
 		UpdatedAt:         row.UpdatedAt.Time,
 	}, nil
+}
+
+// ListDomainsByAppSlug returns domains for a team app.
+func (r *Repository) ListDomainsByAppSlug(ctx context.Context, teamID string, appSlug string) ([]DomainBinding, error) {
+	parsedTeamID, err := parseUUID(teamID)
+	if err != nil {
+		return nil, fmt.Errorf("parse team id: %w", err)
+	}
+
+	rows, err := r.pool.Query(ctx, `
+SELECT
+  d.id,
+  d.team_id,
+  d.app_id,
+  a.slug,
+  d.hostname,
+  d.kind,
+  d.verified,
+  d.expires_at,
+  d.verified_at
+FROM domain_binding d
+JOIN app a ON a.id = d.app_id
+WHERE d.team_id = $1
+  AND a.slug = $2
+ORDER BY d.hostname
+`, parsedTeamID, appSlug)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]DomainBinding, 0)
+	for rows.Next() {
+		var row struct {
+			ID         pgtype.UUID
+			TeamID     pgtype.UUID
+			AppID      pgtype.UUID
+			AppSlug    string
+			Hostname   string
+			Kind       pgtype.Text
+			Verified   bool
+			ExpiresAt  pgtype.Timestamptz
+			VerifiedAt pgtype.Timestamptz
+		}
+		if err := rows.Scan(
+			&row.ID,
+			&row.TeamID,
+			&row.AppID,
+			&row.AppSlug,
+			&row.Hostname,
+			&row.Kind,
+			&row.Verified,
+			&row.ExpiresAt,
+			&row.VerifiedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, DomainBinding{
+			ID:         row.ID.String(),
+			TeamID:     row.TeamID.String(),
+			AppID:      row.AppID.String(),
+			AppSlug:    row.AppSlug,
+			Hostname:   row.Hostname,
+			Kind:       textPtr(row.Kind),
+			Verified:   row.Verified,
+			ExpiresAt:  timestamptzPtr(row.ExpiresAt),
+			VerifiedAt: timestamptzPtr(row.VerifiedAt),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
+// GetLatestDeployByAppSlug returns latest deploy status for a team app.
+func (r *Repository) GetLatestDeployByAppSlug(ctx context.Context, teamID string, appSlug string) (DeployRun, error) {
+	parsedTeamID, err := parseUUID(teamID)
+	if err != nil {
+		return DeployRun{}, fmt.Errorf("parse team id: %w", err)
+	}
+
+	var row struct {
+		ID           pgtype.UUID
+		TeamID       pgtype.UUID
+		AppID        pgtype.UUID
+		AppSlug      string
+		Status       string
+		CommitSHA    pgtype.Text
+		Ref          pgtype.Text
+		ErrorSummary pgtype.Text
+		StartedAt    pgtype.Timestamptz
+		FinishedAt   pgtype.Timestamptz
+		Events       []byte
+	}
+	err = r.pool.QueryRow(ctx, `
+SELECT
+  dr.id,
+  dr.team_id,
+  dr.app_id,
+  a.slug,
+  dr.status,
+  dr.commit_sha,
+  dr.ref,
+  dr.error_summary,
+  dr.started_at,
+  dr.finished_at,
+  dr.events
+FROM deploy_run dr
+JOIN app a ON a.id = dr.app_id
+WHERE dr.team_id = $1
+  AND a.slug = $2
+ORDER BY dr.started_at DESC NULLS LAST, dr.id DESC
+LIMIT 1
+`, parsedTeamID, appSlug).Scan(
+		&row.ID,
+		&row.TeamID,
+		&row.AppID,
+		&row.AppSlug,
+		&row.Status,
+		&row.CommitSHA,
+		&row.Ref,
+		&row.ErrorSummary,
+		&row.StartedAt,
+		&row.FinishedAt,
+		&row.Events,
+	)
+	if err != nil {
+		return DeployRun{}, err
+	}
+
+	out := DeployRun{
+		ID:           row.ID.String(),
+		TeamID:       row.TeamID.String(),
+		AppID:        row.AppID.String(),
+		AppSlug:      row.AppSlug,
+		Status:       row.Status,
+		CommitSHA:    textPtr(row.CommitSHA),
+		Ref:          textPtr(row.Ref),
+		ErrorSummary: textPtr(row.ErrorSummary),
+		StartedAt:    timestamptzPtr(row.StartedAt),
+		FinishedAt:   timestamptzPtr(row.FinishedAt),
+	}
+	if len(row.Events) > 0 {
+		var events []struct {
+			Timestamp *time.Time `json:"timestamp"`
+			Message   string     `json:"message"`
+		}
+		if err := json.Unmarshal(row.Events, &events); err == nil {
+			for _, event := range events {
+				if event.Timestamp == nil || event.Message == "" {
+					continue
+				}
+				out.LogLines = append(out.LogLines, DeployLogLine{
+					Timestamp: *event.Timestamp,
+					Message:   event.Message,
+				})
+			}
+		}
+	}
+
+	return out, nil
+}
+
+// ListDeployLogLines returns latest deploy logs for a team app.
+func (r *Repository) ListDeployLogLines(ctx context.Context, teamID string, appSlug string, limit int) ([]DeployLogLine, error) {
+	deploy, err := r.GetLatestDeployByAppSlug(ctx, teamID, appSlug)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > len(deploy.LogLines) {
+		limit = len(deploy.LogLines)
+	}
+	return append([]DeployLogLine(nil), deploy.LogLines[:limit]...), nil
 }
 
 // FindCliTokenByHash loads a token by hash.
