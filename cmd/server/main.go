@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -39,6 +40,7 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
+	r.Use(requestTrace(logger))
 	r.Use(middleware.Recoverer)
 	r.Use(metrics.Middleware(routeLabel))
 
@@ -70,6 +72,31 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("graceful shutdown failed", "err", err)
 		os.Exit(1)
+	}
+}
+
+func requestTrace(logger *slog.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			traceID := middleware.GetReqID(r.Context())
+			if traceID == "" {
+				traceID = r.Header.Get("X-Request-ID")
+			}
+			traceID = strings.TrimSpace(traceID)
+			if traceID == "" {
+				traceID = "trace-missing"
+			}
+			w.Header().Set("X-Trace-ID", traceID)
+
+			start := time.Now()
+			next.ServeHTTP(w, r)
+			logger.Info("http request completed",
+				"trace_id", traceID,
+				"method", r.Method,
+				"path", r.URL.Path,
+				"duration_ms", time.Since(start).Milliseconds(),
+			)
+		})
 	}
 }
 

@@ -23,6 +23,9 @@ type appsStore interface {
 	auth.Store
 	ListTeamApps(ctx context.Context, teamID string, limit int32, afterID *string) ([]db.App, error)
 	GetTeamAppBySlug(ctx context.Context, teamID string, slug string) (db.App, error)
+	ListDomainsByAppSlug(ctx context.Context, teamID string, appSlug string) ([]db.DomainBinding, error)
+	GetLatestDeployByAppSlug(ctx context.Context, teamID string, appSlug string) (db.DeployRun, error)
+	ListDeployLogLines(ctx context.Context, teamID string, appSlug string, limit int) ([]db.DeployLogLine, error)
 	HasAnyOwner(ctx context.Context) (bool, error)
 	BootstrapOwner(ctx context.Context, params db.BootstrapOwnerParams) (teamID string, userID string, err error)
 	ListTeamMembers(ctx context.Context, teamID string) ([]db.Member, error)
@@ -112,6 +115,127 @@ func getAppHandler(store appsStore) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(newAppRef(row))
+	}
+}
+
+func inspectRepoHandler(store appsStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		appSlug := chi.URLParam(r, "app_slug")
+		row, err := store.GetTeamAppBySlug(r.Context(), auth.TeamID(r.Context()), appSlug)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				apperror.Write(w, "app_not_found", apperror.ClassNotFound, "app not found", map[string]any{"app_slug": appSlug})
+				return
+			}
+			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to inspect repo", nil)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(dto.RepoInspectResponse{
+			AppSlug:           row.Slug,
+			RepoURL:           row.RepoURL,
+			RepoDefaultBranch: row.RepoDefaultBranch,
+			Builder:           row.Builder,
+		})
+	}
+}
+
+func getDeployStatusHandler(store appsStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		appSlug := r.URL.Query().Get("app_slug")
+		if appSlug == "" {
+			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "app_slug is required", map[string]any{"field": "app_slug"})
+			return
+		}
+
+		row, err := store.GetLatestDeployByAppSlug(r.Context(), auth.TeamID(r.Context()), appSlug)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				apperror.Write(w, "deploy_not_found", apperror.ClassNotFound, "deploy not found", map[string]any{"app_slug": appSlug})
+				return
+			}
+			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to get deploy status", nil)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(dto.DeployStatusResponse{
+			DeployID:     row.ID,
+			AppSlug:      row.AppSlug,
+			Status:       row.Status,
+			CommitSHA:    row.CommitSHA,
+			Ref:          row.Ref,
+			ErrorSummary: row.ErrorSummary,
+			StartedAt:    row.StartedAt,
+			FinishedAt:   row.FinishedAt,
+		})
+	}
+}
+
+func tailLogsHandler(store appsStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		appSlug := r.URL.Query().Get("app_slug")
+		if appSlug == "" {
+			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "app_slug is required", map[string]any{"field": "app_slug"})
+			return
+		}
+		limit := 100
+		if raw := r.URL.Query().Get("limit"); raw != "" {
+			n, err := strconv.Atoi(raw)
+			if err != nil || n < 1 || n > 1000 {
+				apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "invalid limit", map[string]any{"field": "limit"})
+				return
+			}
+			limit = n
+		}
+
+		rows, err := store.ListDeployLogLines(r.Context(), auth.TeamID(r.Context()), appSlug, limit)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				apperror.Write(w, "deploy_not_found", apperror.ClassNotFound, "deploy not found", map[string]any{"app_slug": appSlug})
+				return
+			}
+			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to tail logs", nil)
+			return
+		}
+
+		items := make([]dto.LogLine, 0, len(rows))
+		for _, row := range rows {
+			items = append(items, dto.LogLine{Timestamp: row.Timestamp, Message: row.Message})
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(dto.TailLogsResponse{Items: items})
+	}
+}
+
+func listDomainsHandler(store appsStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		appSlug := r.URL.Query().Get("app_slug")
+		if appSlug == "" {
+			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "app_slug is required", map[string]any{"field": "app_slug"})
+			return
+		}
+
+		rows, err := store.ListDomainsByAppSlug(r.Context(), auth.TeamID(r.Context()), appSlug)
+		if err != nil {
+			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to list domains", nil)
+			return
+		}
+		items := make([]dto.DomainRef, 0, len(rows))
+		for _, row := range rows {
+			items = append(items, dto.DomainRef{
+				Hostname:   row.Hostname,
+				Kind:       row.Kind,
+				Verified:   row.Verified,
+				VerifiedAt: row.VerifiedAt,
+				ExpiresAt:  row.ExpiresAt,
+			})
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(dto.ListDomainsResponse{Items: items})
 	}
 }
 
@@ -335,6 +459,18 @@ func NewRouter(store routerStore) http.Handler {
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionListApps, next)
 		}).Get("/apps/{app_slug}", getAppHandler(store))
+		sr.With(func(next http.Handler) http.Handler {
+			return mw.CheckTokenScope(rbac.ActionListApps, next)
+		}).Get("/repos/{app_slug}:inspect", inspectRepoHandler(store))
+		sr.With(func(next http.Handler) http.Handler {
+			return mw.CheckTokenScope(rbac.ActionListApps, next)
+		}).Get("/deploys/status", getDeployStatusHandler(store))
+		sr.With(func(next http.Handler) http.Handler {
+			return mw.CheckTokenScope(rbac.ActionListApps, next)
+		}).Get("/deploys/logs", tailLogsHandler(store))
+		sr.With(func(next http.Handler) http.Handler {
+			return mw.CheckTokenScope(rbac.ActionListApps, next)
+		}).Get("/domains", listDomainsHandler(store))
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionListMembers, next)
 		}).Get("/members", listMembersHandler(store))

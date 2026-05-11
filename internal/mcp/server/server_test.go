@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -84,11 +83,52 @@ func TestListMembersTool(t *testing.T) {
 	<-errCh
 }
 
+func TestReadVerticalSliceTools(t *testing.T) {
+	store, token := newMCPFakeStore()
+	backend := httptest.NewServer(serverpkg.NewRouter(store))
+	t.Cleanup(backend.Close)
+	t.Setenv("OPS_HOST", backend.URL)
+	t.Setenv("OPS_BEARER_TOKEN", token)
+
+	srv := New(slog.Default())
+	sTransport, cTransport := mcp.NewInMemoryTransports()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.Run(ctx, sTransport) }()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil)
+	session, err := client.Connect(ctx, cTransport, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	_, err = session.CallTool(ctx, &mcp.CallToolParams{Name: "inspect_repo", Arguments: map[string]any{"team_slug": store.team.Slug, "app_slug": "alpha"}})
+	if err != nil {
+		t.Fatalf("inspect_repo: %v", err)
+	}
+	_, err = session.CallTool(ctx, &mcp.CallToolParams{Name: "get_deploy_status", Arguments: map[string]any{"team_slug": store.team.Slug, "app_slug": "alpha"}})
+	if err != nil {
+		t.Fatalf("get_deploy_status: %v", err)
+	}
+	_, err = session.CallTool(ctx, &mcp.CallToolParams{Name: "tail_logs", Arguments: map[string]any{"team_slug": store.team.Slug, "app_slug": "alpha", "limit": 10}})
+	if err != nil {
+		t.Fatalf("tail_logs: %v", err)
+	}
+	_, err = session.CallTool(ctx, &mcp.CallToolParams{Name: "list_domains", Arguments: map[string]any{"team_slug": store.team.Slug, "app_slug": "alpha"}})
+	if err != nil {
+		t.Fatalf("list_domains: %v", err)
+	}
+	cancel()
+	<-errCh
+}
+
 type mcpFakeStore struct {
 	token      db.CliToken
 	team       db.Team
 	role       string
 	apps       []db.App
+	domains    []db.DomainBinding
+	deploys    []db.DeployRun
 	memberRows []db.Member
 	members    bool
 }
@@ -125,6 +165,30 @@ func (f mcpFakeStore) GetTeamAppBySlug(ctx context.Context, teamID string, slug 
 	}
 	return db.App{}, pgx.ErrNoRows
 }
+func (f mcpFakeStore) ListDomainsByAppSlug(ctx context.Context, teamID string, appSlug string) ([]db.DomainBinding, error) {
+	out := make([]db.DomainBinding, 0)
+	for _, item := range f.domains {
+		if item.AppSlug == appSlug {
+			out = append(out, item)
+		}
+	}
+	return out, nil
+}
+func (f mcpFakeStore) GetLatestDeployByAppSlug(ctx context.Context, teamID string, appSlug string) (db.DeployRun, error) {
+	for _, row := range f.deploys {
+		if row.AppSlug == appSlug {
+			return row, nil
+		}
+	}
+	return db.DeployRun{}, pgx.ErrNoRows
+}
+func (f mcpFakeStore) ListDeployLogLines(ctx context.Context, teamID string, appSlug string, limit int) ([]db.DeployLogLine, error) {
+	row, err := f.GetLatestDeployByAppSlug(ctx, teamID, appSlug)
+	if err != nil {
+		return nil, err
+	}
+	return append([]db.DeployLogLine(nil), row.LogLines...), nil
+}
 func (f mcpFakeStore) HasAnyOwner(ctx context.Context) (bool, error) { return false, nil }
 func (f mcpFakeStore) BootstrapOwner(ctx context.Context, params db.BootstrapOwnerParams) (string, string, error) {
 	return "team-bootstrap", "user-bootstrap", nil
@@ -153,24 +217,21 @@ func newMCPFakeStore() (mcpFakeStore, string) {
 		token: db.CliToken{ID: "token-1", OwnerUserID: "user-1", TeamID: "team-1", TokenHash: auth.HashBearerToken(token), Scopes: []string{"apps:read", "teams:read", "members:manage"}},
 		team:  db.Team{ID: "team-1", Slug: "acme", Name: "Acme", Plan: "starter"},
 		role:  "admin", members: true,
-		apps:       []db.App{{ID: "1", TeamID: "team-1", Slug: "alpha"}, {ID: "2", TeamID: "team-1", Slug: "beta"}},
+		apps:    []db.App{{ID: "1", TeamID: "team-1", Slug: "alpha"}, {ID: "2", TeamID: "team-1", Slug: "beta"}},
+		domains: []db.DomainBinding{{ID: "d1", TeamID: "team-1", AppID: "1", AppSlug: "alpha", Hostname: "alpha.example.com", Kind: strPtr("primary"), Verified: true}},
+		deploys: []db.DeployRun{{
+			ID:      "deploy-1",
+			TeamID:  "team-1",
+			AppID:   "1",
+			AppSlug: "alpha",
+			Status:  "succeeded",
+			LogLines: []db.DeployLogLine{
+				{Timestamp: time.Now().UTC().Add(-time.Minute), Message: "build started"},
+				{Timestamp: time.Now().UTC(), Message: "deploy succeeded"},
+			},
+		}},
 		memberRows: []db.Member{{UserID: "user-1", GithubLogin: strPtr("owner"), Role: "owner"}},
 	}, token
 }
 
 func strPtr(v string) *string { return &v }
-
-func writeMCPAuthFile(t *testing.T, host, token string) {
-	t.Helper()
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
-	path := filepath.Join(dir, "0ops")
-	if err := os.MkdirAll(path, 0o700); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
-	}
-	payload := map[string]any{"version": 1, "tokens": []map[string]any{{"host": host, "bearer_token": token}}}
-	data, _ := json.Marshal(payload)
-	if err := os.WriteFile(filepath.Join(path, "auth.json"), data, 0o600); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
-}

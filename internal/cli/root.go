@@ -28,6 +28,9 @@ func NewRootCommand() *cobra.Command {
 	root.Version = shared.Version
 	root.SetVersionTemplate("0ops {{.Version}}\n")
 	root.AddCommand(newAppsCommand())
+	root.AddCommand(newRepoCommand())
+	root.AddCommand(newDeploysCommand())
+	root.AddCommand(newDomainsCommand())
 	root.AddCommand(newTeamsCommand())
 	root.AddCommand(newMembersCommand())
 	root.AddCommand(newAdminCommand())
@@ -180,6 +183,136 @@ func renderApp(cmd *cobra.Command, out dto.AppRef, outputFmt string) error {
 	}
 }
 
+func newRepoCommand() *cobra.Command {
+	var (
+		teamSlug  string
+		baseURL   string
+		token     string
+		outputFmt string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "repo",
+		Short: "Inspect repo metadata",
+	}
+	cmd.PersistentFlags().StringVar(&teamSlug, "team", "", "team slug")
+	cmd.PersistentFlags().StringVar(&baseURL, "host", "", "backend host")
+	cmd.PersistentFlags().StringVar(&token, "token", "", "bearer token")
+	cmd.PersistentFlags().StringVar(&outputFmt, "output", envOr("OPS_OUTPUT", "table"), "output format")
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "inspect <app-slug>",
+		Short: "Inspect app repo metadata",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctxInfo, err := resolveAppsContext(teamSlug, baseURL, token)
+			if err != nil {
+				return err
+			}
+			out, err := backendclient.New(ctxInfo.Host, ctxInfo.BearerToken).InspectRepo(commandContext(cmd), ctxInfo.TeamSlug, args[0])
+			if err != nil {
+				return err
+			}
+			return renderRepoInspect(cmd, out, outputFmt)
+		},
+	})
+
+	return cmd
+}
+
+func newDeploysCommand() *cobra.Command {
+	var (
+		teamSlug  string
+		baseURL   string
+		token     string
+		outputFmt string
+		logLimit  int
+	)
+
+	cmd := &cobra.Command{
+		Use:   "deploys",
+		Short: "Inspect deploy state and logs",
+	}
+	cmd.PersistentFlags().StringVar(&teamSlug, "team", "", "team slug")
+	cmd.PersistentFlags().StringVar(&baseURL, "host", "", "backend host")
+	cmd.PersistentFlags().StringVar(&token, "token", "", "bearer token")
+	cmd.PersistentFlags().StringVar(&outputFmt, "output", envOr("OPS_OUTPUT", "table"), "output format")
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "status <app-slug>",
+		Short: "Get latest deploy status",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctxInfo, err := resolveAppsContext(teamSlug, baseURL, token)
+			if err != nil {
+				return err
+			}
+			out, err := backendclient.New(ctxInfo.Host, ctxInfo.BearerToken).GetDeployStatus(commandContext(cmd), ctxInfo.TeamSlug, args[0])
+			if err != nil {
+				return err
+			}
+			return renderDeployStatus(cmd, out, outputFmt)
+		},
+	})
+	logsCmd := &cobra.Command{
+		Use:   "logs <app-slug>",
+		Short: "Tail latest deploy logs",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctxInfo, err := resolveAppsContext(teamSlug, baseURL, token)
+			if err != nil {
+				return err
+			}
+			out, err := backendclient.New(ctxInfo.Host, ctxInfo.BearerToken).TailLogs(commandContext(cmd), ctxInfo.TeamSlug, args[0], logLimit)
+			if err != nil {
+				return err
+			}
+			return renderTailLogs(cmd, out, outputFmt)
+		},
+	}
+	logsCmd.Flags().IntVar(&logLimit, "limit", 100, "max log lines")
+	cmd.AddCommand(logsCmd)
+
+	return cmd
+}
+
+func newDomainsCommand() *cobra.Command {
+	var (
+		teamSlug  string
+		baseURL   string
+		token     string
+		outputFmt string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "domains",
+		Short: "List app domains",
+	}
+	cmd.PersistentFlags().StringVar(&teamSlug, "team", "", "team slug")
+	cmd.PersistentFlags().StringVar(&baseURL, "host", "", "backend host")
+	cmd.PersistentFlags().StringVar(&token, "token", "", "bearer token")
+	cmd.PersistentFlags().StringVar(&outputFmt, "output", envOr("OPS_OUTPUT", "table"), "output format")
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "list <app-slug>",
+		Short: "List domains for app",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctxInfo, err := resolveAppsContext(teamSlug, baseURL, token)
+			if err != nil {
+				return err
+			}
+			out, err := backendclient.New(ctxInfo.Host, ctxInfo.BearerToken).ListDomains(commandContext(cmd), ctxInfo.TeamSlug, args[0])
+			if err != nil {
+				return err
+			}
+			return renderDomains(cmd, out, outputFmt)
+		},
+	})
+
+	return cmd
+}
+
 func newTeamsCommand() *cobra.Command {
 	var (
 		baseURL   string
@@ -257,6 +390,124 @@ func renderTeams(cmd *cobra.Command, out dto.ListTeamsResponse, outputFmt string
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 		for _, item := range out.Items {
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", item.TeamSlug, item.TeamName, item.Role, item.Plan)
+		}
+		return w.Flush()
+	default:
+		return fmt.Errorf("unsupported output format %q", outputFmt)
+	}
+}
+
+func renderRepoInspect(cmd *cobra.Command, out dto.RepoInspectResponse, outputFmt string) error {
+	switch strings.ToLower(outputFmt) {
+	case "json":
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(out)
+	case "yaml":
+		data, err := yaml.Marshal(out)
+		if err != nil {
+			return err
+		}
+		_, err = cmd.OutOrStdout().Write(data)
+		return err
+	case "table":
+		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+		fmt.Fprintf(w, "app_slug\t%s\n", out.AppSlug)
+		fmt.Fprintf(w, "repo_url\t%s\n", strOrDash(out.RepoURL))
+		fmt.Fprintf(w, "repo_default_branch\t%s\n", strOrDash(out.RepoDefaultBranch))
+		fmt.Fprintf(w, "builder\t%s\n", strOrDash(out.Builder))
+		return w.Flush()
+	default:
+		return fmt.Errorf("unsupported output format %q", outputFmt)
+	}
+}
+
+func renderDeployStatus(cmd *cobra.Command, out dto.DeployStatusResponse, outputFmt string) error {
+	switch strings.ToLower(outputFmt) {
+	case "json":
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(out)
+	case "yaml":
+		data, err := yaml.Marshal(out)
+		if err != nil {
+			return err
+		}
+		_, err = cmd.OutOrStdout().Write(data)
+		return err
+	case "table":
+		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+		fmt.Fprintf(w, "deploy_id\t%s\n", out.DeployID)
+		fmt.Fprintf(w, "app_slug\t%s\n", out.AppSlug)
+		fmt.Fprintf(w, "status\t%s\n", out.Status)
+		fmt.Fprintf(w, "commit_sha\t%s\n", strOrDash(out.CommitSHA))
+		fmt.Fprintf(w, "ref\t%s\n", strOrDash(out.Ref))
+		fmt.Fprintf(w, "error_summary\t%s\n", strOrDash(out.ErrorSummary))
+		if out.StartedAt != nil {
+			fmt.Fprintf(w, "started_at\t%s\n", out.StartedAt.Format(time.RFC3339))
+		} else {
+			fmt.Fprintf(w, "started_at\t-\n")
+		}
+		if out.FinishedAt != nil {
+			fmt.Fprintf(w, "finished_at\t%s\n", out.FinishedAt.Format(time.RFC3339))
+		} else {
+			fmt.Fprintf(w, "finished_at\t-\n")
+		}
+		return w.Flush()
+	default:
+		return fmt.Errorf("unsupported output format %q", outputFmt)
+	}
+}
+
+func renderTailLogs(cmd *cobra.Command, out dto.TailLogsResponse, outputFmt string) error {
+	switch strings.ToLower(outputFmt) {
+	case "json":
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(out)
+	case "yaml":
+		data, err := yaml.Marshal(out)
+		if err != nil {
+			return err
+		}
+		_, err = cmd.OutOrStdout().Write(data)
+		return err
+	case "table":
+		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+		for _, item := range out.Items {
+			fmt.Fprintf(w, "%s\t%s\n", item.Timestamp.Format(time.RFC3339), item.Message)
+		}
+		return w.Flush()
+	default:
+		return fmt.Errorf("unsupported output format %q", outputFmt)
+	}
+}
+
+func renderDomains(cmd *cobra.Command, out dto.ListDomainsResponse, outputFmt string) error {
+	switch strings.ToLower(outputFmt) {
+	case "json":
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(out)
+	case "yaml":
+		data, err := yaml.Marshal(out)
+		if err != nil {
+			return err
+		}
+		_, err = cmd.OutOrStdout().Write(data)
+		return err
+	case "table":
+		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+		for _, item := range out.Items {
+			kind := "-"
+			if item.Kind != nil {
+				kind = *item.Kind
+			}
+			verifiedAt := "-"
+			if item.VerifiedAt != nil {
+				verifiedAt = item.VerifiedAt.Format(time.RFC3339)
+			}
+			fmt.Fprintf(w, "%s\t%s\t%t\t%s\n", item.Hostname, kind, item.Verified, verifiedAt)
 		}
 		return w.Flush()
 	default:

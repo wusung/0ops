@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -23,6 +21,8 @@ type cliFakeStore struct {
 	team    db.Team
 	role    string
 	apps    []db.App
+	domains []db.DomainBinding
+	deploys []db.DeployRun
 	members bool
 }
 
@@ -60,6 +60,30 @@ func (f cliFakeStore) GetTeamAppBySlug(ctx context.Context, teamID string, slug 
 		}
 	}
 	return db.App{}, pgx.ErrNoRows
+}
+func (f cliFakeStore) ListDomainsByAppSlug(ctx context.Context, teamID string, appSlug string) ([]db.DomainBinding, error) {
+	out := make([]db.DomainBinding, 0)
+	for _, item := range f.domains {
+		if item.AppSlug == appSlug {
+			out = append(out, item)
+		}
+	}
+	return out, nil
+}
+func (f cliFakeStore) GetLatestDeployByAppSlug(ctx context.Context, teamID string, appSlug string) (db.DeployRun, error) {
+	for _, row := range f.deploys {
+		if row.AppSlug == appSlug {
+			return row, nil
+		}
+	}
+	return db.DeployRun{}, pgx.ErrNoRows
+}
+func (f cliFakeStore) ListDeployLogLines(ctx context.Context, teamID string, appSlug string, limit int) ([]db.DeployLogLine, error) {
+	row, err := f.GetLatestDeployByAppSlug(ctx, teamID, appSlug)
+	if err != nil {
+		return nil, err
+	}
+	return append([]db.DeployLogLine(nil), row.LogLines...), nil
 }
 func (f cliFakeStore) HasAnyOwner(ctx context.Context) (bool, error) { return false, nil }
 func (f cliFakeStore) BootstrapOwner(ctx context.Context, params db.BootstrapOwnerParams) (string, string, error) {
@@ -111,6 +135,58 @@ func TestAppsGetCommand(t *testing.T) {
 	}
 }
 
+func TestRepoInspectCommand(t *testing.T) {
+	store, token := newCLIFakeStore()
+	srv := httptest.NewServer(serverpkg.NewRouter(store))
+	t.Cleanup(srv.Close)
+	cmd := NewRootCommand()
+	cmd.SetArgs([]string{"repo", "inspect", "alpha", "--team", store.team.Slug, "--host", srv.URL, "--token", token, "--output", "json"})
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+}
+
+func TestDeploysStatusAndLogsCommand(t *testing.T) {
+	store, token := newCLIFakeStore()
+	srv := httptest.NewServer(serverpkg.NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	statusCmd := NewRootCommand()
+	statusCmd.SetArgs([]string{"deploys", "status", "alpha", "--team", store.team.Slug, "--host", srv.URL, "--token", token, "--output", "json"})
+	var statusOut bytes.Buffer
+	statusCmd.SetOut(&statusOut)
+	statusCmd.SetErr(&statusOut)
+	if err := statusCmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("status Execute() error = %v", err)
+	}
+
+	logsCmd := NewRootCommand()
+	logsCmd.SetArgs([]string{"deploys", "logs", "alpha", "--team", store.team.Slug, "--host", srv.URL, "--token", token, "--output", "json"})
+	var logsOut bytes.Buffer
+	logsCmd.SetOut(&logsOut)
+	logsCmd.SetErr(&logsOut)
+	if err := logsCmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("logs Execute() error = %v", err)
+	}
+}
+
+func TestDomainsListCommand(t *testing.T) {
+	store, token := newCLIFakeStore()
+	srv := httptest.NewServer(serverpkg.NewRouter(store))
+	t.Cleanup(srv.Close)
+	cmd := NewRootCommand()
+	cmd.SetArgs([]string{"domains", "list", "alpha", "--team", store.team.Slug, "--host", srv.URL, "--token", token, "--output", "json"})
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+}
+
 func TestMembersListCommand(t *testing.T) {
 	store, token := newCLIFakeStore()
 	srv := httptest.NewServer(serverpkg.NewRouter(store))
@@ -149,25 +225,23 @@ func newCLIFakeStore() (cliFakeStore, string) {
 			{ID: "1", TeamID: "team-1", Slug: "alpha", Name: strPtr("Alpha"), CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
 			{ID: "2", TeamID: "team-1", Slug: "beta", Name: strPtr("Beta"), CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
 		},
+		domains: []db.DomainBinding{
+			{ID: "d1", TeamID: "team-1", AppID: "1", AppSlug: "alpha", Hostname: "alpha.example.com", Kind: strPtr("primary"), Verified: true},
+		},
+		deploys: []db.DeployRun{
+			{
+				ID:      "deploy-1",
+				TeamID:  "team-1",
+				AppID:   "1",
+				AppSlug: "alpha",
+				Status:  "succeeded",
+				LogLines: []db.DeployLogLine{
+					{Timestamp: time.Now().UTC().Add(-time.Minute), Message: "build started"},
+					{Timestamp: time.Now().UTC(), Message: "deploy succeeded"},
+				},
+			},
+		},
 	}, token
 }
 
 func strPtr(v string) *string { return &v }
-
-func writeAuthFile(t *testing.T, host, token, team string) {
-	t.Helper()
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
-	path := filepath.Join(dir, "0ops")
-	if err := os.MkdirAll(path, 0o700); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
-	}
-	payload := map[string]any{"version": 1, "tokens": []map[string]any{{"host": host, "default_team_slug": team, "bearer_token": token}}}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatalf("json.Marshal() error = %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(path, "auth.json"), data, 0o600); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
-}
