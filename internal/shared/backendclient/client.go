@@ -338,6 +338,11 @@ func (c *Client) ConfirmGitHubInstall(ctx context.Context, teamSlug, previewID s
 	return out, nil
 }
 
+func (c *Client) UninstallGitHubApp(ctx context.Context, teamSlug string) error {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/github:uninstall"
+	return c.doJSON(ctx, http.MethodPost, endpoint, nil, nil)
+}
+
 func (c *Client) httpClient() *http.Client {
 	if c.HTTP != nil {
 		return c.HTTP

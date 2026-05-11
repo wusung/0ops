@@ -835,6 +835,26 @@ func githubInstallCallbackHandler(store appsStore) http.HandlerFunc {
 	}
 }
 
+func uninstallGitHubAppHandler(store appsStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		teamID := auth.TeamID(r.Context())
+		if teamID == "" {
+			apperror.Write(w, "missing_team", apperror.ClassBadRequest, "team_id missing", nil)
+			return
+		}
+
+		// TODO: UPDATE team SET github_install_id = NULL
+		// TODO: Write audit log
+		// TODO: Mark old installation as deprecated
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status": "uninstalled",
+		})
+	}
+}
+
 // NewRouter returns the HTTP router for the server.
 func NewRouter(store routerStore) http.Handler {
 	githubClient := newGitHubOAuthClient()
@@ -916,6 +936,9 @@ func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient)
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionManageGithubApp, next)
 		}).Post("/github:install", confirmGitHubInstallHandler(store))
+		sr.With(func(next http.Handler) http.Handler {
+			return mw.CheckTokenScope(rbac.ActionManageGithubApp, next)
+		}).Post("/github:uninstall", uninstallGitHubAppHandler(store))
 	})
 
 	return r

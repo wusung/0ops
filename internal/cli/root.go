@@ -413,6 +413,32 @@ func newTeamsCommand() *cobra.Command {
 		},
 	})
 
+	githubCmd.AddCommand(&cobra.Command{
+		Use:   "uninstall",
+		Short: "Uninstall GitHub App from the team",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctxInfo, err := resolveAppsContext("", baseURL, token)
+			if err != nil {
+				return err
+			}
+
+			ctx := cmd.Context()
+			if ctx == nil {
+				ctx = context.Background()
+			}
+
+			client := backendclient.New(ctxInfo.Host, ctxInfo.BearerToken)
+
+			// Call backend to uninstall
+			if err := client.UninstallGitHubApp(ctx, ctxInfo.TeamSlug); err != nil {
+				return fmt.Errorf("uninstall failed: %w", err)
+			}
+
+			fmt.Printf("GitHub App uninstalled from team %s\n", ctxInfo.TeamSlug)
+			return nil
+		},
+	})
+
 	cmd.AddCommand(githubCmd)
 
 	return cmd
