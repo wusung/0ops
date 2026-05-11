@@ -2,6 +2,8 @@ package db
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -426,6 +428,80 @@ func (r *Repository) FindCliTokenByHash(ctx context.Context, tokenHash string) (
 		Scopes:      append([]string(nil), row.Scopes...),
 		RevokedAt:   timestamptzPtr(row.RevokedAt),
 	}, nil
+}
+
+// ResolveUserDefaultTeamByGithubLogin resolves a user and one of their team memberships.
+func (r *Repository) ResolveUserDefaultTeamByGithubLogin(ctx context.Context, githubLogin string) (string, string, string, error) {
+	var (
+		userID pgtype.UUID
+		teamID pgtype.UUID
+		slug   string
+	)
+	err := r.pool.QueryRow(ctx, `
+SELECT ua.id, t.id, t.slug
+FROM user_account ua
+JOIN team_membership tm ON tm.user_id = ua.id
+JOIN team t ON t.id = tm.team_id
+WHERE ua.github_login = $1
+ORDER BY CASE tm.role
+  WHEN 'owner' THEN 0
+  WHEN 'admin' THEN 1
+  WHEN 'member' THEN 2
+  ELSE 3
+END, t.slug
+LIMIT 1
+`, githubLogin).Scan(&userID, &teamID, &slug)
+	if err != nil {
+		return "", "", "", err
+	}
+	return userID.String(), teamID.String(), slug, nil
+}
+
+// CreateCLIToken creates a new CLI bearer token and stores only its hash.
+func (r *Repository) CreateCLIToken(ctx context.Context, ownerUserID, teamID string, scopes []string) (string, error) {
+	parsedUserID, err := parseUUID(ownerUserID)
+	if err != nil {
+		return "", fmt.Errorf("parse owner user id: %w", err)
+	}
+	parsedTeamID, err := parseUUID(teamID)
+	if err != nil {
+		return "", fmt.Errorf("parse team id: %w", err)
+	}
+	raw, err := randomKey()
+	if err != nil {
+		return "", err
+	}
+	token := "ops_" + raw
+	_, err = r.pool.Exec(ctx, `
+INSERT INTO cli_token (owner_user_id, team_id, token_hash, name, scopes)
+VALUES ($1, $2, $3, $4, $5)
+`, parsedUserID, parsedTeamID, hashBearerToken(token), "device-login", scopes)
+	if err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+// RevokeCLITokenByHash marks a token as revoked.
+func (r *Repository) RevokeCLITokenByHash(ctx context.Context, tokenHash string) error {
+	tag, err := r.pool.Exec(ctx, `
+UPDATE cli_token
+SET revoked_at = now()
+WHERE token_hash = $1
+  AND revoked_at IS NULL
+`, tokenHash)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+func hashBearerToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 func textPtr(v pgtype.Text) *string {

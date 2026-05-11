@@ -159,6 +159,29 @@ func (c *Client) ListDomains(ctx context.Context, teamSlug, appSlug string) (dto
 	return out, nil
 }
 
+func (c *Client) StartDeviceLogin(ctx context.Context, reqBody dto.DeviceStartRequest) (dto.DeviceStartResponse, error) {
+	endpoint := c.BaseURL + "/v1/auth/device/start"
+	var out dto.DeviceStartResponse
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, reqBody, &out); err != nil {
+		return dto.DeviceStartResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) PollDeviceLogin(ctx context.Context, reqBody dto.DevicePollRequest) (dto.DevicePollResponse, error) {
+	endpoint := c.BaseURL + "/v1/auth/device/poll"
+	var out dto.DevicePollResponse
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, reqBody, &out); err != nil {
+		return dto.DevicePollResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) Logout(ctx context.Context) error {
+	endpoint := c.BaseURL + "/v1/auth/logout"
+	return c.doJSON(ctx, http.MethodPost, endpoint, nil, nil)
+}
+
 // ListTeams fetches the current actor's teams.
 func (c *Client) ListTeams(ctx context.Context) (dto.ListTeamsResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/v1/me/teams", nil)

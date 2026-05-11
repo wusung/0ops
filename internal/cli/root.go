@@ -33,6 +33,7 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(newDomainsCommand())
 	root.AddCommand(newTeamsCommand())
 	root.AddCommand(newMembersCommand())
+	root.AddCommand(newAuthCommand())
 	root.AddCommand(newAdminCommand())
 	return root
 }

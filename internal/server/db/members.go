@@ -419,6 +419,66 @@ VALUES ($1, $2, 'user', $3, 'member_remove', '{}'::jsonb, '{"status":"ok"}'::jso
 	return nil
 }
 
+// GetOrCreateUserAndPersonalTeam returns existing user + team, or creates new user with personal team on first login.
+func (r *Repository) GetOrCreateUserAndPersonalTeam(ctx context.Context, githubLogin string) (userID string, teamID string, teamSlug string, err error) {
+	userID, teamID, teamSlug, err = r.ResolveUserDefaultTeamByGithubLogin(ctx, githubLogin)
+	if err == nil {
+		return
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", "", "", err
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return "", "", "", err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var (
+		userUUID pgtype.UUID
+		teamUUID pgtype.UUID
+	)
+
+	if err := tx.QueryRow(ctx, `
+INSERT INTO user_account (github_login)
+VALUES ($1)
+ON CONFLICT (github_login)
+DO UPDATE SET github_login = EXCLUDED.github_login
+RETURNING id
+`, githubLogin).Scan(&userUUID); err != nil {
+		return "", "", "", err
+	}
+
+	teamSlug = githubLogin
+	if err := tx.QueryRow(ctx, `
+INSERT INTO team (slug, name)
+VALUES ($1, $2)
+RETURNING id
+`, teamSlug, githubLogin).Scan(&teamUUID); err != nil {
+		return "", "", "", err
+	}
+
+	if _, err := tx.Exec(ctx, `
+INSERT INTO team_membership (team_id, user_id, role, invited_at, joined_at, invited_by)
+VALUES ($1, $2, 'owner', now(), now(), $2)
+`, teamUUID, userUUID); err != nil {
+		return "", "", "", err
+	}
+
+	if _, err := tx.Exec(ctx, `
+INSERT INTO audit_log (team_id, actor_user_id, subject_type, subject_id, action, args, result)
+VALUES ($1, $2, 'team', $1, 'device_login_auto_create', '{}'::jsonb, '{"status":"created"}'::jsonb)
+`, teamUUID, userUUID); err != nil {
+		return "", "", "", err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", "", "", err
+	}
+	return userUUID.String(), teamUUID.String(), teamSlug, nil
+}
+
 func textFromPtr(value *string) any {
 	if value == nil {
 		return nil

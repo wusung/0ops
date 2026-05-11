@@ -134,6 +134,36 @@ func (f *File) SetDefaultTeamForHost(host, teamSlug string) bool {
 	return false
 }
 
+// UpsertTokenForHost inserts or replaces a host auth entry.
+func (f *File) UpsertTokenForHost(token Token) {
+	token.Host = normalizeHost(token.Host)
+	if token.Host == "" {
+		return
+	}
+	for i := range f.Tokens {
+		if normalizeHost(f.Tokens[i].Host) == token.Host {
+			f.Tokens[i] = token
+			return
+		}
+	}
+	f.Tokens = append(f.Tokens, token)
+}
+
+// RemoveHost removes a host auth entry.
+func (f *File) RemoveHost(host string) bool {
+	host = normalizeHost(host)
+	if host == "" {
+		return false
+	}
+	for i := range f.Tokens {
+		if normalizeHost(f.Tokens[i].Host) == host {
+			f.Tokens = append(f.Tokens[:i], f.Tokens[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
 func normalizeHost(v string) string {
 	return strings.TrimRight(strings.TrimSpace(v), "/")
 }

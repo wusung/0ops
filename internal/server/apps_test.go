@@ -19,6 +19,7 @@ import (
 
 type fakeStore struct {
 	token      db.CliToken
+	tokens     map[string]db.CliToken
 	team       db.Team
 	role       string
 	apps       []db.App
@@ -31,10 +32,13 @@ type fakeStore struct {
 }
 
 func (f *fakeStore) FindCliTokenByHash(ctx context.Context, tokenHash string) (db.CliToken, error) {
-	if tokenHash != f.token.TokenHash {
-		return db.CliToken{}, errors.New("not found")
+	if tokenHash == f.token.TokenHash {
+		return f.token, nil
 	}
-	return f.token, nil
+	if tok, ok := f.tokens[tokenHash]; ok {
+		return tok, nil
+	}
+	return db.CliToken{}, errors.New("not found")
 }
 
 func (f *fakeStore) ResolveTeamBySlug(ctx context.Context, slug string) (db.Team, error) {
@@ -186,6 +190,41 @@ func (f *fakeStore) RemoveMember(ctx context.Context, teamID, actorUserID, targe
 	return nil
 }
 
+func (f *fakeStore) ResolveUserDefaultTeamByGithubLogin(ctx context.Context, githubLogin string) (string, string, string, error) {
+	if githubLogin != "owner" {
+		return "", "", "", pgx.ErrNoRows
+	}
+	return f.token.OwnerUserID, f.team.ID, f.team.Slug, nil
+}
+
+func (f *fakeStore) CreateCLIToken(ctx context.Context, ownerUserID, teamID string, scopes []string) (string, error) {
+	raw := "issued-token"
+	hash := auth.HashBearerToken(raw)
+	f.tokens[hash] = db.CliToken{
+		ID:          "token-issued",
+		OwnerUserID: ownerUserID,
+		TeamID:      teamID,
+		TokenHash:   hash,
+		Scopes:      append([]string(nil), scopes...),
+	}
+	return raw, nil
+}
+
+func (f *fakeStore) RevokeCLITokenByHash(ctx context.Context, tokenHash string) error {
+	tok, ok := f.tokens[tokenHash]
+	if !ok {
+		return pgx.ErrNoRows
+	}
+	now := time.Now().UTC()
+	tok.RevokedAt = &now
+	f.tokens[tokenHash] = tok
+	return nil
+}
+
+func (f *fakeStore) GetOrCreateUserAndPersonalTeam(ctx context.Context, githubLogin string) (string, string, string, error) {
+	return f.ResolveUserDefaultTeamByGithubLogin(ctx, githubLogin)
+}
+
 func TestNewRouterListApps(t *testing.T) {
 	store, token := newFakeStore()
 	srv := httptest.NewServer(NewRouter(store))
@@ -270,6 +309,42 @@ func TestNewRouterListDomains(t *testing.T) {
 	}
 }
 
+func TestDeviceLoginAndLogoutFlow(t *testing.T) {
+	store, _ := newFakeStore()
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	client := backendclient.New(srv.URL, "")
+	start, err := client.StartDeviceLogin(context.Background(), dto.DeviceStartRequest{
+		GithubLogin: "owner",
+	})
+	if err != nil {
+		t.Fatalf("StartDeviceLogin() error = %v", err)
+	}
+	if start.PollToken == "" {
+		t.Fatal("expected poll token")
+	}
+
+	poll, err := client.PollDeviceLogin(context.Background(), dto.DevicePollRequest{PollToken: start.PollToken})
+	if err != nil {
+		t.Fatalf("PollDeviceLogin() error = %v", err)
+	}
+	if poll.BearerToken == "" || poll.DefaultTeamSlug == "" {
+		t.Fatalf("unexpected poll result: %#v", poll)
+	}
+
+	authClient := backendclient.New(srv.URL, poll.BearerToken)
+	if _, err := authClient.ListTeams(context.Background()); err != nil {
+		t.Fatalf("ListTeams() before logout error = %v", err)
+	}
+	if err := authClient.Logout(context.Background()); err != nil {
+		t.Fatalf("Logout() error = %v", err)
+	}
+	if _, err := authClient.ListTeams(context.Background()); err == nil || !strings.Contains(err.Error(), "token_revoked") {
+		t.Fatalf("ListTeams() after logout error = %v, want token_revoked", err)
+	}
+}
+
 func TestReadEndpointsCrossTeamReturnNotFound(t *testing.T) {
 	store, token := newFakeStore()
 	srv := httptest.NewServer(NewRouter(store))
@@ -344,14 +419,16 @@ func TestMembersPreviewInviteAndInvite(t *testing.T) {
 
 func newFakeStore() (*fakeStore, string) {
 	token := "dev-token"
+	baseToken := db.CliToken{
+		ID:          "token-1",
+		OwnerUserID: "user-1",
+		TeamID:      "team-1",
+		TokenHash:   auth.HashBearerToken(token),
+		Scopes:      []string{"apps:read", "teams:read", "members:manage"},
+	}
 	return &fakeStore{
-		token: db.CliToken{
-			ID:          "token-1",
-			OwnerUserID: "user-1",
-			TeamID:      "team-1",
-			TokenHash:   auth.HashBearerToken(token),
-			Scopes:      []string{"apps:read", "teams:read", "members:manage"},
-		},
+		token:   baseToken,
+		tokens:  map[string]db.CliToken{baseToken.TokenHash: baseToken},
 		team:    db.Team{ID: "team-1", Slug: "acme", Name: "Acme", Plan: "starter"},
 		role:    "admin",
 		members: true,

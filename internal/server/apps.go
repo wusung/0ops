@@ -2,11 +2,15 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -34,6 +38,10 @@ type appsStore interface {
 	ConsumePreview(ctx context.Context, previewID string) error
 	InviteMember(ctx context.Context, params db.InviteMemberParams) (db.Member, error)
 	RemoveMember(ctx context.Context, teamID, actorUserID, targetUserID string) error
+	ResolveUserDefaultTeamByGithubLogin(ctx context.Context, githubLogin string) (userID string, teamID string, teamSlug string, err error)
+	GetOrCreateUserAndPersonalTeam(ctx context.Context, githubLogin string) (userID string, teamID string, teamSlug string, err error)
+	CreateCLIToken(ctx context.Context, ownerUserID, teamID string, scopes []string) (string, error)
+	RevokeCLITokenByHash(ctx context.Context, tokenHash string) error
 }
 
 type routerStore interface {
@@ -50,6 +58,13 @@ const (
 	previewActionInvite = "invite_member"
 	previewActionRemove = "remove_member"
 )
+
+type deviceLoginSession struct {
+	GithubLogin string
+	ExpiresAt   time.Time
+}
+
+var deviceLoginSessions sync.Map
 
 func listAppsHandler(store appsStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -434,12 +449,114 @@ func removeHandler(store appsStore) http.HandlerFunc {
 	}
 }
 
+func startDeviceLoginHandler(store appsStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req dto.DeviceStartRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		if strings.TrimSpace(req.GithubLogin) == "" {
+			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "github_login is required", map[string]any{"field": "github_login"})
+			return
+		}
+
+		pollToken, err := newRandomToken()
+		if err != nil {
+			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to start device login", nil)
+			return
+		}
+		now := time.Now().UTC()
+		deviceLoginSessions.Store(pollToken, deviceLoginSession{
+			GithubLogin: req.GithubLogin,
+			ExpiresAt:   now.Add(5 * time.Minute),
+		})
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(dto.DeviceStartResponse{
+			UserCode:        newDeviceUserCode(),
+			VerificationURI: "https://github.com/login/device",
+			PollToken:       pollToken,
+			IntervalSeconds: 1,
+			TTLSeconds:      300,
+		})
+	}
+}
+
+func pollDeviceLoginHandler(store appsStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req dto.DevicePollRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		if strings.TrimSpace(req.PollToken) == "" {
+			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "poll_token is required", map[string]any{"field": "poll_token"})
+			return
+		}
+
+		raw, ok := deviceLoginSessions.Load(req.PollToken)
+		if !ok {
+			apperror.Write(w, "invalid_poll_token", apperror.ClassUnauthorized, "invalid poll token", nil)
+			return
+		}
+		session := raw.(deviceLoginSession)
+		if time.Now().UTC().After(session.ExpiresAt) {
+			deviceLoginSessions.Delete(req.PollToken)
+			apperror.Write(w, "poll_token_expired", apperror.ClassUnauthorized, "poll token expired", nil)
+			return
+		}
+
+		userID, teamID, teamSlug, err := store.GetOrCreateUserAndPersonalTeam(r.Context(), session.GithubLogin)
+		if err != nil {
+			apperror.Write(w, "internal_error", apperror.ClassInternal, fmt.Sprintf("failed to resolve or create github user: %v", err), nil)
+			return
+		}
+		bearerToken, err := store.CreateCLIToken(r.Context(), userID, teamID, []string{
+			string(rbac.ScopeAppsRead),
+			string(rbac.ScopeTeamsRead),
+			string(rbac.ScopeMembersManage),
+		})
+		if err != nil {
+			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to create bearer token", nil)
+			return
+		}
+		deviceLoginSessions.Delete(req.PollToken)
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(dto.DevicePollResponse{
+			BearerToken:     bearerToken,
+			DefaultTeamSlug: teamSlug,
+			GithubLogin:     session.GithubLogin,
+			IssuedAt:        time.Now().UTC(),
+		})
+	}
+}
+
+func logoutHandler(store appsStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+		if token == "" {
+			apperror.Write(w, "unauthorized", apperror.ClassUnauthorized, "missing bearer token", nil)
+			return
+		}
+		if err := store.RevokeCLITokenByHash(r.Context(), auth.HashBearerToken(token)); err != nil {
+			apperror.Write(w, "token_invalid", apperror.ClassUnauthorized, "invalid bearer token", nil)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 // NewRouter returns the HTTP router for the server.
 func NewRouter(store routerStore) http.Handler {
 	mw := auth.NewMiddleware(store)
 
 	r := chi.NewRouter()
 	r.Post("/v1/admin/bootstrap-owner", bootstrapOwnerHandler(store))
+	r.Route("/v1/auth", func(sr chi.Router) {
+		sr.Post("/device/start", startDeviceLoginHandler(store))
+		sr.Post("/device/poll", pollDeviceLoginHandler(store))
+		sr.With(mw.Bearer).Post("/logout", logoutHandler(store))
+	})
 
 	r.Route("/v1/me", func(sr chi.Router) {
 		sr.Use(mw.Bearer)
@@ -489,6 +606,23 @@ func NewRouter(store routerStore) http.Handler {
 	})
 
 	return r
+}
+
+func newRandomToken() (string, error) {
+	var buf [24]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(buf[:]), nil
+}
+
+func newDeviceUserCode() string {
+	token, err := newRandomToken()
+	if err != nil || len(token) < 8 {
+		return "OPS-LOGIN"
+	}
+	upper := strings.ToUpper(token[:8])
+	return upper[:4] + "-" + upper[4:8]
 }
 
 func newAppRef(row db.App) dto.AppRef {

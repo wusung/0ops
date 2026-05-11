@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/winshare/zeroops/internal/shared/authconfig"
@@ -73,6 +74,9 @@ func resolveHost(hostFlag string, cfg authconfig.File) string {
 	if token, ok := cfg.First(); ok && strings.TrimSpace(token.Host) != "" {
 		return token.Host
 	}
+	if port := firstNonEmpty(os.Getenv("OPS_HOST_PORT"), readDotEnv("OPS_HOST_PORT")); port != "" {
+		return "http://127.0.0.1:" + port
+	}
 	return "http://127.0.0.1:8080"
 }
 
@@ -90,4 +94,30 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func readDotEnv(key string) string {
+	path := filepath.Join(".", ".env")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "export ") {
+			line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok || strings.TrimSpace(k) != key {
+			continue
+		}
+		v = strings.TrimSpace(v)
+		v = strings.Trim(v, `"'`)
+		return v
+	}
+	return ""
 }
