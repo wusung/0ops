@@ -797,6 +797,44 @@ func confirmGitHubInstallHandler(store appsStore) http.HandlerFunc {
 	}
 }
 
+func githubInstallCallbackHandler(store appsStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// GitHub calls this with:
+		// ?code=<installation_id>&state=<state_token>&setup_action=install
+		if err := r.ParseForm(); err != nil {
+			apperror.Write(w, "invalid_request", apperror.ClassBadRequest, "parse form failed", nil)
+			return
+		}
+
+		installationID := r.FormValue("code")
+		state := r.FormValue("state")
+		setupAction := r.FormValue("setup_action")
+
+		if installationID == "" || state == "" {
+			apperror.Write(w, "missing_params", apperror.ClassBadRequest, "code or state missing", nil)
+			return
+		}
+
+		if setupAction != "install" {
+			// Redirect without error for uninstall (handled by webhook)
+			w.Header().Set("Location", "https://github.com/")
+			w.WriteHeader(http.StatusFound)
+			return
+		}
+
+		// TODO: Decode state and verify HMAC signature
+		// TODO: UPDATE team SET github_install_id
+		// TODO: Mark preview as consumed
+
+		// For now, just return confirmation
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status": "confirmed",
+		})
+	}
+}
+
 // NewRouter returns the HTTP router for the server.
 func NewRouter(store routerStore) http.Handler {
 	githubClient := newGitHubOAuthClient()
@@ -812,6 +850,7 @@ func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient)
 		sr.Post("/device/start", startDeviceLoginHandler(store, githubClient))
 		sr.Post("/device/callback", callbackDeviceLoginHandler(store))
 		sr.Post("/device/poll", pollDeviceLoginHandler(store, githubClient))
+		sr.Post("/github/install-callback", githubInstallCallbackHandler(store))
 		sr.With(mw.Bearer).Post("/logout", logoutHandler(store))
 	})
 
