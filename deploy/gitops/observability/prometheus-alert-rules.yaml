@@ -1,0 +1,174 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-alert-rules
+  namespace: prometheus
+  labels:
+    app: prometheus
+    component: alert-rules
+    version: m2
+data:
+  m2-alert-rules.yaml: |
+    groups:
+    - name: zeroops.m2.alerts
+      interval: 1m
+      rules:
+      # SLI #1: API Availability (99.9% SLO = 40 min/28d budget)
+      # Fast burn (1h): 36x rate = 40 min in 1 hour
+      # Slow burn (5m): 0.3x rate = 40 min in 28d (need multiple slow burns to trigger)
+      
+      - alert: ZeroopsAPIAvailabilityHighErrorRate1h
+        expr: |
+          cluster:zeroops_http_error_burn_rate_1h{team_bucket!="anon"} > 36
+        for: 2m
+        labels:
+          severity: critical
+          sli: api_availability
+          slo: "99.9"
+        annotations:
+          summary: "API error burn rate (1h window) > SLO"
+          description: "Team {{ $labels.team_bucket }}: Error burn rate {{ $value | humanizePercentage }} of 28d budget in 1h window"
+
+      - alert: ZeroopsAPIAvailabilitySlowBurn5m
+        expr: |
+          cluster:zeroops_http_error_burn_rate_5m{team_bucket!="anon"} > 0.3
+        for: 15m
+        labels:
+          severity: warning
+          sli: api_availability
+          slo: "99.9"
+        annotations:
+          summary: "API error burn rate (5m window) > SLO"
+          description: "Team {{ $labels.team_bucket }}: Error burn rate {{ $value | humanizePercentage }} of 28d budget (sustained slow burn)"
+
+      # SLI #4: Build Success Rate (85% SLO)
+      # Fast burn (1h): 14x rate
+      # Slow burn (5m): 0.2x rate
+      
+      - alert: ZeroopsBuildSuccessRateHighFailure1h
+        expr: |
+          cluster:zeroops_build_fail_burn_rate_1h{team_bucket!="anon"} > 14
+        for: 2m
+        labels:
+          severity: critical
+          sli: build_success
+          slo: "85"
+        annotations:
+          summary: "Build failure burn rate (1h window) > SLO"
+          description: "Team {{ $labels.team_bucket }}: Failure burn rate {{ $value | humanizePercentage }} of 7d budget in 1h window"
+
+      - alert: ZeroopsBuildSuccessRateSlowBurn5m
+        expr: |
+          cluster:zeroops_build_fail_burn_rate_5m{team_bucket!="anon"} > 0.2
+        for: 20m
+        labels:
+          severity: warning
+          sli: build_success
+          slo: "85"
+        annotations:
+          summary: "Build failure burn rate (5m window) > SLO"
+          description: "Team {{ $labels.team_bucket }}: Failure burn rate {{ $value | humanizePercentage }} of 7d budget (sustained slow burn)"
+
+      # SLI #8: Preview Consumption Rate (80% 7d SLO)
+      - alert: ZeroopsPreviewConsumptionLow
+        expr: |
+          cluster:zeroops_preview_consumption_rate_7d{team_bucket!="anon"} < 0.80
+        for: 1h
+        labels:
+          severity: warning
+          sli: preview_consumption
+          slo: "80"
+        annotations:
+          summary: "Preview consumption rate below SLO"
+          description: "Team {{ $labels.team_bucket }}: Consumption rate {{ $value | humanizePercentage }} < 80% over 7d window"
+
+      # SLI #7: Tunnel Uptime (99.95%)
+      # Alert on missing connectors
+      - alert: ZeroopsTunnelConnectorsUnavailable
+        expr: |
+          increase(cloudflare_tunnel_connectors_ready[5m]) == 0
+          and
+          cloudflare_tunnel_connectors_ready < 1
+        for: 5m
+        labels:
+          severity: critical
+          sli: tunnel_uptime
+          slo: "99.95"
+        annotations:
+          summary: "Cloudflare tunnel connectors unavailable"
+          description: "Region {{ $labels.region }}: No ready connectors detected in last 5 minutes"
+
+      # SLI #2: API Read Latency p95 (< 200ms)
+      - alert: ZeroopsAPIReadLatencyHigh
+        expr: |
+          cluster:zeroops_http_read_latency_p95_5m{team_bucket!="anon"} > 0.2
+        for: 5m
+        labels:
+          severity: warning
+          sli: api_latency_read
+          slo: "200ms"
+        annotations:
+          summary: "API read latency p95 above SLO"
+          description: "Team {{ $labels.team_bucket }}: p95 latency {{ $value | humanizeDuration }} > 200ms"
+
+      # SLI #3: API Preview Latency p95 (< 800ms)
+      - alert: ZeroopsAPIPreviewLatencyHigh
+        expr: |
+          cluster:zeroops_http_preview_latency_p95_5m{team_bucket!="anon"} > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          sli: api_latency_preview
+          slo: "800ms"
+        annotations:
+          summary: "API preview latency p95 above SLO"
+          description: "Team {{ $labels.team_bucket }}: p95 latency {{ $value | humanizeDuration }} > 800ms"
+
+      # SLI #5: Deploy Lead Time p50 (< 10 min)
+      - alert: ZeroopsDeployLeadTimeHigh
+        expr: |
+          cluster:zeroops_deploy_lead_time_p50_5m{team_bucket!="anon"} > 600
+        for: 10m
+        labels:
+          severity: warning
+          sli: deploy_lead_time
+          slo: "10m"
+        annotations:
+          summary: "Deploy lead time p50 above SLO"
+          description: "Team {{ $labels.team_bucket }}: p50 lead time {{ $value | humanizeDuration }} > 10 minutes"
+
+      # SLI #9: Preview→Confirm Latency p50 (< 60s)
+      - alert: ZeroopsPreviewConsumptionLatencyHigh
+        expr: |
+          cluster:zeroops_preview_consume_latency_p50_5m{team_bucket!="anon"} > 60
+        for: 5m
+        labels:
+          severity: info
+          sli: preview_consumption_latency
+          slo: "60s"
+        annotations:
+          summary: "Preview→confirm latency p50 above SLO"
+          description: "Team {{ $labels.team_bucket }}: p50 latency {{ $value | humanizeDuration }} > 60 seconds"
+
+      # Metric health checks
+      - alert: ZeroopsMetricsNotBeingCollected
+        expr: |
+          up{job="prometheus"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: observability
+        annotations:
+          summary: "Prometheus is down"
+          description: "Prometheus has not been responding for 5+ minutes"
+
+      - alert: ZeroopsRecordingRulesFailing
+        expr: |
+          increase(prometheus_rule_evaluation_failures_total[5m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: observability
+        annotations:
+          summary: "Prometheus recording rules failing"
+          description: "Recording rule evaluation failures detected: {{ $value }} in last 5 minutes"
