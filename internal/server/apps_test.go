@@ -13,12 +13,14 @@ import (
 
 	"github.com/winshare/zeroops/internal/server/auth"
 	"github.com/winshare/zeroops/internal/server/db"
+	"github.com/winshare/zeroops/internal/server/services/githuboauth"
 	"github.com/winshare/zeroops/internal/shared/backendclient"
 	"github.com/winshare/zeroops/internal/shared/dto"
 )
 
 type fakeStore struct {
 	token      db.CliToken
+	tokens     map[string]db.CliToken
 	team       db.Team
 	role       string
 	apps       []db.App
@@ -30,11 +32,31 @@ type fakeStore struct {
 	previews   map[string]db.Preview
 }
 
-func (f *fakeStore) FindCliTokenByHash(ctx context.Context, tokenHash string) (db.CliToken, error) {
-	if tokenHash != f.token.TokenHash {
-		return db.CliToken{}, errors.New("not found")
+type mockGitHubOAuthClient struct {
+	challenge githuboauth.DeviceAuthorization
+	user      githuboauth.UserProfile
+}
+
+func (m mockGitHubOAuthClient) StartDeviceAuthorization(context.Context) (githuboauth.DeviceAuthorization, error) {
+	return m.challenge, nil
+}
+
+func (m mockGitHubOAuthClient) ExchangeDeviceCode(context.Context, string) (githuboauth.AccessTokenResponse, error) {
+	return githuboauth.AccessTokenResponse{AccessToken: "test-access-token", TokenType: "bearer", Scope: "user:email"}, nil
+}
+
+func (m mockGitHubOAuthClient) FetchUser(context.Context, string) (githuboauth.UserProfile, error) {
+	return m.user, nil
+}
+
+func (f *fakeStore) FindCliTokenByID(ctx context.Context, tokenID string) (db.CliToken, error) {
+	if tokenID == f.token.ID {
+		return f.token, nil
 	}
-	return f.token, nil
+	if tok, ok := f.tokens[tokenID]; ok {
+		return tok, nil
+	}
+	return db.CliToken{}, errors.New("not found")
 }
 
 func (f *fakeStore) ResolveTeamBySlug(ctx context.Context, slug string) (db.Team, error) {
@@ -145,6 +167,16 @@ func (f *fakeStore) ListTeamMembers(ctx context.Context, teamID string) ([]db.Me
 	return append([]db.Member(nil), f.memberRows...), nil
 }
 
+func (f *fakeStore) ListTeamTokens(ctx context.Context, teamID string) ([]db.CliToken, error) {
+	out := make([]db.CliToken, 0, len(f.tokens))
+	for _, tok := range f.tokens {
+		if tok.TeamID == teamID && tok.Kind == "pat" {
+			out = append(out, tok)
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeStore) CreatePreview(ctx context.Context, teamID, actorUserID, action string, args json.RawMessage, summary string) (db.Preview, error) {
 	p := db.Preview{
 		ID:          "preview-1",
@@ -184,6 +216,83 @@ func (f *fakeStore) InviteMember(ctx context.Context, params db.InviteMemberPara
 
 func (f *fakeStore) RemoveMember(ctx context.Context, teamID, actorUserID, targetUserID string) error {
 	return nil
+}
+
+func (f *fakeStore) ResolveUserDefaultTeamByGithubLogin(ctx context.Context, githubLogin string) (string, string, string, error) {
+	if githubLogin != "owner" {
+		return "", "", "", pgx.ErrNoRows
+	}
+	return f.token.OwnerUserID, f.team.ID, f.team.Slug, nil
+}
+
+func (f *fakeStore) CreateCLIToken(ctx context.Context, ownerUserID, teamID string, scopes []string) (string, error) {
+	token, err := auth.NewBearerToken("device", "token-issued")
+	if err != nil {
+		return "", err
+	}
+	parsed, err := auth.ParseBearerToken(token)
+	if err != nil {
+		return "", err
+	}
+	f.tokens[parsed.ID] = db.CliToken{
+		ID:          parsed.ID,
+		OwnerUserID: ownerUserID,
+		TeamID:      teamID,
+		TokenHash:   auth.HashBearerToken(parsed.Secret),
+		Scopes:      append([]string(nil), scopes...),
+	}
+	return token, nil
+}
+
+func (f *fakeStore) CreatePAT(ctx context.Context, ownerUserID, teamID, name string, scopes []string, expiresAt time.Time) (string, error) {
+	token, err := auth.NewBearerToken("pat", "token-pat")
+	if err != nil {
+		return "", err
+	}
+	parsed, err := auth.ParseBearerToken(token)
+	if err != nil {
+		return "", err
+	}
+	now := time.Now().UTC()
+	f.tokens[parsed.ID] = db.CliToken{
+		ID:          parsed.ID,
+		OwnerUserID: ownerUserID,
+		TeamID:      teamID,
+		Kind:        "pat",
+		Name:        name,
+		TokenHash:   auth.HashBearerToken(parsed.Secret),
+		Scopes:      append([]string(nil), scopes...),
+		CreatedAt:   now,
+		ExpiresAt:   &expiresAt,
+	}
+	return token, nil
+}
+
+func (f *fakeStore) RevokeCLITokenByID(ctx context.Context, tokenID string) error {
+	tok, ok := f.tokens[tokenID]
+	if !ok {
+		return pgx.ErrNoRows
+	}
+	now := time.Now().UTC()
+	tok.RevokedAt = &now
+	f.tokens[tokenID] = tok
+	return nil
+}
+
+func (f *fakeStore) RevokePATByName(ctx context.Context, teamID, name string) error {
+	for id, tok := range f.tokens {
+		if tok.TeamID == teamID && tok.Kind == "pat" && tok.Name == name {
+			now := time.Now().UTC()
+			tok.RevokedAt = &now
+			f.tokens[id] = tok
+			return nil
+		}
+	}
+	return pgx.ErrNoRows
+}
+
+func (f *fakeStore) GetOrCreateUserAndPersonalTeam(ctx context.Context, githubLogin string) (string, string, string, error) {
+	return f.ResolveUserDefaultTeamByGithubLogin(ctx, githubLogin)
 }
 
 func TestNewRouterListApps(t *testing.T) {
@@ -270,6 +379,66 @@ func TestNewRouterListDomains(t *testing.T) {
 	}
 }
 
+func TestDeviceLoginAndLogoutFlow(t *testing.T) {
+	store, _ := newFakeStore()
+	srv := httptest.NewServer(NewRouterWithGitHubOAuth(store, mockGitHubOAuthClient{
+		challenge: githuboauth.DeviceAuthorization{
+			DeviceCode:       "device-abc",
+			UserCode:         "ABCD-EFGH",
+			VerificationURI:  "https://github.com/login/device",
+			ExpiresInSeconds: 600,
+			IntervalSeconds:  1,
+		},
+		user: githuboauth.UserProfile{Login: "owner", Email: "owner@example.com"},
+	}))
+	t.Cleanup(srv.Close)
+
+	client := backendclient.New(srv.URL, "")
+	start, err := client.StartDeviceLogin(context.Background(), dto.DeviceStartRequest{
+		GithubLogin: "owner",
+	})
+	if err != nil {
+		t.Fatalf("StartDeviceLogin() error = %v", err)
+	}
+	if start.PollToken == "" {
+		t.Fatal("expected poll token")
+	}
+	if start.UserCode == "" {
+		t.Fatal("expected user code")
+	}
+
+	// Callback to verify the user code
+	cbResp, err := client.CallbackDeviceLogin(context.Background(), dto.DeviceCallbackRequest{
+		UserCode:    start.UserCode,
+		AccessToken: "test-access-token",
+	})
+	if err != nil {
+		t.Fatalf("CallbackDeviceLogin() error = %v", err)
+	}
+	if cbResp.Status != "verified" {
+		t.Fatalf("expected status=verified, got %s", cbResp.Status)
+	}
+
+	poll, err := client.PollDeviceLogin(context.Background(), dto.DevicePollRequest{PollToken: start.PollToken})
+	if err != nil {
+		t.Fatalf("PollDeviceLogin() error = %v", err)
+	}
+	if poll.BearerToken == "" || poll.DefaultTeamSlug == "" {
+		t.Fatalf("unexpected poll result: %#v", poll)
+	}
+
+	authClient := backendclient.New(srv.URL, poll.BearerToken)
+	if _, err := authClient.ListTeams(context.Background()); err != nil {
+		t.Fatalf("ListTeams() before logout error = %v", err)
+	}
+	if err := authClient.Logout(context.Background()); err != nil {
+		t.Fatalf("Logout() error = %v", err)
+	}
+	if _, err := authClient.ListTeams(context.Background()); err == nil || !strings.Contains(err.Error(), "token_revoked") {
+		t.Fatalf("ListTeams() after logout error = %v, want token_revoked", err)
+	}
+}
+
 func TestReadEndpointsCrossTeamReturnNotFound(t *testing.T) {
 	store, token := newFakeStore()
 	srv := httptest.NewServer(NewRouter(store))
@@ -342,16 +511,63 @@ func TestMembersPreviewInviteAndInvite(t *testing.T) {
 	}
 }
 
+func TestAuthTokensCreateDefaultsToNinetyDays(t *testing.T) {
+	store, token := newFakeStore()
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	client := backendclient.New(srv.URL, token)
+	now := time.Now().UTC()
+	out, err := client.CreateTeamToken(context.Background(), store.team.Slug, dto.PATCreateRequest{
+		Name:   "default-expiry",
+		Scopes: []string{"apps:read"},
+	})
+	if err != nil {
+		t.Fatalf("CreateTeamToken() error = %v", err)
+	}
+	delta := out.ExpiresAt.Sub(out.CreatedAt)
+	if delta < 89*24*time.Hour || delta > 91*24*time.Hour {
+		t.Fatalf("expires_at delta = %s, want about 90d (now=%s)", delta, now)
+	}
+}
+
+func TestAuthMiddlewareRejectsExpiredToken(t *testing.T) {
+	store, token := newFakeStore()
+	tok := store.tokens["token-1"]
+	past := time.Now().UTC().Add(-time.Hour)
+	tok.ExpiresAt = &past
+	store.tokens["token-1"] = tok
+	store.token.ExpiresAt = &past
+
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	client := backendclient.New(srv.URL, token)
+	_, err := client.ListTeams(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "token_expired") {
+		t.Fatalf("ListTeams() error = %v, want token_expired", err)
+	}
+}
+
 func newFakeStore() (*fakeStore, string) {
-	token := "dev-token"
+	token, err := auth.NewBearerToken("device", "token-1")
+	if err != nil {
+		panic(err)
+	}
+	parsed, err := auth.ParseBearerToken(token)
+	if err != nil {
+		panic(err)
+	}
+	baseToken := db.CliToken{
+		ID:          "token-1",
+		OwnerUserID: "user-1",
+		TeamID:      "team-1",
+		TokenHash:   auth.HashBearerToken(parsed.Secret),
+		Scopes:      []string{"apps:read", "teams:read", "members:manage"},
+	}
 	return &fakeStore{
-		token: db.CliToken{
-			ID:          "token-1",
-			OwnerUserID: "user-1",
-			TeamID:      "team-1",
-			TokenHash:   auth.HashBearerToken(token),
-			Scopes:      []string{"apps:read", "teams:read", "members:manage"},
-		},
+		token:   baseToken,
+		tokens:  map[string]db.CliToken{baseToken.ID: baseToken},
 		team:    db.Team{ID: "team-1", Slug: "acme", Name: "Acme", Plan: "starter"},
 		role:    "admin",
 		members: true,

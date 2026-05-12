@@ -33,6 +33,7 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(newDomainsCommand())
 	root.AddCommand(newTeamsCommand())
 	root.AddCommand(newMembersCommand())
+	root.AddCommand(newAuthCommand())
 	root.AddCommand(newAdminCommand())
 	return root
 }
@@ -369,6 +370,76 @@ func newTeamsCommand() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&token, "token", "", "bearer token")
 	cmd.PersistentFlags().StringVar(&outputFmt, "output", envOr("OPS_OUTPUT", "table"), "output format")
 	cmd.AddCommand(useCmd)
+
+	// Add github subcommand
+	githubCmd := &cobra.Command{
+		Use:   "github",
+		Short: "Manage GitHub integration for the team",
+	}
+
+	githubCmd.AddCommand(&cobra.Command{
+		Use:   "install",
+		Short: "Install GitHub App for the team",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctxInfo, err := resolveAppsContext("", baseURL, token)
+			if err != nil {
+				return err
+			}
+
+			ctx := cmd.Context()
+			if ctx == nil {
+				ctx = context.Background()
+			}
+
+			client := backendclient.New(ctxInfo.Host, ctxInfo.BearerToken)
+
+			// Call backend preview endpoint
+			previewResp, err := client.PreviewGitHubInstall(ctx, ctxInfo.TeamSlug)
+			if err != nil {
+				return fmt.Errorf("preview failed: %w", err)
+			}
+
+			// Call backend confirm endpoint to get install URL
+			confirmResp, err := client.ConfirmGitHubInstall(ctx, ctxInfo.TeamSlug, previewResp.PreviewID)
+			if err != nil {
+				return fmt.Errorf("confirm failed: %w", err)
+			}
+
+			fmt.Printf("Installing GitHub App...\n")
+			fmt.Printf("Install URL: %s\n", confirmResp.InstallURL)
+			// TODO: Open browser with: open.Run(confirmResp.InstallURL)
+			// TODO: Poll backend for installation completion
+			return nil
+		},
+	})
+
+	githubCmd.AddCommand(&cobra.Command{
+		Use:   "uninstall",
+		Short: "Uninstall GitHub App from the team",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctxInfo, err := resolveAppsContext("", baseURL, token)
+			if err != nil {
+				return err
+			}
+
+			ctx := cmd.Context()
+			if ctx == nil {
+				ctx = context.Background()
+			}
+
+			client := backendclient.New(ctxInfo.Host, ctxInfo.BearerToken)
+
+			// Call backend to uninstall
+			if err := client.UninstallGitHubApp(ctx, ctxInfo.TeamSlug); err != nil {
+				return fmt.Errorf("uninstall failed: %w", err)
+			}
+
+			fmt.Printf("GitHub App uninstalled from team %s\n", ctxInfo.TeamSlug)
+			return nil
+		},
+	})
+
+	cmd.AddCommand(githubCmd)
 
 	return cmd
 }

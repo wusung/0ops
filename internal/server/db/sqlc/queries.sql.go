@@ -123,36 +123,51 @@ func (q *Queries) ListAppsByTeam(ctx context.Context, arg ListAppsByTeamParams) 
 	return items, nil
 }
 
-const findCliTokenByHash = `-- name: FindCliTokenByHash :one
+const findCliTokenByID = `-- name: FindCliTokenByID :one
 SELECT
   id,
   owner_user_id,
   team_id,
+  kind,
+  name,
   token_hash,
   scopes,
+  created_at,
+  last_used_at,
+  expires_at,
   revoked_at
 FROM cli_token
-WHERE token_hash = $1
+WHERE id = $1
 `
 
-type FindCliTokenByHashRow struct {
+type FindCliTokenByIDRow struct {
 	ID          pgtype.UUID
 	OwnerUserID pgtype.UUID
 	TeamID      pgtype.UUID
+	Kind        string
+	Name        string
 	TokenHash   string
 	Scopes      []string
+	CreatedAt   pgtype.Timestamptz
+	LastUsedAt  pgtype.Timestamptz
+	ExpiresAt   pgtype.Timestamptz
 	RevokedAt   pgtype.Timestamptz
 }
 
-func (q *Queries) FindCliTokenByHash(ctx context.Context, tokenHash string) (FindCliTokenByHashRow, error) {
-	row := q.db.QueryRow(ctx, findCliTokenByHash, tokenHash)
-	var i FindCliTokenByHashRow
+func (q *Queries) FindCliTokenByID(ctx context.Context, tokenID string) (FindCliTokenByIDRow, error) {
+	row := q.db.QueryRow(ctx, findCliTokenByID, tokenID)
+	var i FindCliTokenByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.OwnerUserID,
 		&i.TeamID,
+		&i.Kind,
+		&i.Name,
 		&i.TokenHash,
 		&i.Scopes,
+		&i.CreatedAt,
+		&i.LastUsedAt,
+		&i.ExpiresAt,
 		&i.RevokedAt,
 	)
 	return i, err
