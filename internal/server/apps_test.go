@@ -225,6 +225,10 @@ func (f *fakeStore) ResolveUserDefaultTeamByGithubLogin(ctx context.Context, git
 	return f.token.OwnerUserID, f.team.ID, f.team.Slug, nil
 }
 
+func (f *fakeStore) GetOrCreateUserAndPersonalTeam(ctx context.Context, githubLogin string) (string, string, string, error) {
+	return f.ResolveUserDefaultTeamByGithubLogin(ctx, githubLogin)
+}
+
 func (f *fakeStore) CreateCLIToken(ctx context.Context, ownerUserID, teamID string, scopes []string) (string, error) {
 	token, err := auth.NewBearerToken("device", "token-issued")
 	if err != nil {
@@ -291,8 +295,24 @@ func (f *fakeStore) RevokePATByName(ctx context.Context, teamID, name string) er
 	return pgx.ErrNoRows
 }
 
-func (f *fakeStore) GetOrCreateUserAndPersonalTeam(ctx context.Context, githubLogin string) (string, string, string, error) {
-	return f.ResolveUserDefaultTeamByGithubLogin(ctx, githubLogin)
+func (f *fakeStore) IsToolGranted(ctx context.Context, teamID, userID, toolID string) (bool, error) {
+	return false, nil
+}
+
+func (f *fakeStore) ListGrantedTools(ctx context.Context, teamID, userID string) ([]string, error) {
+	return []string{}, nil
+}
+
+func (f *fakeStore) UpsertToolGrant(ctx context.Context, teamID, userID, toolID string, allowed bool, grantedByActorID *string) error {
+	return nil
+}
+
+func (f *fakeStore) RevokeToolGrant(ctx context.Context, teamID, userID, toolID string) error {
+	return nil
+}
+
+func (f *fakeStore) ListAllUserGrants(ctx context.Context, teamID, userID string) ([]db.ToolGrant, error) {
+	return []db.ToolGrant{}, nil
 }
 
 func TestNewRouterListApps(t *testing.T) {

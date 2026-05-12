@@ -13,6 +13,7 @@ const (
 	keyTeamID      contextKey = "team_id"
 	keyTeamSlug    contextKey = "team_slug"
 	keyActorRole   contextKey = "actor_role"
+	keyPollToken   contextKey = "device_poll_token"
 )
 
 func withActorUserID(ctx context.Context, value string) context.Context {
@@ -82,4 +83,13 @@ func TeamSlug(ctx context.Context) string {
 func ActorRole(ctx context.Context) string {
 	v, _ := ctx.Value(keyActorRole).(string)
 	return v
+}
+
+func withPollToken(ctx context.Context, value string) context.Context {
+	return context.WithValue(ctx, keyPollToken, value)
+}
+
+func GetPollToken(ctx context.Context) (string, bool) {
+	v, ok := ctx.Value(keyPollToken).(string)
+	return v, ok
 }

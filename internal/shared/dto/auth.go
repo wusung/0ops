@@ -20,19 +20,38 @@ type DevicePollRequest struct {
 }
 
 type DevicePollResponse struct {
-	BearerToken     string    `json:"bearer_token"`
-	DefaultTeamSlug string    `json:"default_team_slug"`
-	GithubLogin     string    `json:"github_login"`
-	IssuedAt        time.Time `json:"issued_at"`
+	BearerToken     string       `json:"access_token"`
+	DefaultTeamSlug string       `json:"default_team_slug"`
+	GithubLogin     string       `json:"github_login"`
+	IssuedAt        time.Time    `json:"issued_at"`
+	Team            DeviceTeam   `json:"team,omitempty"`
+	AvailableTools  []DeviceTool `json:"available_tools,omitempty"`
+	NextStep        string       `json:"next_step,omitempty"`
+}
+
+type DeviceTeam struct {
+	ID   string `json:"id"`
+	Slug string `json:"slug"`
+	Name string `json:"name"`
+}
+
+type DeviceTool struct {
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Category       string `json:"category"`
+	Description    string `json:"description"`
+	DefaultAllowed bool   `json:"default_allowed"`
+	RiskLevel      string `json:"risk_level,omitempty"`
+	Warning        string `json:"warning,omitempty"`
 }
 
 type DeviceCallbackRequest struct {
-UserCode    string `json:"user_code"`
-AccessToken string `json:"access_token"`
+	UserCode    string `json:"user_code"`
+	AccessToken string `json:"access_token"`
 }
 
 type DeviceCallbackResponse struct {
-Status string `json:"status"`
+	Status string `json:"status"`
 }
 
 type DevicePollPendingResponse struct {
@@ -58,10 +77,10 @@ type PATListResponse struct {
 }
 
 type PATListItem struct {
-	Name      string     `json:"name"`
-	Scopes    []string   `json:"scopes"`
-	CreatedAt time.Time  `json:"created_at"`
+	Name       string     `json:"name"`
+	Scopes     []string   `json:"scopes"`
+	CreatedAt  time.Time  `json:"created_at"`
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
-	RevokedAt *time.Time `json:"revoked_at,omitempty"`
+	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
+	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
 }

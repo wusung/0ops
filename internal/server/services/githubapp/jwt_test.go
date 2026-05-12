@@ -28,7 +28,7 @@ func TestJWTSignerSign(t *testing.T) {
 	claims := &jwt.RegisteredClaims{}
 	parsed, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (any, error) {
 		return &key.PublicKey, nil
-	})
+	}, jwt.WithTimeFunc(signer.now))
 	if err != nil {
 		t.Fatalf("ParseWithClaims() error = %v", err)
 	}

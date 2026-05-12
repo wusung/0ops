@@ -48,9 +48,18 @@ type appsStore interface {
 	RevokePATByName(ctx context.Context, teamID, name string) error
 }
 
+type toolGrantsStore interface {
+	IsToolGranted(ctx context.Context, teamID, userID, toolID string) (bool, error)
+	ListGrantedTools(ctx context.Context, teamID, userID string) ([]string, error)
+	UpsertToolGrant(ctx context.Context, teamID, userID, toolID string, allowed bool, grantedByActorID *string) error
+	RevokeToolGrant(ctx context.Context, teamID, userID, toolID string) error
+	ListAllUserGrants(ctx context.Context, teamID, userID string) ([]db.ToolGrant, error)
+}
+
 type routerStore interface {
 	appsStore
 	teamsStore
+	toolGrantsStore
 }
 
 type appCursor struct {
@@ -874,12 +883,16 @@ func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient)
 		sr.With(mw.Bearer).Post("/logout", logoutHandler(store))
 	})
 
+	// Tool authorization endpoint (requires temporary token)
+	r.Post("/v1/teams/{team_slug}/auth:grant-tools", authorizeToolsHandler(store))
+
 	r.Route("/v1/me", func(sr chi.Router) {
 		sr.Use(mw.Bearer)
 		sr.Use(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionListTeams, next)
 		})
 		sr.Get("/teams", listTeamsHandler(store))
+		sr.Patch("/auth/tool-grants", patchToolGrantsHandler(store))
 	})
 
 	r.Route("/v1/teams/{team_slug}", func(sr chi.Router) {
