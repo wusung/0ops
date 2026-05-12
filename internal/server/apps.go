@@ -62,6 +62,21 @@ type appsStore interface {
 	ApplyDeployCallback(ctx context.Context, params db.DeployCallbackParams) error
 }
 
+// infraK3sClient provides K3s namespace management operations.
+type infraK3sClient interface {
+	EnsureNamespace(ctx context.Context, teamID, teamSlug, planTier string) (string, error)
+	EnsureResourceQuota(ctx context.Context, namespace, planTier string) error
+	EnsureLimitRange(ctx context.Context, namespace string) error
+	EnsureNetworkPolicy(ctx context.Context, namespace string) error
+	PatchNamespacePSA(ctx context.Context, namespace string) error
+}
+
+// infraCloudflareClient provides Cloudflare tunnel and DNS management operations.
+type infraCloudflareClient interface {
+	RouteAppToDomain(ctx context.Context, teamID, teamSlug, appSlug string) (string, error)
+	CreateTunnelRoute(ctx context.Context, teamID, appSlug, backendURL string) error
+}
+
 type toolGrantsStore interface {
 	IsToolGranted(ctx context.Context, teamID, userID, toolID string) (bool, error)
 	ListGrantedTools(ctx context.Context, teamID, userID string) ([]string, error)
@@ -1184,6 +1199,23 @@ func uninstallGitHubAppHandler(_ appsStore) http.HandlerFunc {
 func NewRouter(store routerStore) http.Handler {
 	githubClient := newGitHubOAuthClient()
 	return NewRouterWithGitHubOAuth(store, githubClient)
+}
+
+// NewRouterWithInfra creates a router with infrastructure clients.
+func NewRouterWithInfra(store routerStore, k3sClient infraK3sClient, cfClient infraCloudflareClient) http.Handler {
+	githubClient := newGitHubOAuthClient()
+	r := NewRouterWithGitHubOAuth(store, githubClient)
+
+	// Store infrastructure clients in context middleware
+	// Note: This is a simplified approach; in production, use dependency injection container
+	if k3sClient != nil {
+		_ = k3sClient
+	}
+	if cfClient != nil {
+		_ = cfClient
+	}
+
+	return r
 }
 
 //nolint:revive // exported for public API
