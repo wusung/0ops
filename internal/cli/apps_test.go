@@ -299,6 +299,24 @@ func TestDeploysStatusAndLogsCommand(t *testing.T) {
 	}
 }
 
+func TestDeploysLogsFollowCommand(t *testing.T) {
+	store, token := newCLIFakeStore()
+	srv := httptest.NewServer(serverpkg.NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	logsCmd := NewRootCommand()
+	logsCmd.SetArgs([]string{"deploys", "logs", "alpha", "--follow", "--team", store.team.Slug, "--host", srv.URL, "--token", token, "--output", "table"})
+	var logsOut bytes.Buffer
+	logsCmd.SetOut(&logsOut)
+	logsCmd.SetErr(&logsOut)
+	if err := logsCmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("logs follow Execute() error = %v", err)
+	}
+	if !bytes.Contains(logsOut.Bytes(), []byte("build started")) {
+		t.Fatalf("expected logs output, got: %s", logsOut.String())
+	}
+}
+
 func TestDomainsListCommand(t *testing.T) {
 	store, token := newCLIFakeStore()
 	srv := httptest.NewServer(serverpkg.NewRouter(store))

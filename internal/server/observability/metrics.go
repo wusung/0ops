@@ -39,9 +39,9 @@ func NewMetrics() *Metrics {
 			Namespace: "zeroops",
 			Subsystem: "http",
 			Name:      "request_duration_seconds",
-			Help:      "HTTP request latency by route, method, status, and team bucket.",
+			Help:      "HTTP request latency by route, method, and team bucket.",
 			Buckets:   prometheus.DefBuckets,
-		}, []string{"route", "method", "status", "team_bucket"}),
+		}, []string{"route", "method", "team_bucket"}),
 		httpInflight: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "zeroops",
 			Subsystem: "http",
@@ -75,7 +75,7 @@ func (m *Metrics) Middleware(routeLabel func(*http.Request) string) func(http.Ha
 			route := routeLabel(r)
 			teamBucket := teamBucketForRequest(r)
 			m.httpTotal.WithLabelValues(route, r.Method, strconv.Itoa(rec.status), teamBucket).Inc()
-			m.httpDuration.WithLabelValues(route, r.Method, strconv.Itoa(rec.status), teamBucket).
+			m.httpDuration.WithLabelValues(route, r.Method, teamBucket).
 				Observe(time.Since(start).Seconds())
 		})
 	}

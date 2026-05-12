@@ -2,6 +2,7 @@
 package backendclient
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -142,6 +143,77 @@ func (c *Client) TailLogs(ctx context.Context, teamSlug, appSlug string, limit i
 
 	var out dto.TailLogsResponse
 	if err := c.doJSON(ctx, http.MethodGet, endpoint.String(), nil, &out); err != nil {
+		return dto.TailLogsResponse{}, err
+	}
+	return out, nil
+}
+
+// TailLogsFollow streams deploy logs via SSE and returns collected log events.
+//
+//nolint:revive // exported for public API
+func (c *Client) TailLogsFollow(ctx context.Context, teamSlug, appSlug string, limit int, lastEventID string) (dto.TailLogsResponse, error) {
+	endpoint, err := url.Parse(c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/deploys/logs")
+	if err != nil {
+		return dto.TailLogsResponse{}, err
+	}
+	q := endpoint.Query()
+	q.Set("app_slug", appSlug)
+	q.Set("follow", "true")
+	if limit > 0 {
+		q.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	endpoint.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return dto.TailLogsResponse{}, err
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	if c.BearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.BearerToken)
+	}
+	if strings.TrimSpace(lastEventID) != "" {
+		req.Header.Set("Last-Event-ID", strings.TrimSpace(lastEventID))
+	}
+
+	res, err := c.httpClient().Do(req)
+	if err != nil {
+		return dto.TailLogsResponse{}, err
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode != http.StatusOK {
+		return dto.TailLogsResponse{}, decodeError(res)
+	}
+	if !strings.HasPrefix(strings.ToLower(res.Header.Get("Content-Type")), "text/event-stream") {
+		return dto.TailLogsResponse{}, fmt.Errorf("unexpected content type %q", res.Header.Get("Content-Type"))
+	}
+
+	var (
+		out          dto.TailLogsResponse
+		currentEvent string
+	)
+	scanner := bufio.NewScanner(res.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			currentEvent = ""
+			continue
+		}
+		if strings.HasPrefix(line, "event:") {
+			currentEvent = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+			continue
+		}
+		if !strings.HasPrefix(line, "data:") || currentEvent != "log" {
+			continue
+		}
+		var item dto.LogLine
+		if err := json.Unmarshal([]byte(strings.TrimSpace(strings.TrimPrefix(line, "data:"))), &item); err != nil {
+			return dto.TailLogsResponse{}, err
+		}
+		out.Items = append(out.Items, item)
+	}
+	if err := scanner.Err(); err != nil {
 		return dto.TailLogsResponse{}, err
 	}
 	return out, nil

@@ -330,7 +330,7 @@ data: {"reason":"client_disconnect"}
 | CLI 命令 | `0ops teams list/use`、`apps list/get`、`repo inspect`、`deploys logs/status`、`domains list` 全部以 `table/json/yaml` 輸出正確 |
 | MCP 對應 tool | claude code 端啟 MCP，`tools/list` 列 7 條，逐條 `Call()` 通過 |
 | Middleware chain | `AuthBearer → ResolveTeam → CheckMembership → CheckTokenScope` 五段於本批 endpoint 全套用 |
-| `/metrics` | 暴露 `0ops_http_requests_total` 與 `0ops_http_request_duration_seconds`，含 `team_bucket` label |
+| `/metrics` | 暴露 `zeroops_http_requests_total` 與 `zeroops_http_request_duration_seconds`，含 `team_bucket` label |
 | trace propagation | 一條 CLI / MCP 呼叫，backend log 含對應 `trace_id`；SSE 每 event 之 log 同 trace_id |
 | Cross-team enumeration | team A 之 user 呼 team B endpoint 回 `404`，非 403 |
 | Contract test | `make contract-test` 全綠 |
@@ -340,7 +340,7 @@ data: {"reason":"client_disconnect"}
 
 | 端點 | p95 目標 | 量測 |
 |---|---|---|
-| `list_apps` / `get_app` / `list_domains` / `list_teams` | < 200ms | `0ops_http_request_duration_seconds` p95 |
+| `list_apps` / `get_app` / `list_domains` / `list_teams` | < 200ms | `zeroops_http_request_duration_seconds` p95 |
 | `inspect_repo`（cache hit） | < 50ms | 同上 |
 | `inspect_repo`（cache miss，含 GitHub API） | < 1500ms | 同上 |
 | `get_deploy_status` | < 200ms | 同上 |
