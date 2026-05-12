@@ -314,6 +314,26 @@ spec:
 | API token 範圍最小 | 嘗試用此 token 對其他 zone 操作 | Cloudflare API 拒（403） |
 | Token rotation 雙 window | 同時並存兩 token | 兩個都可用，30 分鐘後舊 token 失效 |
 
+### 12.1 可重跑 smoke harness（M2-09）
+
+使用 `tasks/m2-nextdemo-smoke.sh` 執行完整 smoke：
+
+1. `create_app` preview
+2. `create_app` confirm
+3. deploy callback（HMAC 簽章）
+4. `https://nextdemo.winshare.tw` 可達性檢查（要求 HTTP 200）
+
+執行方式：
+
+```bash
+export OPS_API_BASE='https://<backend-host>'
+export OPS_BEARER_TOKEN='<token>'
+export OPS_TEAM_SLUG='<team-slug>'
+export OPS_CALLBACK_SECRET='<callback-secret>'
+export OPS_APP_SLUG='nextdemo'
+make smoke-nextdemo
+```
+
 ## 13. SLI 對應
 
 | SLI | 目標 | 量測 |

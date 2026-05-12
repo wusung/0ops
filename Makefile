@@ -8,7 +8,8 @@ LDFLAGS := -s -w -X github.com/winshare/zeroops/internal/shared.Version=$(VERSIO
 SQLC_IMAGE ?= docker.io/sqlc/sqlc:1.31.1
 
 .PHONY: help dev dev-down dev-clean dev-logs dev-shell migrate migrate-down \
-        build-images lint-compose lint-docker lint-go test contract-test build tidy sqlc
+        build-images lint-compose lint-docker lint-go test contract-test build tidy sqlc \
+        smoke-nextdemo
 
 help:
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -68,6 +69,9 @@ test: ## go test ./...
 
 contract-test: ## backend/cli/mcp contract path tests
 	go test ./internal/server ./internal/cli ./internal/mcp/server
+
+smoke-nextdemo: ## M2-09 external smoke (needs OPS_* env vars)
+	bash tasks/m2-nextdemo-smoke.sh
 
 tidy: ## go mod tidy
 	go mod tidy
