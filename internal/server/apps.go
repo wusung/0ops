@@ -359,14 +359,66 @@ func createAppHandler(store appsStore, k3sClient infraK3sClient, cfClient infraC
 		// Initialize infrastructure for the app (K3s namespace + Cloudflare tunnel)
 		teamID := auth.TeamID(r.Context())
 		teamSlug := auth.TeamSlug(r.Context())
+		planTier := "free"
 
 		if k3sClient != nil {
-			// Pass empty string for plan since it's not available in context
-			// The plan can be fetched from store if needed in production implementation
-			_, _ = k3sClient.EnsureNamespace(r.Context(), teamID, teamSlug, "free")
+			namespace, err := k3sClient.EnsureNamespace(r.Context(), teamID, teamSlug, planTier)
+			if err != nil {
+				apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to ensure team namespace", nil)
+				return
+			}
+			if err := k3sClient.EnsureResourceQuota(r.Context(), namespace, planTier); err != nil {
+				apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to ensure resource quota", nil)
+				return
+			}
+			if err := k3sClient.EnsureLimitRange(r.Context(), namespace); err != nil {
+				apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to ensure limit range", nil)
+				return
+			}
+			if err := k3sClient.EnsureNetworkPolicy(r.Context(), namespace); err != nil {
+				apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to ensure network policy", nil)
+				return
+			}
+			if err := k3sClient.PatchNamespacePSA(r.Context(), namespace); err != nil {
+				apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to patch namespace pod security labels", nil)
+				return
+			}
 		}
 		if cfClient != nil {
-			_, _ = cfClient.RouteAppToDomain(r.Context(), teamID, teamSlug, result.AppSlug)
+			hostname, err := cfClient.RouteAppToDomain(r.Context(), teamID, teamSlug, result.AppSlug)
+			if err != nil {
+				apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to bind cloudflare hostname", nil)
+				return
+			}
+			if err := cfClient.CreateTunnelRoute(r.Context(), teamID, result.AppSlug, "http://traefik.kube-system.svc.cluster.local:80"); err != nil {
+				apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to create cloudflare tunnel route", nil)
+				return
+			}
+			subdomainURL := fmt.Sprintf("https://%s", hostname)
+			response := dto.AppCreateResponse{
+				AppID:         result.AppID,
+				AppSlug:       result.AppSlug,
+				DeployRunID:   result.DeployRunID,
+				TraceID:       traceID,
+				SubdomainURL:  subdomainURL,
+				InitialDeploy: true,
+			}
+			responseJSON, err := json.Marshal(response)
+			if err != nil {
+				apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to encode create_app result", nil)
+				return
+			}
+			if err := store.ConsumePreviewWithResult(r.Context(), preview.ID, responseJSON); err != nil {
+				apperror.Write(w, "preview_consumed", apperror.ClassConflict, "preview already consumed", nil)
+				return
+			}
+
+			recordM2PreviewConsumed("success", observability.TeamBucket(auth.TeamID(r.Context())))
+
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(response)
+			outcome = "success"
+			return
 		}
 
 		response := dto.AppCreateResponse{

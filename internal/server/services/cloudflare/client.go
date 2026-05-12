@@ -3,6 +3,7 @@ package cloudflare
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 // Config holds Cloudflare API credentials and tunnel configuration.
@@ -57,12 +58,16 @@ func NewClient(cfg *Config) (*Client, error) {
 //
 // M2 implementation: No-op, returns subdomain name only.
 // M3+ implementation: Create DNS CNAME via API.
-func (c *Client) RouteAppToDomain(_ context.Context, _, teamSlug, appSlug string) (string, error) {
+func (c *Client) RouteAppToDomain(_ context.Context, _, _ string, appSlug string) (string, error) {
+	appSlug = strings.TrimSpace(appSlug)
+	if appSlug == "" {
+		return "", fmt.Errorf("app slug is required")
+	}
 	if c.config.DisableTunnelIsolation {
-		return fmt.Sprintf("%s.%s.winshare.tw", appSlug, teamSlug), nil
+		return fmt.Sprintf("%s.winshare.tw", appSlug), nil
 	}
 
-	subdomain := fmt.Sprintf("%s.%s.winshare.tw", appSlug, teamSlug)
+	subdomain := fmt.Sprintf("%s.winshare.tw", appSlug)
 
 	// TODO: Implement in M3+:
 	// 1. Construct CNAME target: tunnel.winshare.tw (or dynamic based on tunnel config)
