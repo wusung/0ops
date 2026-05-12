@@ -49,7 +49,7 @@ func TestNewRouterListTeamsRequiresTeamsReadScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403", res.StatusCode)
@@ -122,7 +122,7 @@ type paginatedTeamsStore struct {
 	calls int
 }
 
-func (f *paginatedTeamsStore) ListUserTeams(ctx context.Context, userID string, limit int32, afterSlug *string) ([]db.TeamMembership, error) {
+func (f *paginatedTeamsStore) ListUserTeams(_ context.Context, userID string, limit int32, afterSlug *string) ([]db.TeamMembership, error) {
 	if userID != f.token.OwnerUserID || !f.members {
 		return nil, nil
 	}
@@ -135,7 +135,7 @@ func (f *paginatedTeamsStore) ListUserTeams(ctx context.Context, userID string, 
 			continue
 		}
 		out = append(out, team)
-		if int32(len(out)) >= limit {
+		if int32(len(out)) >= limit { //nolint:gosec // len() fits in int32
 			break
 		}
 	}

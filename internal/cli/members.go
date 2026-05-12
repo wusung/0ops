@@ -198,7 +198,7 @@ func renderMembers(cmd *cobra.Command, out dto.ListMembersResponse, outputFmt st
 	case "table":
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 		for _, item := range out.Items {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", item.UserID, strOrDash(item.GithubLogin), strOrDash(item.Email), item.Role)
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", item.UserID, strOrDash(item.GithubLogin), strOrDash(item.Email), item.Role)
 		}
 		return w.Flush()
 	default:

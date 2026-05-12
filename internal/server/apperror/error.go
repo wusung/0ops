@@ -1,3 +1,4 @@
+// Package apperror provides error handling utilities.
 package apperror
 
 import (
@@ -9,12 +10,18 @@ import (
 type Class string
 
 const (
-	ClassBadRequest   Class = "bad_request"
+	// ClassBadRequest indicates a bad request error.
+	ClassBadRequest Class = "bad_request"
+	// ClassUnauthorized indicates an unauthorized error.
 	ClassUnauthorized Class = "unauthorized"
-	ClassForbidden    Class = "forbidden"
-	ClassNotFound     Class = "not_found"
-	ClassConflict     Class = "conflict"
-	ClassInternal     Class = "internal"
+	// ClassForbidden indicates a forbidden error.
+	ClassForbidden Class = "forbidden"
+	// ClassNotFound indicates a not found error.
+	ClassNotFound Class = "not_found"
+	// ClassConflict indicates a conflict error.
+	ClassConflict Class = "conflict"
+	// ClassInternal indicates an internal error.
+	ClassInternal Class = "internal"
 )
 
 // Error is the server error envelope source.

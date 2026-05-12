@@ -49,7 +49,7 @@ func (m mockGitHubOAuthClient) FetchUser(context.Context, string) (githuboauth.U
 	return m.user, nil
 }
 
-func (f *fakeStore) FindCliTokenByID(ctx context.Context, tokenID string) (db.CliToken, error) {
+func (f *fakeStore) FindCliTokenByID(_ context.Context, tokenID string) (db.CliToken, error) {
 	if tokenID == f.token.ID {
 		return f.token, nil
 	}
@@ -59,25 +59,25 @@ func (f *fakeStore) FindCliTokenByID(ctx context.Context, tokenID string) (db.Cl
 	return db.CliToken{}, errors.New("not found")
 }
 
-func (f *fakeStore) ResolveTeamBySlug(ctx context.Context, slug string) (db.Team, error) {
+func (f *fakeStore) ResolveTeamBySlug(_ context.Context, slug string) (db.Team, error) {
 	if slug != f.team.Slug {
 		return db.Team{}, errors.New("not found")
 	}
 	return f.team, nil
 }
 
-func (f *fakeStore) CheckTeamMembership(ctx context.Context, teamID string, userID string) (bool, error) {
+func (f *fakeStore) CheckTeamMembership(_ context.Context, teamID string, userID string) (bool, error) {
 	return f.members && teamID == f.team.ID && userID == f.token.OwnerUserID, nil
 }
 
-func (f *fakeStore) GetTeamMembershipRole(ctx context.Context, teamID string, userID string) (string, error) {
+func (f *fakeStore) GetTeamMembershipRole(_ context.Context, teamID string, userID string) (string, error) {
 	if !f.members || teamID != f.team.ID || userID != f.token.OwnerUserID {
 		return "", errors.New("not found")
 	}
 	return f.role, nil
 }
 
-func (f *fakeStore) ListUserTeams(ctx context.Context, userID string, limit int32, afterSlug *string) ([]db.TeamMembership, error) {
+func (f *fakeStore) ListUserTeams(_ context.Context, userID string, _ int32, _ *string) ([]db.TeamMembership, error) {
 	if userID != f.token.OwnerUserID || !f.members {
 		return nil, nil
 	}
@@ -88,7 +88,7 @@ func (f *fakeStore) ListUserTeams(ctx context.Context, userID string, limit int3
 	}}, nil
 }
 
-func (f *fakeStore) ListTeamApps(ctx context.Context, teamID string, limit int32, afterID *string) ([]db.App, error) {
+func (f *fakeStore) ListTeamApps(_ context.Context, teamID string, limit int32, afterID *string) ([]db.App, error) {
 	if teamID != f.team.ID {
 		return nil, errors.New("team mismatch")
 	}
@@ -98,14 +98,14 @@ func (f *fakeStore) ListTeamApps(ctx context.Context, teamID string, limit int32
 			continue
 		}
 		out = append(out, app)
-		if int32(len(out)) >= limit {
+		if int32(len(out)) >= limit { //nolint:gosec // len() fits in int32
 			break
 		}
 	}
 	return out, nil
 }
 
-func (f *fakeStore) GetTeamAppBySlug(ctx context.Context, teamID string, slug string) (db.App, error) {
+func (f *fakeStore) GetTeamAppBySlug(_ context.Context, teamID string, slug string) (db.App, error) {
 	if teamID != f.team.ID {
 		return db.App{}, errors.New("team mismatch")
 	}
@@ -117,7 +117,7 @@ func (f *fakeStore) GetTeamAppBySlug(ctx context.Context, teamID string, slug st
 	return db.App{}, pgx.ErrNoRows
 }
 
-func (f *fakeStore) ListDomainsByAppSlug(ctx context.Context, teamID string, appSlug string) ([]db.DomainBinding, error) {
+func (f *fakeStore) ListDomainsByAppSlug(_ context.Context, teamID string, appSlug string) ([]db.DomainBinding, error) {
 	if teamID != f.team.ID {
 		return nil, errors.New("team mismatch")
 	}
@@ -130,7 +130,7 @@ func (f *fakeStore) ListDomainsByAppSlug(ctx context.Context, teamID string, app
 	return out, nil
 }
 
-func (f *fakeStore) GetLatestDeployByAppSlug(ctx context.Context, teamID string, appSlug string) (db.DeployRun, error) {
+func (f *fakeStore) GetLatestDeployByAppSlug(_ context.Context, teamID string, appSlug string) (db.DeployRun, error) {
 	if teamID != f.team.ID {
 		return db.DeployRun{}, errors.New("team mismatch")
 	}
@@ -153,9 +153,9 @@ func (f *fakeStore) ListDeployLogLines(ctx context.Context, teamID string, appSl
 	return append([]db.DeployLogLine(nil), row.LogLines[:limit]...), nil
 }
 
-func (f *fakeStore) HasAnyOwner(ctx context.Context) (bool, error) { return f.hasOwner, nil }
+func (f *fakeStore) HasAnyOwner(_ context.Context) (bool, error) { return f.hasOwner, nil }
 
-func (f *fakeStore) BootstrapOwner(ctx context.Context, params db.BootstrapOwnerParams) (string, string, error) {
+func (f *fakeStore) BootstrapOwner(_ context.Context, _ db.BootstrapOwnerParams) (string, string, error) {
 	if f.hasOwner {
 		return "", "", db.ErrBootstrapAlreadyDone
 	}
@@ -163,11 +163,11 @@ func (f *fakeStore) BootstrapOwner(ctx context.Context, params db.BootstrapOwner
 	return "team-bootstrap", "user-bootstrap", nil
 }
 
-func (f *fakeStore) ListTeamMembers(ctx context.Context, teamID string) ([]db.Member, error) {
+func (f *fakeStore) ListTeamMembers(_ context.Context, _ string) ([]db.Member, error) {
 	return append([]db.Member(nil), f.memberRows...), nil
 }
 
-func (f *fakeStore) ListTeamTokens(ctx context.Context, teamID string) ([]db.CliToken, error) {
+func (f *fakeStore) ListTeamTokens(_ context.Context, teamID string) ([]db.CliToken, error) {
 	out := make([]db.CliToken, 0, len(f.tokens))
 	for _, tok := range f.tokens {
 		if tok.TeamID == teamID && tok.Kind == "pat" {
@@ -177,7 +177,7 @@ func (f *fakeStore) ListTeamTokens(ctx context.Context, teamID string) ([]db.Cli
 	return out, nil
 }
 
-func (f *fakeStore) CreatePreview(ctx context.Context, teamID, actorUserID, action string, args json.RawMessage, summary string) (db.Preview, error) {
+func (f *fakeStore) CreatePreview(_ context.Context, teamID, actorUserID, action string, args json.RawMessage, _ string) (db.Preview, error) {
 	p := db.Preview{
 		ID:          "preview-1",
 		TeamID:      teamID,
@@ -190,7 +190,7 @@ func (f *fakeStore) CreatePreview(ctx context.Context, teamID, actorUserID, acti
 	return p, nil
 }
 
-func (f *fakeStore) GetPreview(ctx context.Context, previewID string) (db.Preview, error) {
+func (f *fakeStore) GetPreview(_ context.Context, previewID string) (db.Preview, error) {
 	p, ok := f.previews[previewID]
 	if !ok {
 		return db.Preview{}, db.ErrPreviewNotFound
@@ -198,9 +198,9 @@ func (f *fakeStore) GetPreview(ctx context.Context, previewID string) (db.Previe
 	return p, nil
 }
 
-func (f *fakeStore) ConsumePreview(ctx context.Context, previewID string) error { return nil }
+func (f *fakeStore) ConsumePreview(_ context.Context, _ string) error { return nil }
 
-func (f *fakeStore) InviteMember(ctx context.Context, params db.InviteMemberParams) (db.Member, error) {
+func (f *fakeStore) InviteMember(_ context.Context, params db.InviteMemberParams) (db.Member, error) {
 	now := time.Now().UTC()
 	member := db.Member{
 		UserID:      "user-new",
@@ -214,18 +214,18 @@ func (f *fakeStore) InviteMember(ctx context.Context, params db.InviteMemberPara
 	return member, nil
 }
 
-func (f *fakeStore) RemoveMember(ctx context.Context, teamID, actorUserID, targetUserID string) error {
+func (f *fakeStore) RemoveMember(_ context.Context, _, _, _ string) error {
 	return nil
 }
 
-func (f *fakeStore) ResolveUserDefaultTeamByGithubLogin(ctx context.Context, githubLogin string) (string, string, string, error) {
+func (f *fakeStore) ResolveUserDefaultTeamByGithubLogin(_ context.Context, githubLogin string) (string, string, string, error) {
 	if githubLogin != "owner" {
 		return "", "", "", pgx.ErrNoRows
 	}
 	return f.token.OwnerUserID, f.team.ID, f.team.Slug, nil
 }
 
-func (f *fakeStore) CreateCLIToken(ctx context.Context, ownerUserID, teamID string, scopes []string) (string, error) {
+func (f *fakeStore) CreateCLIToken(_ context.Context, ownerUserID, teamID string, scopes []string) (string, error) {
 	token, err := auth.NewBearerToken("device", "token-issued")
 	if err != nil {
 		return "", err
@@ -244,7 +244,7 @@ func (f *fakeStore) CreateCLIToken(ctx context.Context, ownerUserID, teamID stri
 	return token, nil
 }
 
-func (f *fakeStore) CreatePAT(ctx context.Context, ownerUserID, teamID, name string, scopes []string, expiresAt time.Time) (string, error) {
+func (f *fakeStore) CreatePAT(_ context.Context, ownerUserID, teamID, name string, scopes []string, expiresAt time.Time) (string, error) {
 	token, err := auth.NewBearerToken("pat", "token-pat")
 	if err != nil {
 		return "", err
@@ -268,7 +268,7 @@ func (f *fakeStore) CreatePAT(ctx context.Context, ownerUserID, teamID, name str
 	return token, nil
 }
 
-func (f *fakeStore) RevokeCLITokenByID(ctx context.Context, tokenID string) error {
+func (f *fakeStore) RevokeCLITokenByID(_ context.Context, tokenID string) error {
 	tok, ok := f.tokens[tokenID]
 	if !ok {
 		return pgx.ErrNoRows
@@ -279,7 +279,7 @@ func (f *fakeStore) RevokeCLITokenByID(ctx context.Context, tokenID string) erro
 	return nil
 }
 
-func (f *fakeStore) RevokePATByName(ctx context.Context, teamID, name string) error {
+func (f *fakeStore) RevokePATByName(_ context.Context, teamID, name string) error {
 	for id, tok := range f.tokens {
 		if tok.TeamID == teamID && tok.Kind == "pat" && tok.Name == name {
 			now := time.Now().UTC()

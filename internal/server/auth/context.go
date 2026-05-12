@@ -1,3 +1,4 @@
+// Package auth provides authentication context utilities.
 package auth
 
 import "context"
@@ -44,41 +45,49 @@ func withActorRole(ctx context.Context, value string) context.Context {
 	return context.WithValue(ctx, keyActorRole, value)
 }
 
+//nolint:revive // exported for public API
 func ActorUserID(ctx context.Context) string {
 	v, _ := ctx.Value(keyActorUserID).(string)
 	return v
 }
 
+//nolint:revive // exported for public API
 func TokenTeamID(ctx context.Context) string {
 	v, _ := ctx.Value(keyTokenTeamID).(string)
 	return v
 }
 
+//nolint:revive // exported for public API
 func TokenID(ctx context.Context) string {
 	v, _ := ctx.Value(keyTokenID).(string)
 	return v
 }
 
+//nolint:revive // exported for public API
 func TokenKind(ctx context.Context) string {
 	v, _ := ctx.Value(keyTokenKind).(string)
 	return v
 }
 
+//nolint:revive // exported for public API
 func TokenScopes(ctx context.Context) []string {
 	v, _ := ctx.Value(keyTokenScopes).([]string)
 	return v
 }
 
+//nolint:revive // exported for public API
 func TeamID(ctx context.Context) string {
 	v, _ := ctx.Value(keyTeamID).(string)
 	return v
 }
 
+//nolint:revive // exported for public API
 func TeamSlug(ctx context.Context) string {
 	v, _ := ctx.Value(keyTeamSlug).(string)
 	return v
 }
 
+//nolint:revive // exported for public API
 func ActorRole(ctx context.Context) string {
 	v, _ := ctx.Value(keyActorRole).(string)
 	return v

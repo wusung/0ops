@@ -134,7 +134,7 @@ type mcpFakeStore struct {
 	members    bool
 }
 
-func (f *mcpFakeStore) FindCliTokenByID(ctx context.Context, tokenID string) (db.CliToken, error) {
+func (f *mcpFakeStore) FindCliTokenByID(_ context.Context, tokenID string) (db.CliToken, error) {
 	if tokenID == f.token.ID {
 		return f.token, nil
 	}
@@ -143,25 +143,25 @@ func (f *mcpFakeStore) FindCliTokenByID(ctx context.Context, tokenID string) (db
 	}
 	return db.CliToken{}, os.ErrNotExist
 }
-func (f *mcpFakeStore) ResolveTeamBySlug(ctx context.Context, slug string) (db.Team, error) {
+func (f *mcpFakeStore) ResolveTeamBySlug(_ context.Context, slug string) (db.Team, error) {
 	if slug != f.team.Slug {
 		return db.Team{}, os.ErrNotExist
 	}
 	return f.team, nil
 }
-func (f *mcpFakeStore) CheckTeamMembership(ctx context.Context, teamID string, userID string) (bool, error) {
+func (f *mcpFakeStore) CheckTeamMembership(_ context.Context, teamID string, userID string) (bool, error) {
 	return f.members && teamID == f.team.ID && userID == f.token.OwnerUserID, nil
 }
-func (f *mcpFakeStore) GetTeamMembershipRole(ctx context.Context, teamID string, userID string) (string, error) {
+func (f *mcpFakeStore) GetTeamMembershipRole(_ context.Context, _ string, _ string) (string, error) {
 	return f.role, nil
 }
-func (f *mcpFakeStore) ListUserTeams(ctx context.Context, userID string, limit int32, afterSlug *string) ([]db.TeamMembership, error) {
+func (f *mcpFakeStore) ListUserTeams(_ context.Context, _ string, _ int32, _ *string) ([]db.TeamMembership, error) {
 	return []db.TeamMembership{{Team: f.team, UserID: f.token.OwnerUserID, Role: f.role}}, nil
 }
-func (f *mcpFakeStore) ListTeamApps(ctx context.Context, teamID string, limit int32, afterID *string) ([]db.App, error) {
+func (f *mcpFakeStore) ListTeamApps(_ context.Context, _ string, _ int32, _ *string) ([]db.App, error) {
 	return f.apps, nil
 }
-func (f *mcpFakeStore) GetTeamAppBySlug(ctx context.Context, teamID string, slug string) (db.App, error) {
+func (f *mcpFakeStore) GetTeamAppBySlug(_ context.Context, _ string, slug string) (db.App, error) {
 	for _, a := range f.apps {
 		if a.Slug == slug {
 			return a, nil
@@ -169,7 +169,7 @@ func (f *mcpFakeStore) GetTeamAppBySlug(ctx context.Context, teamID string, slug
 	}
 	return db.App{}, pgx.ErrNoRows
 }
-func (f *mcpFakeStore) ListDomainsByAppSlug(ctx context.Context, teamID string, appSlug string) ([]db.DomainBinding, error) {
+func (f *mcpFakeStore) ListDomainsByAppSlug(_ context.Context, _ string, appSlug string) ([]db.DomainBinding, error) {
 	out := make([]db.DomainBinding, 0)
 	for _, item := range f.domains {
 		if item.AppSlug == appSlug {
@@ -178,7 +178,7 @@ func (f *mcpFakeStore) ListDomainsByAppSlug(ctx context.Context, teamID string, 
 	}
 	return out, nil
 }
-func (f *mcpFakeStore) GetLatestDeployByAppSlug(ctx context.Context, teamID string, appSlug string) (db.DeployRun, error) {
+func (f *mcpFakeStore) GetLatestDeployByAppSlug(_ context.Context, _ string, appSlug string) (db.DeployRun, error) {
 	for _, row := range f.deploys {
 		if row.AppSlug == appSlug {
 			return row, nil
@@ -186,21 +186,21 @@ func (f *mcpFakeStore) GetLatestDeployByAppSlug(ctx context.Context, teamID stri
 	}
 	return db.DeployRun{}, pgx.ErrNoRows
 }
-func (f *mcpFakeStore) ListDeployLogLines(ctx context.Context, teamID string, appSlug string, limit int) ([]db.DeployLogLine, error) {
+func (f *mcpFakeStore) ListDeployLogLines(ctx context.Context, teamID string, appSlug string, _ int) ([]db.DeployLogLine, error) {
 	row, err := f.GetLatestDeployByAppSlug(ctx, teamID, appSlug)
 	if err != nil {
 		return nil, err
 	}
 	return append([]db.DeployLogLine(nil), row.LogLines...), nil
 }
-func (f *mcpFakeStore) HasAnyOwner(ctx context.Context) (bool, error) { return false, nil }
-func (f *mcpFakeStore) BootstrapOwner(ctx context.Context, params db.BootstrapOwnerParams) (string, string, error) {
+func (f *mcpFakeStore) HasAnyOwner(_ context.Context) (bool, error) { return false, nil }
+func (f *mcpFakeStore) BootstrapOwner(_ context.Context, _ db.BootstrapOwnerParams) (string, string, error) {
 	return "team-bootstrap", "user-bootstrap", nil
 }
-func (f *mcpFakeStore) ListTeamMembers(ctx context.Context, teamID string) ([]db.Member, error) {
+func (f *mcpFakeStore) ListTeamMembers(_ context.Context, _ string) ([]db.Member, error) {
 	return f.memberRows, nil
 }
-func (f *mcpFakeStore) ListTeamTokens(ctx context.Context, teamID string) ([]db.CliToken, error) {
+func (f *mcpFakeStore) ListTeamTokens(_ context.Context, teamID string) ([]db.CliToken, error) {
 	out := make([]db.CliToken, 0, len(f.tokens))
 	for _, tok := range f.tokens {
 		if tok.TeamID == teamID && tok.Kind == "pat" {
@@ -209,22 +209,22 @@ func (f *mcpFakeStore) ListTeamTokens(ctx context.Context, teamID string) ([]db.
 	}
 	return out, nil
 }
-func (f *mcpFakeStore) CreatePreview(ctx context.Context, teamID, actorUserID, action string, args json.RawMessage, summary string) (db.Preview, error) {
+func (f *mcpFakeStore) CreatePreview(_ context.Context, teamID, actorUserID, action string, args json.RawMessage, _ string) (db.Preview, error) {
 	return db.Preview{ID: "preview-1", TeamID: teamID, ActorUserID: actorUserID, Action: action, Args: args, ExpiresAt: time.Now().UTC().Add(time.Minute)}, nil
 }
-func (f *mcpFakeStore) GetPreview(ctx context.Context, previewID string) (db.Preview, error) {
+func (f *mcpFakeStore) GetPreview(_ context.Context, previewID string) (db.Preview, error) {
 	return db.Preview{ID: previewID, TeamID: f.team.ID, ActorUserID: f.token.OwnerUserID, Action: "invite_member", Args: []byte(`{"github_login":"newbie","role":"member"}`), ExpiresAt: time.Now().UTC().Add(time.Minute)}, nil
 }
-func (f *mcpFakeStore) ConsumePreview(ctx context.Context, previewID string) error { return nil }
-func (f *mcpFakeStore) InviteMember(ctx context.Context, params db.InviteMemberParams) (db.Member, error) {
+func (f *mcpFakeStore) ConsumePreview(_ context.Context, _ string) error { return nil }
+func (f *mcpFakeStore) InviteMember(_ context.Context, params db.InviteMemberParams) (db.Member, error) {
 	now := time.Now().UTC()
 	return db.Member{UserID: "user-new", Role: params.Role, InvitedAt: &now, JoinedAt: &now}, nil
 }
-func (f *mcpFakeStore) RemoveMember(ctx context.Context, teamID, actorUserID, targetUserID string) error {
+func (f *mcpFakeStore) RemoveMember(_ context.Context, _, _, _ string) error {
 	return nil
 }
 
-func (f *mcpFakeStore) ResolveUserDefaultTeamByGithubLogin(ctx context.Context, githubLogin string) (string, string, string, error) {
+func (f *mcpFakeStore) ResolveUserDefaultTeamByGithubLogin(_ context.Context, githubLogin string) (string, string, string, error) {
 	if githubLogin != "owner" {
 		return "", "", "", pgx.ErrNoRows
 	}
@@ -235,7 +235,7 @@ func (f *mcpFakeStore) GetOrCreateUserAndPersonalTeam(ctx context.Context, githu
 	return f.ResolveUserDefaultTeamByGithubLogin(ctx, githubLogin)
 }
 
-func (f *mcpFakeStore) CreateCLIToken(ctx context.Context, ownerUserID, teamID string, scopes []string) (string, error) {
+func (f *mcpFakeStore) CreateCLIToken(_ context.Context, ownerUserID, teamID string, scopes []string) (string, error) {
 	token, err := auth.NewBearerToken("device", "token-issued")
 	if err != nil {
 		return "", err
@@ -254,7 +254,7 @@ func (f *mcpFakeStore) CreateCLIToken(ctx context.Context, ownerUserID, teamID s
 	return token, nil
 }
 
-func (f *mcpFakeStore) CreatePAT(ctx context.Context, ownerUserID, teamID, name string, scopes []string, expiresAt time.Time) (string, error) {
+func (f *mcpFakeStore) CreatePAT(_ context.Context, ownerUserID, teamID, name string, scopes []string, expiresAt time.Time) (string, error) {
 	token, err := auth.NewBearerToken("pat", "token-pat")
 	if err != nil {
 		return "", err
@@ -278,7 +278,7 @@ func (f *mcpFakeStore) CreatePAT(ctx context.Context, ownerUserID, teamID, name 
 	return token, nil
 }
 
-func (f *mcpFakeStore) RevokeCLITokenByID(ctx context.Context, tokenID string) error {
+func (f *mcpFakeStore) RevokeCLITokenByID(_ context.Context, tokenID string) error {
 	tok, ok := f.tokens[tokenID]
 	if !ok {
 		return pgx.ErrNoRows
@@ -289,7 +289,7 @@ func (f *mcpFakeStore) RevokeCLITokenByID(ctx context.Context, tokenID string) e
 	return nil
 }
 
-func (f *mcpFakeStore) RevokePATByName(ctx context.Context, teamID, name string) error {
+func (f *mcpFakeStore) RevokePATByName(_ context.Context, teamID, name string) error {
 	for id, tok := range f.tokens {
 		if tok.TeamID == teamID && tok.Kind == "pat" && tok.Name == name {
 			now := time.Now().UTC()

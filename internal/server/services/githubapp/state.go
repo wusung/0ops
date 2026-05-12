@@ -14,11 +14,11 @@ import (
 
 // StateData holds the claims bundled in an install state token.
 type StateData struct {
-	TeamID       string `json:"team_id"`
-	ActorUserID  string `json:"actor_user_id"`
-	PreviewID    string `json:"preview_id"`
-	Timestamp    int64  `json:"timestamp"` // Unix seconds
-	Signature    string `json:"signature"` // hex-encoded HMAC
+	TeamID      string `json:"team_id"`
+	ActorUserID string `json:"actor_user_id"`
+	PreviewID   string `json:"preview_id"`
+	Timestamp   int64  `json:"timestamp"` // Unix seconds
+	Signature   string `json:"signature"` // hex-encoded HMAC
 }
 
 // StateSigner signs and verifies GitHub App install state tokens.
@@ -32,7 +32,8 @@ type StateSigner struct {
 // NewStateSigner creates a new StateSigner from environment variables.
 // Supports current and previous secrets for rotation (90d window, 30min dual).
 // Env vars: OPS_GITHUB_APP_STATE_HMAC_SECRET (current)
-//          OPS_GITHUB_APP_STATE_HMAC_SECRET_PREVIOUS (previous)
+//
+//	OPS_GITHUB_APP_STATE_HMAC_SECRET_PREVIOUS (previous)
 func NewStateSigner() (*StateSigner, error) {
 	current := strings.TrimSpace(os.Getenv("OPS_GITHUB_APP_STATE_HMAC_SECRET"))
 	if current == "" {

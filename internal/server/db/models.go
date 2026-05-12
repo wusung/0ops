@@ -21,6 +21,7 @@ type TeamMembership struct {
 	InvitedAt *time.Time
 }
 
+//nolint:revive // exported for public API
 type DomainBinding struct {
 	ID         string
 	TeamID     string
@@ -33,11 +34,13 @@ type DomainBinding struct {
 	VerifiedAt *time.Time
 }
 
+//nolint:revive // exported for public API
 type DeployLogLine struct {
 	Timestamp time.Time
 	Message   string
 }
 
+//nolint:revive // exported for public API
 type DeployRun struct {
 	ID           string
 	TeamID       string

@@ -1,3 +1,4 @@
+// Package authconfig manages authentication configuration.
 package authconfig
 
 import (
@@ -32,7 +33,7 @@ func Load() (File, error) {
 		return File{}, err
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is from home directory configuration
 	if err != nil {
 		return File{}, err
 	}
@@ -168,4 +169,5 @@ func normalizeHost(v string) string {
 	return strings.TrimRight(strings.TrimSpace(v), "/")
 }
 
+//nolint:revive // exported for public API
 var ErrNotFound = errors.New("auth config not found")

@@ -56,11 +56,11 @@ func TestTokenProviderCacheHit(t *testing.T) {
 	signer := NewJWTSigner(98765, key)
 
 	callCount := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		callCount++
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"token":      "ghu_token_" + string(rune(callCount+48)),
+			"token":      "ghu_token_" + string(rune(callCount+48)), //nolint:gosec // callCount fits in rune
 			"expires_at": time.Now().Add(1 * time.Hour).Format(time.RFC3339),
 		})
 	}))
@@ -101,7 +101,7 @@ func TestTokenProviderRefreshStaleTokens(t *testing.T) {
 	signer := NewJWTSigner(98765, key)
 
 	callCount := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		callCount++
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{

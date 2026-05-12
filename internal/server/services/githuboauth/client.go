@@ -1,3 +1,4 @@
+// Package githuboauth provides GitHub OAuth utilities.
 package githuboauth
 
 import (
@@ -15,10 +16,14 @@ import (
 )
 
 var (
+	// ErrAuthorizationPending indicates the authorization is still pending.
 	ErrAuthorizationPending = errors.New("authorization_pending")
-	ErrAccessDenied         = errors.New("access_denied")
-	ErrSlowDown             = errors.New("slow_down")
-	ErrExpiredToken         = errors.New("expired_token")
+	// ErrAccessDenied indicates access was denied.
+	ErrAccessDenied = errors.New("access_denied")
+	// ErrSlowDown indicates the client should slow down.
+	ErrSlowDown = errors.New("slow_down")
+	// ErrExpiredToken indicates the token has expired.
+	ErrExpiredToken = errors.New("expired_token")
 )
 
 // DeviceAuthorization describes a GitHub Device Flow challenge.
@@ -111,7 +116,7 @@ func (c *Client) StartDeviceAuthorization(ctx context.Context) (DeviceAuthorizat
 	if err != nil {
 		return DeviceAuthorization{}, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		return DeviceAuthorization{}, c.decodeOAuthError(res.Body, res.StatusCode)
@@ -159,7 +164,7 @@ func (c *Client) ExchangeDeviceCode(ctx context.Context, deviceCode string) (Acc
 	if err != nil {
 		return AccessTokenResponse{}, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		return AccessTokenResponse{}, c.decodeOAuthError(res.Body, res.StatusCode)
@@ -210,7 +215,7 @@ func (c *Client) FetchUser(ctx context.Context, accessToken string) (UserProfile
 	if err != nil {
 		return UserProfile{}, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		return UserProfile{}, c.decodeOAuthError(res.Body, res.StatusCode)

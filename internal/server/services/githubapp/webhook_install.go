@@ -26,7 +26,8 @@ type WebhookVerifier struct {
 // NewWebhookVerifier creates a new WebhookVerifier from environment variables.
 // Supports current and previous secrets for rotation (90d window, 30min dual).
 // Env vars: OPS_GITHUB_WEBHOOK_SECRET (current)
-//          OPS_GITHUB_WEBHOOK_SECRET_PREVIOUS (previous)
+//
+//	OPS_GITHUB_WEBHOOK_SECRET_PREVIOUS (previous)
 func NewWebhookVerifier() (*WebhookVerifier, error) {
 	current := strings.TrimSpace(os.Getenv("OPS_GITHUB_WEBHOOK_SECRET"))
 	if current == "" {

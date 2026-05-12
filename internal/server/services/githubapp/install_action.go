@@ -75,13 +75,13 @@ func (a *InstallGitHubAppAction) Name() string {
 
 // SideEffects computes dry-run side effects for preview.
 // For install, there are no reversible side effects during preview.
-func (a *InstallGitHubAppAction) SideEffects(ctx context.Context, args any) (string, []SideEffect, error) {
+func (a *InstallGitHubAppAction) SideEffects(_ context.Context, _ any) (string, []SideEffect, error) {
 	// No side effects for preview; the real mutation happens on confirm.
 	return "Will install GitHub App", []SideEffect{}, nil
 }
 
 // Execute runs the confirm action (generates install URL with signed state).
-func (a *InstallGitHubAppAction) Execute(ctx context.Context, args any, effects []SideEffect) (any, error) {
+func (a *InstallGitHubAppAction) Execute(ctx context.Context, _ any, _ []SideEffect) (any, error) {
 	teamID := auth.TeamID(ctx)
 	actorUserID := auth.ActorUserID(ctx)
 
@@ -113,7 +113,7 @@ func (a *InstallGitHubAppAction) Execute(ctx context.Context, args any, effects 
 }
 
 // Precheck verifies preconditions within confirm transaction.
-func (a *InstallGitHubAppAction) Precheck(ctx context.Context, args any) error {
+func (a *InstallGitHubAppAction) Precheck(ctx context.Context, _ any) error {
 	teamID := auth.TeamID(ctx)
 	if teamID == "" {
 		return fmt.Errorf("team_id missing in context")
@@ -130,4 +130,3 @@ func (a *InstallGitHubAppAction) Precheck(ctx context.Context, args any) error {
 
 	return nil
 }
-

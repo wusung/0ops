@@ -90,12 +90,12 @@ func newAuthCommand() *cobra.Command {
 			case "json":
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
-				return enc.Encode(token)
+				return enc.Encode(token) //nolint:gosec // BearerToken is expected to be in response
 			case "table":
 				w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-				fmt.Fprintf(w, "host\t%s\n", token.Host)
-				fmt.Fprintf(w, "github_login\t%s\n", token.GitHubLogin)
-				fmt.Fprintf(w, "default_team_slug\t%s\n", token.DefaultTeamSlug)
+				_, _ = fmt.Fprintf(w, "host\t%s\n", token.Host)
+				_, _ = fmt.Fprintf(w, "github_login\t%s\n", token.GitHubLogin)
+				_, _ = fmt.Fprintf(w, "default_team_slug\t%s\n", token.DefaultTeamSlug)
 				return w.Flush()
 			default:
 				return fmt.Errorf("unsupported output format %q", outputFmt)
@@ -324,10 +324,10 @@ func renderPATCreate(cmd *cobra.Command, out dto.PATCreateResponse, outputFmt st
 		return enc.Encode(out)
 	case "table":
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-		fmt.Fprintf(w, "token\t%s\n", out.Token)
-		fmt.Fprintf(w, "name\t%s\n", out.Name)
-		fmt.Fprintf(w, "expires_at\t%s\n", out.ExpiresAt.Format(time.RFC3339))
-		fmt.Fprintf(w, "scopes\t%s\n", strings.Join(out.Scopes, ","))
+		_, _ = fmt.Fprintf(w, "token\t%s\n", out.Token)
+		_, _ = fmt.Fprintf(w, "name\t%s\n", out.Name)
+		_, _ = fmt.Fprintf(w, "expires_at\t%s\n", out.ExpiresAt.Format(time.RFC3339))
+		_, _ = fmt.Fprintf(w, "scopes\t%s\n", strings.Join(out.Scopes, ","))
 		return w.Flush()
 	default:
 		return fmt.Errorf("unsupported output format %q", outputFmt)
@@ -361,7 +361,7 @@ func renderPATList(cmd *cobra.Command, out dto.PATListResponse, outputFmt string
 					warning = "expiring_soon"
 				}
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", item.Name, strings.Join(item.Scopes, ","), item.CreatedAt.Format(time.RFC3339), lastUsed, expires, warning)
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", item.Name, strings.Join(item.Scopes, ","), item.CreatedAt.Format(time.RFC3339), lastUsed, expires, warning)
 		}
 		return w.Flush()
 	default:

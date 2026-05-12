@@ -1,3 +1,4 @@
+// Package server implements the 0ops backend server.
 package server
 
 import (
@@ -551,7 +552,7 @@ func revokeTokenHandler(store appsStore) http.HandlerFunc {
 	}
 }
 
-func startDeviceLoginHandler(store appsStore, githubClient githubOAuthClient) http.HandlerFunc {
+func startDeviceLoginHandler(_ appsStore, githubClient githubOAuthClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req dto.DeviceStartRequest
 		if !decodeJSON(w, r, &req) {
@@ -603,7 +604,7 @@ func startDeviceLoginHandler(store appsStore, githubClient githubOAuthClient) ht
 	}
 }
 
-func callbackDeviceLoginHandler(store appsStore) http.HandlerFunc {
+func callbackDeviceLoginHandler(_ appsStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req dto.DeviceCallbackRequest
 		if !decodeJSON(w, r, &req) {
@@ -733,7 +734,7 @@ func pollDeviceLoginHandler(store appsStore, githubClient githubOAuthClient) htt
 		deviceLoginSessions.Delete(req.PollToken)
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(dto.DevicePollResponse{
+		_ = json.NewEncoder(w).Encode(dto.DevicePollResponse{ //nolint:gosec // BearerToken is expected in API response
 			BearerToken:     bearerToken,
 			DefaultTeamSlug: teamSlug,
 			GithubLogin:     userProfile.Login,
@@ -752,7 +753,7 @@ func logoutHandler(store appsStore) http.HandlerFunc {
 	}
 }
 
-func previewGitHubInstallHandler(store appsStore) http.HandlerFunc {
+func previewGitHubInstallHandler(_ appsStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		teamID := auth.TeamID(r.Context())
 		if teamID == "" {
@@ -772,7 +773,7 @@ func previewGitHubInstallHandler(store appsStore) http.HandlerFunc {
 	}
 }
 
-func confirmGitHubInstallHandler(store appsStore) http.HandlerFunc {
+func confirmGitHubInstallHandler(_ appsStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		teamID := auth.TeamID(r.Context())
 		if teamID == "" {
@@ -797,7 +798,7 @@ func confirmGitHubInstallHandler(store appsStore) http.HandlerFunc {
 	}
 }
 
-func githubInstallCallbackHandler(store appsStore) http.HandlerFunc {
+func githubInstallCallbackHandler(_ appsStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// GitHub calls this with:
 		// ?code=<installation_id>&state=<state_token>&setup_action=install
@@ -835,7 +836,7 @@ func githubInstallCallbackHandler(store appsStore) http.HandlerFunc {
 	}
 }
 
-func uninstallGitHubAppHandler(store appsStore) http.HandlerFunc {
+func uninstallGitHubAppHandler(_ appsStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		teamID := auth.TeamID(r.Context())
 		if teamID == "" {
@@ -861,6 +862,7 @@ func NewRouter(store routerStore) http.Handler {
 	return NewRouterWithGitHubOAuth(store, githubClient)
 }
 
+//nolint:revive // exported for public API
 func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient) http.Handler {
 	mw := auth.NewMiddleware(store)
 
