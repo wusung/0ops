@@ -111,8 +111,23 @@ func TestAuthStatusCommand(t *testing.T) {
 }
 
 func TestAuthGrantCommand(t *testing.T) {
+	// Create a mock backend server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPatch && r.URL.Path == "/v1/me/auth/tool-grants" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{
+				"granted_tools": ["list_apps"],
+				"revoked_tools": []
+			}`))
+		} else {
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
 	cmd := newAuthCommand()
-	cmd.SetArgs([]string{"grant", "list_apps", "--host", "http://localhost:8080", "--token", "test-token"})
+	cmd.SetArgs([]string{"grant", "list_apps", "--host", server.URL, "--token", "test-token"})
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
@@ -128,11 +143,29 @@ func TestAuthGrantCommand(t *testing.T) {
 	if !bytes.Contains([]byte(output), []byte("list_apps")) {
 		t.Error("expected 'list_apps' in output")
 	}
+	if !bytes.Contains([]byte(output), []byte("Granted")) {
+		t.Error("expected 'Granted' in output")
+	}
 }
 
 func TestAuthRevokeCommand(t *testing.T) {
+	// Create a mock backend server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPatch && r.URL.Path == "/v1/me/auth/tool-grants" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{
+				"granted_tools": ["list_apps"],
+				"revoked_tools": ["create_app"]
+			}`))
+		} else {
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
 	cmd := newAuthCommand()
-	cmd.SetArgs([]string{"revoke", "create_app", "--host", "http://localhost:8080", "--token", "test-token"})
+	cmd.SetArgs([]string{"revoke", "create_app", "--host", server.URL, "--token", "test-token"})
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
@@ -147,6 +180,9 @@ func TestAuthRevokeCommand(t *testing.T) {
 	output := stdout.String()
 	if !bytes.Contains([]byte(output), []byte("create_app")) {
 		t.Error("expected 'create_app' in output")
+	}
+	if !bytes.Contains([]byte(output), []byte("Revoked")) {
+		t.Error("expected 'Revoked' in output")
 	}
 }
 

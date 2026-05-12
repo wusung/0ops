@@ -12,7 +12,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/winshare/zeroops/internal/shared/authconfig"
-	"github.com/winshare/zeroops/internal/shared/backendclient"
 )
 
 // newAuthCommand returns the auth command for the 0ops CLI
@@ -394,6 +393,59 @@ func submitToolGrants(ctx context.Context, host, teamSlug, tempToken string, too
 	return "", fmt.Errorf("no access_token in response")
 }
 
+// patchToolGrantsRequest is the request body for PATCH /v1/me/auth/tool-grants
+type patchToolGrantsRequest struct {
+	Grant  []string `json:"grant,omitempty"`
+	Revoke []string `json:"revoke,omitempty"`
+}
+
+// patchToolGrantsResponse is the response body for PATCH /v1/me/auth/tool-grants
+type patchToolGrantsResponse struct {
+	GrantedTools []string `json:"granted_tools"`
+	RevokedTools []string `json:"revoked_tools"`
+}
+
+// patchToolGrants updates tool grants by calling PATCH /v1/me/auth/tool-grants
+func patchToolGrants(ctx context.Context, host, token string, grant, revoke []string) (*patchToolGrantsResponse, error) {
+	url := host + "/v1/me/auth/tool-grants"
+
+	reqBody := patchToolGrantsRequest{
+		Grant:  grant,
+		Revoke: revoke,
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("patch tool grants failed: %s", string(data))
+	}
+
+	var respBody patchToolGrantsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&respBody); err != nil {
+		return nil, err
+	}
+
+	return &respBody, nil
+}
+
 // handleAuthStatus displays the current authentication status
 func handleAuthStatus(cmd *cobra.Command, baseURL string, token string) error {
 	ctxInfo, err := resolveBackendContext(baseURL, token)
@@ -437,10 +489,14 @@ func handleAuthGrant(cmd *cobra.Command, baseURL string, tokenFlag string, tool 
 		ctx = context.Background()
 	}
 
-	_ = backendclient.New(ctxInfo.Host, ctxInfo.BearerToken)
+	// Make PATCH request to grant tool
+	resp, err := patchToolGrants(ctx, ctxInfo.Host, ctxInfo.BearerToken, []string{tool}, nil)
+	if err != nil {
+		return fmt.Errorf("failed to grant tool: %w", err)
+	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Granting permission for tool: %s\n", tool)
-	fmt.Fprintf(cmd.OutOrStdout(), "TODO: PATCH /v1/me/auth/tool-grants to grant tool\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "✓ Granted permission for tool: %s\n", tool)
+	fmt.Fprintf(cmd.OutOrStdout(), "Total granted tools: %d\n", len(resp.GrantedTools))
 
 	return nil
 }
@@ -462,10 +518,14 @@ func handleAuthRevoke(cmd *cobra.Command, baseURL string, tokenFlag string, tool
 		ctx = context.Background()
 	}
 
-	_ = backendclient.New(ctxInfo.Host, ctxInfo.BearerToken)
+	// Make PATCH request to revoke tool
+	resp, err := patchToolGrants(ctx, ctxInfo.Host, ctxInfo.BearerToken, nil, []string{tool})
+	if err != nil {
+		return fmt.Errorf("failed to revoke tool: %w", err)
+	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Revoking permission for tool: %s\n", tool)
-	fmt.Fprintf(cmd.OutOrStdout(), "TODO: PATCH /v1/me/auth/tool-grants to revoke tool\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "✓ Revoked permission for tool: %s\n", tool)
+	fmt.Fprintf(cmd.OutOrStdout(), "Total granted tools: %d\n", len(resp.GrantedTools))
 
 	return nil
 }
