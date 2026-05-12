@@ -29,6 +29,7 @@ import (
 	"github.com/winshare/zeroops/internal/server/apperror"
 	"github.com/winshare/zeroops/internal/server/auth"
 	"github.com/winshare/zeroops/internal/server/db"
+	"github.com/winshare/zeroops/internal/server/observability"
 	"github.com/winshare/zeroops/internal/server/services/githuboauth"
 	"github.com/winshare/zeroops/internal/shared/dto"
 	"github.com/winshare/zeroops/internal/shared/rbac"
@@ -108,6 +109,10 @@ var appSlugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$`)
 var (
 	recordCreateAppPreviewMetric = func(string) {}
 	recordCreateAppConfirmMetric = func(string, bool) {}
+	recordM2PreviewCreated       = func(string) {}
+	recordM2PreviewConsumed      = func(string, string) {}
+	recordM2DeployRunTransition  = func(string, string, string) {}
+	recordM2DeployRunLeadTime    = func(string, string, time.Duration) {}
 )
 
 // BindCreateAppMetrics wires create_app-specific metric recorders.
@@ -124,6 +129,35 @@ func BindCreateAppMetrics(
 		recordCreateAppConfirmMetric = func(string, bool) {}
 	} else {
 		recordCreateAppConfirmMetric = confirmRecorder
+	}
+}
+
+// BindM2Metrics wires M2 observability metrics recorders (deploy_run, preview, etc.).
+func BindM2Metrics(
+	previewCreatedRecorder func(teamBucket string),
+	previewConsumedRecorder func(outcome, teamBucket string),
+	deployRunTransitionRecorder func(stateFrom, stateTo, teamBucket string),
+	deployRunLeadTimeRecorder func(outcome, teamBucket string, duration time.Duration),
+) {
+	if previewCreatedRecorder == nil {
+		recordM2PreviewCreated = func(string) {}
+	} else {
+		recordM2PreviewCreated = previewCreatedRecorder
+	}
+	if previewConsumedRecorder == nil {
+		recordM2PreviewConsumed = func(string, string) {}
+	} else {
+		recordM2PreviewConsumed = previewConsumedRecorder
+	}
+	if deployRunTransitionRecorder == nil {
+		recordM2DeployRunTransition = func(string, string, string) {}
+	} else {
+		recordM2DeployRunTransition = deployRunTransitionRecorder
+	}
+	if deployRunLeadTimeRecorder == nil {
+		recordM2DeployRunLeadTime = func(string, string, time.Duration) {}
+	} else {
+		recordM2DeployRunLeadTime = deployRunLeadTimeRecorder
 	}
 }
 
@@ -262,6 +296,7 @@ func previewCreateAppHandler(store appsStore) http.HandlerFunc {
 			return
 		}
 		writePreviewResponse(w, out, summary)
+		recordM2PreviewCreated(observability.TeamBucket(auth.TeamID(r.Context())))
 		outcome = "success"
 	}
 }
@@ -351,6 +386,8 @@ func createAppHandler(store appsStore, k3sClient infraK3sClient, cfClient infraC
 			apperror.Write(w, "preview_consumed", apperror.ClassConflict, "preview already consumed", nil)
 			return
 		}
+
+		recordM2PreviewConsumed("success", observability.TeamBucket(auth.TeamID(r.Context())))
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(response)
@@ -444,6 +481,9 @@ func deployRunCallbackHandler(store appsStore) http.HandlerFunc {
 			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to apply deploy callback", nil)
 			return
 		}
+
+		// Record deploy run state transition (team_bucket will be enhanced in future when we fetch full deploy run)
+		recordM2DeployRunTransition("unknown", status, "00")
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok"})
