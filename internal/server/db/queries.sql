@@ -59,3 +59,37 @@ SELECT
   revoked_at
 FROM cli_token
 WHERE token_hash = $1;
+
+-- name: IsToolGranted :one
+SELECT allowed
+FROM tool_grants
+WHERE team_id = $1
+  AND user_id = $2
+  AND tool_id = $3;
+
+-- name: ListGrantedTools :many
+SELECT tool_id
+FROM tool_grants
+WHERE team_id = $1
+  AND user_id = $2
+  AND allowed = true
+ORDER BY tool_id;
+
+-- name: UpsertToolGrant :exec
+INSERT INTO tool_grants (team_id, user_id, tool_id, allowed, granted_at, granted_by_actor_id)
+VALUES ($1, $2, $3, $4, now(), $5)
+ON CONFLICT (team_id, user_id, tool_id) DO UPDATE
+SET allowed = $4, granted_at = now(), granted_by_actor_id = $5;
+
+-- name: RevokeToolGrant :exec
+DELETE FROM tool_grants
+WHERE team_id = $1
+  AND user_id = $2
+  AND tool_id = $3;
+
+-- name: ListAllUserGrants :many
+SELECT tool_id, allowed
+FROM tool_grants
+WHERE team_id = $1
+  AND user_id = $2
+ORDER BY tool_id;

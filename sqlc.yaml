@@ -4,6 +4,7 @@ sql:
     schema:
       - "migrations/00001_init.sql"
       - "migrations/00002_members_and_bootstrap.sql"
+      - "migrations/00003_tool_grants_and_auth_status.sql"
     queries:
       - "internal/server/db/queries.sql"
     gen:

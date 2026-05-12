@@ -20,3 +20,9 @@ type TeamMembership struct {
 	JoinedAt  *time.Time
 	InvitedAt *time.Time
 }
+
+// ToolGrant describes a tool grant for a user on a team.
+type ToolGrant struct {
+	ToolID  string
+	Allowed bool
+}

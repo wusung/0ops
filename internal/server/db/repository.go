@@ -124,3 +124,118 @@ func timestamptzPtr(value pgtype.Timestamptz) *time.Time {
 	t := value.Time
 	return &t
 }
+
+// IsToolGranted checks if a user has been granted a specific tool
+func (r *Repository) IsToolGranted(ctx context.Context, teamID, userID, toolID string) (bool, error) {
+	parsedTeamID, err := parseUUID(teamID)
+	if err != nil {
+		return false, fmt.Errorf("parse team id: %w", err)
+	}
+
+	parsedUserID, err := parseUUID(userID)
+	if err != nil {
+		return false, fmt.Errorf("parse user id: %w", err)
+	}
+
+	return r.queries.IsToolGranted(ctx, sqlcgen.IsToolGrantedParams{
+		TeamID: parsedTeamID,
+		UserID: parsedUserID,
+		ToolID: toolID,
+	})
+}
+
+// ListGrantedTools returns all tools granted to a user on a team
+func (r *Repository) ListGrantedTools(ctx context.Context, teamID, userID string) ([]string, error) {
+	parsedTeamID, err := parseUUID(teamID)
+	if err != nil {
+		return nil, fmt.Errorf("parse team id: %w", err)
+	}
+
+	parsedUserID, err := parseUUID(userID)
+	if err != nil {
+		return nil, fmt.Errorf("parse user id: %w", err)
+	}
+
+	return r.queries.ListGrantedTools(ctx, sqlcgen.ListGrantedToolsParams{
+		TeamID: parsedTeamID,
+		UserID: parsedUserID,
+	})
+}
+
+// UpsertToolGrant creates or updates a tool grant for a user
+func (r *Repository) UpsertToolGrant(ctx context.Context, teamID, userID, toolID string, allowed bool, grantedByActorID *string) error {
+	parsedTeamID, err := parseUUID(teamID)
+	if err != nil {
+		return fmt.Errorf("parse team id: %w", err)
+	}
+
+	parsedUserID, err := parseUUID(userID)
+	if err != nil {
+		return fmt.Errorf("parse user id: %w", err)
+	}
+
+	var parsedActorID pgtype.UUID
+	if grantedByActorID != nil {
+		if err := parsedActorID.Scan(*grantedByActorID); err != nil {
+			return fmt.Errorf("parse actor id: %w", err)
+		}
+	}
+
+	return r.queries.UpsertToolGrant(ctx, sqlcgen.UpsertToolGrantParams{
+		TeamID:            parsedTeamID,
+		UserID:            parsedUserID,
+		ToolID:            toolID,
+		Allowed:           allowed,
+		GrantedByActorID:  parsedActorID,
+	})
+}
+
+// RevokeToolGrant removes a tool grant from a user
+func (r *Repository) RevokeToolGrant(ctx context.Context, teamID, userID, toolID string) error {
+	parsedTeamID, err := parseUUID(teamID)
+	if err != nil {
+		return fmt.Errorf("parse team id: %w", err)
+	}
+
+	parsedUserID, err := parseUUID(userID)
+	if err != nil {
+		return fmt.Errorf("parse user id: %w", err)
+	}
+
+	return r.queries.RevokeToolGrant(ctx, sqlcgen.RevokeToolGrantParams{
+		TeamID: parsedTeamID,
+		UserID: parsedUserID,
+		ToolID: toolID,
+	})
+}
+
+// ListAllUserGrants returns all tool grants for a user, both allowed and revoked
+func (r *Repository) ListAllUserGrants(ctx context.Context, teamID, userID string) ([]ToolGrant, error) {
+	parsedTeamID, err := parseUUID(teamID)
+	if err != nil {
+		return nil, fmt.Errorf("parse team id: %w", err)
+	}
+
+	parsedUserID, err := parseUUID(userID)
+	if err != nil {
+		return nil, fmt.Errorf("parse user id: %w", err)
+	}
+
+	rows, err := r.queries.ListAllUserGrants(ctx, sqlcgen.ListAllUserGrantsParams{
+		TeamID: parsedTeamID,
+		UserID: parsedUserID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]ToolGrant, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, ToolGrant{
+			ToolID:  row.ToolID,
+			Allowed: row.Allowed,
+		})
+	}
+
+	return items, nil
+}

@@ -127,6 +127,17 @@ type TeamMembership struct {
 	Role      string
 	InvitedAt pgtype.Timestamptz
 	JoinedAt  pgtype.Timestamptz
+	InvitedBy pgtype.UUID
+}
+
+type ToolGrant struct {
+	ID               pgtype.UUID
+	TeamID           pgtype.UUID
+	UserID           pgtype.UUID
+	ToolID           string
+	Allowed          bool
+	GrantedAt        pgtype.Timestamptz
+	GrantedByActorID pgtype.UUID
 }
 
 type UsageSample struct {
@@ -141,10 +152,13 @@ type UsageSample struct {
 }
 
 type UserAccount struct {
-	ID          pgtype.UUID
-	GithubLogin pgtype.Text
-	Email       pgtype.Text
-	CreatedAt   pgtype.Timestamptz
+	ID            pgtype.UUID
+	GithubLogin   pgtype.Text
+	Email         pgtype.Text
+	CreatedAt     pgtype.Timestamptz
+	AuthStatus    pgtype.Text
+	AuthScopes    []byte
+	AuthExpiresAt pgtype.Timestamptz
 }
 
 type WebhookDedup struct {

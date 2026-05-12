@@ -32,97 +32,6 @@ func (q *Queries) CheckTeamMembership(ctx context.Context, arg CheckTeamMembersh
 	return exists, err
 }
 
-const getTeamMembershipRole = `-- name: GetTeamMembershipRole :one
-SELECT role
-FROM team_membership
-WHERE team_id = $1
-  AND user_id = $2
-`
-
-type GetTeamMembershipRoleParams struct {
-	TeamID pgtype.UUID
-	UserID pgtype.UUID
-}
-
-func (q *Queries) GetTeamMembershipRole(ctx context.Context, arg GetTeamMembershipRoleParams) (string, error) {
-	row := q.db.QueryRow(ctx, getTeamMembershipRole, arg.TeamID, arg.UserID)
-	var role string
-	err := row.Scan(&role)
-	return role, err
-}
-
-const listAppsByTeam = `-- name: ListAppsByTeam :many
-SELECT
-  id,
-  team_id,
-  slug,
-  name,
-  repo_url,
-  repo_default_branch,
-  image_ref,
-  builder,
-  status,
-  created_at,
-  updated_at
-FROM app
-WHERE team_id = $1
-  AND slug > $2
-ORDER BY slug
-LIMIT $3
-`
-
-type ListAppsByTeamParams struct {
-	TeamID  pgtype.UUID
-	Column2 string
-	Limit   int32
-}
-
-type ListAppsByTeamRow struct {
-	ID                pgtype.UUID
-	TeamID            pgtype.UUID
-	Slug              string
-	Name              pgtype.Text
-	RepoURL           pgtype.Text
-	RepoDefaultBranch pgtype.Text
-	ImageRef          pgtype.Text
-	Builder           pgtype.Text
-	Status            pgtype.Text
-	CreatedAt         pgtype.Timestamptz
-	UpdatedAt         pgtype.Timestamptz
-}
-
-func (q *Queries) ListAppsByTeam(ctx context.Context, arg ListAppsByTeamParams) ([]ListAppsByTeamRow, error) {
-	rows, err := q.db.Query(ctx, listAppsByTeam, arg.TeamID, arg.Column2, arg.Limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListAppsByTeamRow
-	for rows.Next() {
-		var i ListAppsByTeamRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.TeamID,
-			&i.Slug,
-			&i.Name,
-			&i.RepoURL,
-			&i.RepoDefaultBranch,
-			&i.ImageRef,
-			&i.Builder,
-			&i.Status,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const findCliTokenByHash = `-- name: FindCliTokenByHash :one
 SELECT
   id,
@@ -156,6 +65,190 @@ func (q *Queries) FindCliTokenByHash(ctx context.Context, tokenHash string) (Fin
 		&i.RevokedAt,
 	)
 	return i, err
+}
+
+const getTeamMembershipRole = `-- name: GetTeamMembershipRole :one
+SELECT role
+FROM team_membership
+WHERE team_id = $1
+  AND user_id = $2
+`
+
+type GetTeamMembershipRoleParams struct {
+	TeamID pgtype.UUID
+	UserID pgtype.UUID
+}
+
+func (q *Queries) GetTeamMembershipRole(ctx context.Context, arg GetTeamMembershipRoleParams) (string, error) {
+	row := q.db.QueryRow(ctx, getTeamMembershipRole, arg.TeamID, arg.UserID)
+	var role string
+	err := row.Scan(&role)
+	return role, err
+}
+
+const isToolGranted = `-- name: IsToolGranted :one
+SELECT allowed
+FROM tool_grants
+WHERE team_id = $1
+  AND user_id = $2
+  AND tool_id = $3
+`
+
+type IsToolGrantedParams struct {
+	TeamID pgtype.UUID
+	UserID pgtype.UUID
+	ToolID string
+}
+
+func (q *Queries) IsToolGranted(ctx context.Context, arg IsToolGrantedParams) (bool, error) {
+	row := q.db.QueryRow(ctx, isToolGranted, arg.TeamID, arg.UserID, arg.ToolID)
+	var allowed bool
+	err := row.Scan(&allowed)
+	return allowed, err
+}
+
+const listAllUserGrants = `-- name: ListAllUserGrants :many
+SELECT tool_id, allowed
+FROM tool_grants
+WHERE team_id = $1
+  AND user_id = $2
+ORDER BY tool_id
+`
+
+type ListAllUserGrantsParams struct {
+	TeamID pgtype.UUID
+	UserID pgtype.UUID
+}
+
+type ListAllUserGrantsRow struct {
+	ToolID  string
+	Allowed bool
+}
+
+func (q *Queries) ListAllUserGrants(ctx context.Context, arg ListAllUserGrantsParams) ([]ListAllUserGrantsRow, error) {
+	rows, err := q.db.Query(ctx, listAllUserGrants, arg.TeamID, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAllUserGrantsRow
+	for rows.Next() {
+		var i ListAllUserGrantsRow
+		if err := rows.Scan(&i.ToolID, &i.Allowed); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAppsByTeam = `-- name: ListAppsByTeam :many
+SELECT
+  id,
+  team_id,
+  slug,
+  name,
+  repo_url,
+  repo_default_branch,
+  image_ref,
+  builder,
+  status,
+  created_at,
+  updated_at
+FROM app
+WHERE team_id = $1
+  AND slug > $2
+ORDER BY slug
+LIMIT $3
+`
+
+type ListAppsByTeamParams struct {
+	TeamID pgtype.UUID
+	Slug   string
+	Limit  int32
+}
+
+type ListAppsByTeamRow struct {
+	ID                pgtype.UUID
+	TeamID            pgtype.UUID
+	Slug              string
+	Name              pgtype.Text
+	RepoUrl           pgtype.Text
+	RepoDefaultBranch pgtype.Text
+	ImageRef          pgtype.Text
+	Builder           pgtype.Text
+	Status            pgtype.Text
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+}
+
+func (q *Queries) ListAppsByTeam(ctx context.Context, arg ListAppsByTeamParams) ([]ListAppsByTeamRow, error) {
+	rows, err := q.db.Query(ctx, listAppsByTeam, arg.TeamID, arg.Slug, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAppsByTeamRow
+	for rows.Next() {
+		var i ListAppsByTeamRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TeamID,
+			&i.Slug,
+			&i.Name,
+			&i.RepoUrl,
+			&i.RepoDefaultBranch,
+			&i.ImageRef,
+			&i.Builder,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGrantedTools = `-- name: ListGrantedTools :many
+SELECT tool_id
+FROM tool_grants
+WHERE team_id = $1
+  AND user_id = $2
+  AND allowed = true
+ORDER BY tool_id
+`
+
+type ListGrantedToolsParams struct {
+	TeamID pgtype.UUID
+	UserID pgtype.UUID
+}
+
+func (q *Queries) ListGrantedTools(ctx context.Context, arg ListGrantedToolsParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, listGrantedTools, arg.TeamID, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var tool_id string
+		if err := rows.Scan(&tool_id); err != nil {
+			return nil, err
+		}
+		items = append(items, tool_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listUserTeams = `-- name: ListUserTeams :many
@@ -223,4 +316,48 @@ func (q *Queries) ListUserTeams(ctx context.Context, arg ListUserTeamsParams) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const revokeToolGrant = `-- name: RevokeToolGrant :exec
+DELETE FROM tool_grants
+WHERE team_id = $1
+  AND user_id = $2
+  AND tool_id = $3
+`
+
+type RevokeToolGrantParams struct {
+	TeamID pgtype.UUID
+	UserID pgtype.UUID
+	ToolID string
+}
+
+func (q *Queries) RevokeToolGrant(ctx context.Context, arg RevokeToolGrantParams) error {
+	_, err := q.db.Exec(ctx, revokeToolGrant, arg.TeamID, arg.UserID, arg.ToolID)
+	return err
+}
+
+const upsertToolGrant = `-- name: UpsertToolGrant :exec
+INSERT INTO tool_grants (team_id, user_id, tool_id, allowed, granted_at, granted_by_actor_id)
+VALUES ($1, $2, $3, $4, now(), $5)
+ON CONFLICT (team_id, user_id, tool_id) DO UPDATE
+SET allowed = $4, granted_at = now(), granted_by_actor_id = $5
+`
+
+type UpsertToolGrantParams struct {
+	TeamID           pgtype.UUID
+	UserID           pgtype.UUID
+	ToolID           string
+	Allowed          bool
+	GrantedByActorID pgtype.UUID
+}
+
+func (q *Queries) UpsertToolGrant(ctx context.Context, arg UpsertToolGrantParams) error {
+	_, err := q.db.Exec(ctx, upsertToolGrant,
+		arg.TeamID,
+		arg.UserID,
+		arg.ToolID,
+		arg.Allowed,
+		arg.GrantedByActorID,
+	)
+	return err
 }
