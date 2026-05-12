@@ -99,8 +99,8 @@ func newAuthCommand() *cobra.Command {
 				enc.SetIndent("", "  ")
 				return enc.Encode(token) //nolint:gosec // BearerToken is expected to be in response
 			case "table":
-				fmt.Fprintf(cmd.OutOrStdout(), "Authentication Status\n")
-				fmt.Fprintf(cmd.OutOrStdout(), "====================\n\n")
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Authentication Status\n")
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "====================\n\n")
 				w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 				_, _ = fmt.Fprintf(w, "host\t%s\n", token.Host)
 				_, _ = fmt.Fprintf(w, "github_login\t%s\n", token.GitHubLogin)
@@ -288,9 +288,9 @@ func runAuthLogin(cmd *cobra.Command, hostFlag, githubLogin, email string) error
 	client := backendclient.New(host, "")
 	ctx := commandContext(cmd)
 
-	fmt.Fprintf(cmd.OutOrStdout(), "\n🔐 Starting GitHub OAuth2 Device Flow\n")
-	fmt.Fprintf(cmd.OutOrStdout(), "Backend: %s\n\n", host)
-	fmt.Fprintf(cmd.OutOrStdout(), "Step 1/4: Starting device flow...\n")
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n🔐 Starting GitHub OAuth2 Device Flow\n")
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Backend: %s\n\n", host)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Step 1/4: Starting device flow...\n")
 
 	start, err := client.StartDeviceLogin(ctx, dto.DeviceStartRequest{
 		GithubLogin: resolvedGithubLogin,
@@ -308,7 +308,7 @@ func runAuthLogin(cmd *cobra.Command, hostFlag, githubLogin, email string) error
 		pollInterval = time.Duration(start.IntervalSeconds) * time.Second
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Step 2/4: Waiting for authorization...\n")
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Step 2/4: Waiting for authorization...\n")
 
 	// Poll until authorization is complete or error occurs
 	var poll dto.DevicePollResponse
@@ -335,8 +335,8 @@ func runAuthLogin(cmd *cobra.Command, hostFlag, githubLogin, email string) error
 		poll.DefaultTeamSlug = poll.Team.Slug
 	}
 	if poll.Team.Name != "" {
-		fmt.Fprintf(cmd.OutOrStdout(), "✓ GitHub authorization successful\n")
-		fmt.Fprintf(cmd.OutOrStdout(), "✓ Team: %s (%s)\n\n", poll.Team.Name, poll.Team.Slug)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "✓ GitHub authorization successful\n")
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "✓ Team: %s (%s)\n\n", poll.Team.Name, poll.Team.Slug)
 	}
 
 	cfg, _ = authconfig.Load()
@@ -500,7 +500,7 @@ func patchToolGrants(ctx context.Context, host, token string, grant, revoke []st
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		data, _ := io.ReadAll(resp.Body)
@@ -534,8 +534,8 @@ func handleAuthGrant(cmd *cobra.Command, baseURL string, tokenFlag string, tool 
 		return fmt.Errorf("failed to grant tool: %w", err)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "✓ Granted permission for tool: %s\n", tool)
-	fmt.Fprintf(cmd.OutOrStdout(), "Total granted tools: %d\n", len(resp.GrantedTools))
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "✓ Granted permission for tool: %s\n", tool)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Total granted tools: %d\n", len(resp.GrantedTools))
 	return nil
 }
 
@@ -559,7 +559,7 @@ func handleAuthRevoke(cmd *cobra.Command, baseURL string, tokenFlag string, tool
 		return fmt.Errorf("failed to revoke tool: %w", err)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "✓ Revoked permission for tool: %s\n", tool)
-	fmt.Fprintf(cmd.OutOrStdout(), "Total granted tools: %d\n", len(resp.GrantedTools))
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "✓ Revoked permission for tool: %s\n", tool)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Total granted tools: %d\n", len(resp.GrantedTools))
 	return nil
 }

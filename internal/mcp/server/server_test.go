@@ -223,19 +223,19 @@ func (f *mcpFakeStore) InviteMember(_ context.Context, params db.InviteMemberPar
 func (f *mcpFakeStore) RemoveMember(_ context.Context, _, _, _ string) error {
 	return nil
 }
-func (f mcpFakeStore) IsToolGranted(ctx context.Context, teamID, userID, toolID string) (bool, error) {
+func (f mcpFakeStore) IsToolGranted(_ context.Context, _ string, _ string, _ string) (bool, error) {
 	return true, nil
 }
-func (f mcpFakeStore) ListGrantedTools(ctx context.Context, teamID, userID string) ([]string, error) {
+func (f mcpFakeStore) ListGrantedTools(_ context.Context, _ string, _ string) ([]string, error) {
 	return []string{}, nil
 }
-func (f mcpFakeStore) UpsertToolGrant(ctx context.Context, teamID, userID, toolID string, allowed bool, grantedByActorID *string) error {
+func (f mcpFakeStore) UpsertToolGrant(_ context.Context, _ string, _ string, _ string, _ bool, _ *string) error {
 	return nil
 }
-func (f mcpFakeStore) RevokeToolGrant(ctx context.Context, teamID, userID, toolID string) error {
+func (f mcpFakeStore) RevokeToolGrant(_ context.Context, _ string, _ string, _ string) error {
 	return nil
 }
-func (f mcpFakeStore) ListAllUserGrants(ctx context.Context, teamID, userID string) ([]db.ToolGrant, error) {
+func (f mcpFakeStore) ListAllUserGrants(_ context.Context, _ string, _ string) ([]db.ToolGrant, error) {
 	return []db.ToolGrant{}, nil
 }
 

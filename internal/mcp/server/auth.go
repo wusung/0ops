@@ -61,7 +61,7 @@ func ValidateToken(token string) (*TokenClaims, error) {
 }
 
 // GetAuthContextFromRequest extracts authentication context from MCP request
-func GetAuthContextFromRequest(ctx context.Context, request *mcp.CallToolRequest) (*MCPAuthContext, error) {
+func GetAuthContextFromRequest(_ context.Context, request *mcp.CallToolRequest) (*MCPAuthContext, error) {
 	// Extract token from request (implementation depends on MCP request structure)
 	token, err := ExtractBearerToken(request)
 	if err != nil {

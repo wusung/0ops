@@ -295,23 +295,23 @@ func (f *fakeStore) RevokePATByName(_ context.Context, teamID, name string) erro
 	return pgx.ErrNoRows
 }
 
-func (f *fakeStore) IsToolGranted(ctx context.Context, teamID, userID, toolID string) (bool, error) {
+func (f *fakeStore) IsToolGranted(_ context.Context, _ string, _ string, _ string) (bool, error) {
 	return false, nil
 }
 
-func (f *fakeStore) ListGrantedTools(ctx context.Context, teamID, userID string) ([]string, error) {
+func (f *fakeStore) ListGrantedTools(_ context.Context, _ string, _ string) ([]string, error) {
 	return []string{}, nil
 }
 
-func (f *fakeStore) UpsertToolGrant(ctx context.Context, teamID, userID, toolID string, allowed bool, grantedByActorID *string) error {
+func (f *fakeStore) UpsertToolGrant(_ context.Context, _ string, _ string, _ string, _ bool, _ *string) error {
 	return nil
 }
 
-func (f *fakeStore) RevokeToolGrant(ctx context.Context, teamID, userID, toolID string) error {
+func (f *fakeStore) RevokeToolGrant(_ context.Context, _ string, _ string, _ string) error {
 	return nil
 }
 
-func (f *fakeStore) ListAllUserGrants(ctx context.Context, teamID, userID string) ([]db.ToolGrant, error) {
+func (f *fakeStore) ListAllUserGrants(_ context.Context, _ string, _ string) ([]db.ToolGrant, error) {
 	return []db.ToolGrant{}, nil
 }
 

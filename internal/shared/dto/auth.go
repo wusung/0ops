@@ -33,12 +33,14 @@ type DevicePollResponse struct {
 	NextStep        string       `json:"next_step,omitempty"`
 }
 
+// DeviceTeam represents a team in the device flow response.
 type DeviceTeam struct {
 	ID   string `json:"id"`
 	Slug string `json:"slug"`
 	Name string `json:"name"`
 }
 
+// DeviceTool represents a tool in the device flow response.
 type DeviceTool struct {
 	ID             string `json:"id"`
 	Name           string `json:"name"`

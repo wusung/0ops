@@ -140,19 +140,19 @@ func (f *cliFakeStore) InviteMember(_ context.Context, params db.InviteMemberPar
 func (f *cliFakeStore) RemoveMember(_ context.Context, _ string, _, _ string) error {
 	return nil
 }
-func (f cliFakeStore) IsToolGranted(ctx context.Context, teamID, userID, toolID string) (bool, error) {
+func (f cliFakeStore) IsToolGranted(_ context.Context, _ string, _ string, _ string) (bool, error) {
 	return true, nil
 }
-func (f cliFakeStore) ListGrantedTools(ctx context.Context, teamID, userID string) ([]string, error) {
+func (f cliFakeStore) ListGrantedTools(_ context.Context, _ string, _ string) ([]string, error) {
 	return []string{}, nil
 }
-func (f cliFakeStore) UpsertToolGrant(ctx context.Context, teamID, userID, toolID string, allowed bool, grantedByActorID *string) error {
+func (f cliFakeStore) UpsertToolGrant(_ context.Context, _ string, _ string, _ string, _ bool, _ *string) error {
 	return nil
 }
-func (f cliFakeStore) RevokeToolGrant(ctx context.Context, teamID, userID, toolID string) error {
+func (f cliFakeStore) RevokeToolGrant(_ context.Context, _ string, _ string, _ string) error {
 	return nil
 }
-func (f cliFakeStore) ListAllUserGrants(ctx context.Context, teamID, userID string) ([]db.ToolGrant, error) {
+func (f cliFakeStore) ListAllUserGrants(_ context.Context, _ string, _ string) ([]db.ToolGrant, error) {
 	return []db.ToolGrant{}, nil
 }
 

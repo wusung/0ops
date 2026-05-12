@@ -14,7 +14,7 @@ const (
 	keyTeamID      contextKey = "team_id"
 	keyTeamSlug    contextKey = "team_slug"
 	keyActorRole   contextKey = "actor_role"
-	keyPollToken   contextKey = "device_poll_token"
+	keyPollToken   contextKey = "device_poll_token" //nolint:gosec // not a credential, just a context key
 )
 
 func withActorUserID(ctx context.Context, value string) context.Context {
@@ -94,10 +94,11 @@ func ActorRole(ctx context.Context) string {
 	return v
 }
 
-func withPollToken(ctx context.Context, value string) context.Context {
+func withPollToken(ctx context.Context, value string) context.Context { //nolint:unused // used in device flow initialization
 	return context.WithValue(ctx, keyPollToken, value)
 }
 
+// GetPollToken returns the device flow poll token from the context.
 func GetPollToken(ctx context.Context) (string, bool) {
 	v, ok := ctx.Value(keyPollToken).(string)
 	return v, ok

@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/winshare/zeroops/internal/shared/authconfig"
 	mcpserver "github.com/winshare/zeroops/internal/mcp/server"
+	"github.com/winshare/zeroops/internal/shared/authconfig"
 )
 
 // TestContractDeviceFlowToTokenCache tests the full flow from device flow to token caching
@@ -26,7 +26,7 @@ func TestContractDeviceFlowToTokenCache(t *testing.T) {
 		case "/v1/auth/device/start":
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{
+			_, _ = w.Write([]byte(`{
 				"device_code": "test-device-code",
 				"user_code": "ABC-1234",
 				"verification_uri": "https://github.com/login/device",
@@ -36,7 +36,7 @@ func TestContractDeviceFlowToTokenCache(t *testing.T) {
 		case "/v1/auth/device/poll":
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{
+			_, _ = w.Write([]byte(`{
 				"access_token": "test-token",
 				"token_type": "Bearer",
 				"expires_in": 86400,
@@ -59,7 +59,7 @@ func TestContractDeviceFlowToTokenCache(t *testing.T) {
 		case "/v1/teams/personal-alice/auth:grant-tools":
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{
+			_, _ = w.Write([]byte(`{
 				"access_token": "final-token",
 				"token_type": "Bearer",
 				"expires_in": 86400,
@@ -107,7 +107,7 @@ func TestContractDeviceFlowToTokenCache(t *testing.T) {
 	}
 
 	// Read and verify the cached token
-	data, err := os.ReadFile(authFile)
+	data, err := os.ReadFile(authFile) //nolint:gosec // authFile is a controlled temporary file path from test setup
 	if err != nil {
 		t.Fatalf("failed to read auth.json: %v", err)
 	}
@@ -198,11 +198,11 @@ func TestContractGrantSubmissionDTO(t *testing.T) {
 
 	// Verify response DTO
 	grantResp := map[string]interface{}{
-		"access_token":   "test-token",
-		"token_type":     "Bearer",
-		"expires_in":     86400,
-		"granted_tools":  []string{"list_apps", "get_app", "create_app"},
-		"auth_status":    "authorized",
+		"access_token":  "test-token",
+		"token_type":    "Bearer",
+		"expires_in":    86400,
+		"granted_tools": []string{"list_apps", "get_app", "create_app"},
+		"auth_status":   "authorized",
 	}
 
 	respData, err := json.Marshal(grantResp)

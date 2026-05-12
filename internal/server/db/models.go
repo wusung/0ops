@@ -27,6 +27,7 @@ type ToolGrant struct {
 	Allowed bool
 }
 
+// DomainBinding describes a domain binding for an app in a team.
 type DomainBinding struct {
 	ID         string
 	TeamID     string

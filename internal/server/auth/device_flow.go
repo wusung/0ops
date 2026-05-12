@@ -88,14 +88,14 @@ func NewDeviceFlowManager(store DeviceFlowStore, clientID, clientSecret string) 
 }
 
 // StartFlow initiates GitHub device flow
-func (m *DeviceFlowManager) StartFlow(ctx context.Context) (DeviceFlowResponse, error) {
+func (m *DeviceFlowManager) StartFlow(_ context.Context) (DeviceFlowResponse, error) {
 	// TODO: Implement actual GitHub device flow request
 	// For now, return error to indicate not yet implemented
 	return DeviceFlowResponse{}, errors.New("device flow not yet fully implemented")
 }
 
 // PollAuthorization polls GitHub for authorization status
-func (m *DeviceFlowManager) PollAuthorization(ctx context.Context, pollToken string) (DevicePollResponse, error) {
+func (m *DeviceFlowManager) PollAuthorization(_ context.Context, _ string) (DevicePollResponse, error) {
 	// TODO: Implement actual GitHub authorization polling
 	return DevicePollResponse{}, errors.New("device flow not yet fully implemented")
 }

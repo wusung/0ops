@@ -24,7 +24,7 @@ func newMockToolGrantsStore() *mockToolGrantsStore {
 	}
 }
 
-func (m *mockToolGrantsStore) IsToolGranted(ctx context.Context, teamID, userID, toolID string) (bool, error) {
+func (m *mockToolGrantsStore) IsToolGranted(_ context.Context, teamID, userID, toolID string) (bool, error) {
 	key := teamID + ":" + userID
 	if tools, ok := m.grants[key]; ok {
 		return tools[toolID], nil
@@ -32,7 +32,7 @@ func (m *mockToolGrantsStore) IsToolGranted(ctx context.Context, teamID, userID,
 	return false, nil
 }
 
-func (m *mockToolGrantsStore) ListGrantedTools(ctx context.Context, teamID, userID string) ([]string, error) {
+func (m *mockToolGrantsStore) ListGrantedTools(_ context.Context, teamID, userID string) ([]string, error) {
 	key := teamID + ":" + userID
 	var tools []string
 	if toolMap, ok := m.grants[key]; ok {
@@ -45,7 +45,7 @@ func (m *mockToolGrantsStore) ListGrantedTools(ctx context.Context, teamID, user
 	return tools, nil
 }
 
-func (m *mockToolGrantsStore) UpsertToolGrant(ctx context.Context, teamID, userID, toolID string, allowed bool, grantedByActorID *string) error {
+func (m *mockToolGrantsStore) UpsertToolGrant(_ context.Context, teamID, userID, toolID string, allowed bool, _ *string) error {
 	key := teamID + ":" + userID
 	if _, ok := m.grants[key]; !ok {
 		m.grants[key] = make(map[string]bool)
@@ -54,7 +54,7 @@ func (m *mockToolGrantsStore) UpsertToolGrant(ctx context.Context, teamID, userI
 	return nil
 }
 
-func (m *mockToolGrantsStore) RevokeToolGrant(ctx context.Context, teamID, userID, toolID string) error {
+func (m *mockToolGrantsStore) RevokeToolGrant(_ context.Context, teamID, userID, toolID string) error {
 	key := teamID + ":" + userID
 	if tools, ok := m.grants[key]; ok {
 		delete(tools, toolID)
@@ -62,7 +62,7 @@ func (m *mockToolGrantsStore) RevokeToolGrant(ctx context.Context, teamID, userI
 	return nil
 }
 
-func (m *mockToolGrantsStore) ListAllUserGrants(ctx context.Context, teamID, userID string) ([]db.ToolGrant, error) {
+func (m *mockToolGrantsStore) ListAllUserGrants(_ context.Context, teamID, userID string) ([]db.ToolGrant, error) {
 	key := teamID + ":" + userID
 	var grants []db.ToolGrant
 	if toolMap, ok := m.grants[key]; ok {
@@ -257,8 +257,8 @@ func TestPatchToolGrantsRevoke(t *testing.T) {
 	store := newMockToolGrantsStore()
 
 	// Seed some grants first
-	store.UpsertToolGrant(context.Background(), "placeholder_team_id", "placeholder_user_id", "list_apps", true, nil)
-	store.UpsertToolGrant(context.Background(), "placeholder_team_id", "placeholder_user_id", "create_app", true, nil)
+	_ = store.UpsertToolGrant(context.Background(), "placeholder_team_id", "placeholder_user_id", "list_apps", true, nil)
+	_ = store.UpsertToolGrant(context.Background(), "placeholder_team_id", "placeholder_user_id", "create_app", true, nil)
 
 	handler := patchToolGrantsHandler(store)
 
@@ -293,7 +293,7 @@ func TestPatchToolGrantsMixed(t *testing.T) {
 	store := newMockToolGrantsStore()
 
 	// Seed some grants first
-	store.UpsertToolGrant(context.Background(), "placeholder_team_id", "placeholder_user_id", "list_apps", true, nil)
+	_ = store.UpsertToolGrant(context.Background(), "placeholder_team_id", "placeholder_user_id", "list_apps", true, nil)
 
 	handler := patchToolGrantsHandler(store)
 
