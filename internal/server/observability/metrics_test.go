@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMetricsMiddlewareAndHandlerExposeCustomSeries(t *testing.T) {
@@ -52,5 +53,61 @@ func TestCreateAppMetricsExposeSeries(t *testing.T) {
 	}
 	if !strings.Contains(body, `zeroops_create_app_confirms_total{idempotent_replay="true",outcome="success"} 1`) {
 		t.Fatalf("metrics output missing create_app confirm counter (replay): %s", body)
+	}
+}
+
+func TestDeployRunMetrics(t *testing.T) {
+	m := NewMetrics()
+
+	// Test state transitions
+	m.ObserveDeployRunTransition("queued", "preparing", "00")
+	m.ObserveDeployRunTransition("preparing", "building", "00")
+	m.ObserveDeployRunLeadTime("success", "00", 5*time.Second)
+
+	// Verify via scrape
+	handler := m.Handler()
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, httptest.NewRequest("GET", "/metrics", nil))
+
+	body := resp.Body.String()
+	if !strings.Contains(body, `deploy_run_state_transitions_total{state_from="queued",state_to="preparing",team_bucket="00"} 1`) {
+		t.Error("deploy_run_state_transitions_total not found in metrics")
+	}
+	if !strings.Contains(body, `deploy_run_lead_time_seconds_bucket`) {
+		t.Error("deploy_run_lead_time_seconds not found")
+	}
+}
+
+func TestPreviewMetrics(t *testing.T) {
+	m := NewMetrics()
+
+	m.ObservePreviewCreated("00")
+	m.ObservePreviewConsumed("success", "00")
+	m.ObservePreviewConsumeDuration("00", 30*time.Second)
+
+	handler := m.Handler()
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, httptest.NewRequest("GET", "/metrics", nil))
+
+	body := resp.Body.String()
+	if !strings.Contains(body, `preview_created_total{team_bucket="00"} 1`) {
+		t.Error("preview_created_total not found")
+	}
+	if !strings.Contains(body, `preview_consumed_total{outcome="success",team_bucket="00"} 1`) {
+		t.Error("preview_consumed_total not found")
+	}
+}
+
+func TestCloudflareMetrics(t *testing.T) {
+	m := NewMetrics()
+	m.SetCloudflareConnectorsReady("us-west", 2)
+
+	handler := m.Handler()
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, httptest.NewRequest("GET", "/metrics", nil))
+
+	body := resp.Body.String()
+	if !strings.Contains(body, `cloudflare_tunnel_connectors_ready{region="us-west"} 2`) {
+		t.Error("cloudflare_tunnel_connectors_ready not found")
 	}
 }

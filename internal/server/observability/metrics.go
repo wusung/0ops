@@ -14,12 +14,18 @@ import (
 
 // Metrics holds the Prometheus registry and HTTP collectors.
 type Metrics struct {
-	registry          *prometheus.Registry
-	httpTotal         *prometheus.CounterVec
-	httpDuration      *prometheus.HistogramVec
-	httpInflight      prometheus.Gauge
-	createAppPreviews *prometheus.CounterVec
-	createAppConfirms *prometheus.CounterVec
+	registry                       *prometheus.Registry
+	httpTotal                      *prometheus.CounterVec
+	httpDuration                   *prometheus.HistogramVec
+	httpInflight                   prometheus.Gauge
+	createAppPreviews              *prometheus.CounterVec
+	createAppConfirms              *prometheus.CounterVec
+	deployRunStateTransitions      *prometheus.CounterVec
+	deployRunLeadTime              *prometheus.HistogramVec
+	previewCreated                 *prometheus.CounterVec
+	previewConsumed                *prometheus.CounterVec
+	previewConsumeDuration         *prometheus.HistogramVec
+	cloudflareTunnelConnectorsReady *prometheus.GaugeVec
 }
 
 // NewMetrics creates the default HTTP metrics registry.
@@ -60,6 +66,38 @@ func NewMetrics() *Metrics {
 			Name:      "create_app_confirms_total",
 			Help:      "Number of create_app confirm requests by outcome and replay flag.",
 		}, []string{"outcome", "idempotent_replay"}),
+		deployRunStateTransitions: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "zeroops",
+			Name:      "deploy_run_state_transitions_total",
+			Help:      "Number of deploy run state transitions by from_state, to_state, and team bucket.",
+		}, []string{"state_from", "state_to", "team_bucket"}),
+		deployRunLeadTime: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: "zeroops",
+			Name:      "deploy_run_lead_time_seconds",
+			Help:      "Deploy run lead time (time from queued to deployed) by outcome and team bucket.",
+			Buckets:   prometheus.ExponentialBuckets(10, 2, 9), // 10s to 5120s
+		}, []string{"outcome", "team_bucket"}),
+		previewCreated: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "zeroops",
+			Name:      "preview_created_total",
+			Help:      "Number of previews created by team bucket.",
+		}, []string{"team_bucket"}),
+		previewConsumed: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "zeroops",
+			Name:      "preview_consumed_total",
+			Help:      "Number of previews consumed by outcome and team bucket.",
+		}, []string{"outcome", "team_bucket"}),
+		previewConsumeDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: "zeroops",
+			Name:      "preview_consume_duration_seconds",
+			Help:      "Preview consume duration (time from creation to consumption) by team bucket.",
+			Buckets:   prometheus.ExponentialBuckets(1, 2, 10), // 1s to 512s
+		}, []string{"team_bucket"}),
+		cloudflareTunnelConnectorsReady: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: "zeroops",
+			Name:      "cloudflare_tunnel_connectors_ready",
+			Help:      "Number of ready Cloudflare tunnel connectors by region.",
+		}, []string{"region"}),
 	}
 	reg.MustRegister(
 		m.httpTotal,
@@ -67,6 +105,12 @@ func NewMetrics() *Metrics {
 		m.httpInflight,
 		m.createAppPreviews,
 		m.createAppConfirms,
+		m.deployRunStateTransitions,
+		m.deployRunLeadTime,
+		m.previewCreated,
+		m.previewConsumed,
+		m.previewConsumeDuration,
+		m.cloudflareTunnelConnectorsReady,
 	)
 	return m
 }
@@ -117,6 +161,57 @@ func (m *Metrics) ObserveCreateAppConfirm(outcome string, idempotentReplay bool)
 		replay = "true"
 	}
 	m.createAppConfirms.WithLabelValues(outcome, replay).Inc()
+}
+
+// ObserveDeployRunTransition records a deploy run state transition.
+func (m *Metrics) ObserveDeployRunTransition(stateFrom, stateTo, teamBucket string) {
+	if teamBucket == "" {
+		teamBucket = "00"
+	}
+	m.deployRunStateTransitions.WithLabelValues(stateFrom, stateTo, teamBucket).Inc()
+}
+
+// ObserveDeployRunLeadTime records the lead time for a deploy run.
+func (m *Metrics) ObserveDeployRunLeadTime(outcome, teamBucket string, duration time.Duration) {
+	if outcome == "" {
+		outcome = "error"
+	}
+	if teamBucket == "" {
+		teamBucket = "00"
+	}
+	m.deployRunLeadTime.WithLabelValues(outcome, teamBucket).Observe(duration.Seconds())
+}
+
+// ObservePreviewCreated records a preview creation event.
+func (m *Metrics) ObservePreviewCreated(teamBucket string) {
+	if teamBucket == "" {
+		teamBucket = "00"
+	}
+	m.previewCreated.WithLabelValues(teamBucket).Inc()
+}
+
+// ObservePreviewConsumed records a preview consumption event.
+func (m *Metrics) ObservePreviewConsumed(outcome, teamBucket string) {
+	if outcome == "" {
+		outcome = "error"
+	}
+	if teamBucket == "" {
+		teamBucket = "00"
+	}
+	m.previewConsumed.WithLabelValues(outcome, teamBucket).Inc()
+}
+
+// ObservePreviewConsumeDuration records the time from preview creation to consumption.
+func (m *Metrics) ObservePreviewConsumeDuration(teamBucket string, duration time.Duration) {
+	if teamBucket == "" {
+		teamBucket = "00"
+	}
+	m.previewConsumeDuration.WithLabelValues(teamBucket).Observe(duration.Seconds())
+}
+
+// SetCloudflareConnectorsReady sets the number of ready Cloudflare tunnel connectors.
+func (m *Metrics) SetCloudflareConnectorsReady(region string, count float64) {
+	m.cloudflareTunnelConnectorsReady.WithLabelValues(region).Set(count)
 }
 
 func teamBucketForRequest(r *http.Request) string {
