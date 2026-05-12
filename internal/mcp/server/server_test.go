@@ -146,6 +146,21 @@ func (f mcpFakeStore) InviteMember(ctx context.Context, params db.InviteMemberPa
 func (f mcpFakeStore) RemoveMember(ctx context.Context, teamID, actorUserID, targetUserID string) error {
 	return nil
 }
+func (f mcpFakeStore) IsToolGranted(ctx context.Context, teamID, userID, toolID string) (bool, error) {
+	return true, nil
+}
+func (f mcpFakeStore) ListGrantedTools(ctx context.Context, teamID, userID string) ([]string, error) {
+	return []string{}, nil
+}
+func (f mcpFakeStore) UpsertToolGrant(ctx context.Context, teamID, userID, toolID string, allowed bool, grantedByActorID *string) error {
+	return nil
+}
+func (f mcpFakeStore) RevokeToolGrant(ctx context.Context, teamID, userID, toolID string) error {
+	return nil
+}
+func (f mcpFakeStore) ListAllUserGrants(ctx context.Context, teamID, userID string) ([]db.ToolGrant, error) {
+	return []db.ToolGrant{}, nil
+}
 
 func newMCPFakeStore() (mcpFakeStore, string) {
 	token := "dev-token"
