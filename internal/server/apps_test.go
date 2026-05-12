@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -382,6 +384,88 @@ func TestNewRouterTailLogs(t *testing.T) {
 	}
 	if len(out.Items) != 2 {
 		t.Fatalf("len(items) = %d, want 2", len(out.Items))
+	}
+}
+
+func TestNewRouterTailLogsFollowSSE(t *testing.T) {
+	store, token := newFakeStore()
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodGet,
+		srv.URL+"/v1/teams/"+store.team.Slug+"/deploys/logs?app_slug=alpha&follow=true&limit=10",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", res.StatusCode)
+	}
+	if got := res.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/event-stream") {
+		t.Fatalf("content-type = %q, want text/event-stream", got)
+	}
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+	raw := string(body)
+	if !strings.Contains(raw, "event: log\n") {
+		t.Fatalf("missing log event: %s", raw)
+	}
+	if !strings.Contains(raw, "event: end\n") {
+		t.Fatalf("missing end event: %s", raw)
+	}
+	if !strings.Contains(raw, "build started") || !strings.Contains(raw, "deploy succeeded") {
+		t.Fatalf("missing log payload: %s", raw)
+	}
+}
+
+func TestNewRouterTailLogsFollowSSEWithLastEventID(t *testing.T) {
+	store, token := newFakeStore()
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	lastEventID := store.deploys[0].LogLines[0].Timestamp.Format(time.RFC3339Nano)
+	req, err := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodGet,
+		srv.URL+"/v1/teams/"+store.team.Slug+"/deploys/logs?app_slug=alpha&follow=true&limit=10",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Last-Event-ID", lastEventID)
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+	raw := string(body)
+	if strings.Contains(raw, "build started") {
+		t.Fatalf("expected old log line to be skipped, got: %s", raw)
+	}
+	if !strings.Contains(raw, "deploy succeeded") {
+		t.Fatalf("expected latest log line, got: %s", raw)
 	}
 }
 

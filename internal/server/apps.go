@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/winshare/zeroops/internal/server/apperror"
@@ -230,6 +232,15 @@ func tailLogsHandler(store appsStore) http.HandlerFunc {
 			}
 			limit = n
 		}
+		follow := false
+		if raw := strings.TrimSpace(r.URL.Query().Get("follow")); raw != "" {
+			v, err := strconv.ParseBool(raw)
+			if err != nil {
+				apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "invalid follow", map[string]any{"field": "follow"})
+				return
+			}
+			follow = v
+		}
 
 		rows, err := store.ListDeployLogLines(r.Context(), auth.TeamID(r.Context()), appSlug, limit)
 		if err != nil {
@@ -240,12 +251,56 @@ func tailLogsHandler(store appsStore) http.HandlerFunc {
 			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to tail logs", nil)
 			return
 		}
+		if follow {
+			flusher, ok := w.(http.Flusher)
+			if !ok {
+				apperror.Write(w, "internal_error", apperror.ClassInternal, "streaming unsupported", nil)
+				return
+			}
+
+			var since *time.Time
+			if raw := strings.TrimSpace(r.Header.Get("Last-Event-ID")); raw != "" {
+				ts, err := time.Parse(time.RFC3339Nano, raw)
+				if err != nil {
+					apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "invalid Last-Event-ID", map[string]any{"field": "Last-Event-ID"})
+					return
+				}
+				since = &ts
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Connection", "keep-alive")
+
+			traceID := middleware.GetReqID(r.Context())
+			for _, row := range rows {
+				ts := row.Timestamp.UTC()
+				if since != nil && !ts.After(*since) {
+					continue
+				}
+				payload, err := json.Marshal(dto.LogLine{Timestamp: ts, Message: row.Message})
+				if err != nil {
+					apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to encode log event", nil)
+					return
+				}
+				if _, err := fmt.Fprintf(w, "id: %s\nevent: log\ndata: %s\n\n", ts.Format(time.RFC3339Nano), payload); err != nil {
+					return
+				}
+				flusher.Flush()
+				slog.Info("tail_logs_sse_event", "trace_id", traceID, "event", "log", "app_slug", appSlug)
+			}
+
+			if _, err := fmt.Fprint(w, "event: end\ndata: {\"reason\":\"eof\"}\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+			slog.Info("tail_logs_sse_event", "trace_id", traceID, "event", "end", "app_slug", appSlug)
+			return
+		}
 
 		items := make([]dto.LogLine, 0, len(rows))
 		for _, row := range rows {
 			items = append(items, dto.LogLine{Timestamp: row.Timestamp, Message: row.Message})
 		}
-
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(dto.TailLogsResponse{Items: items})
 	}

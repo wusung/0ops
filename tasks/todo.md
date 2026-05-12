@@ -35,7 +35,7 @@
   - Sizes: server-runtime 12.3 MB / cli-runtime 7.08 MB / mcp-runtime 8.75 MB / migrations 54 MB / server-dev 495 MB
 - [x] `make dev`：db healthy → migrate 0 exit (`migrated to version: 1`) → server healthcheck healthy
 - [x] `/health` HTTP 200，body `{"status":"ok","version":"dev"}`
-- [x] `/metrics` 暴露 `zeroops_http_request_duration_seconds`（route/method/status）+ `zeroops_http_requests_in_flight` + Go runtime collectors
+- [x] `/metrics` 暴露 `zeroops_http_request_duration_seconds`（route/method/team_bucket）+ `zeroops_http_requests_total`（route/method/status/team_bucket）+ `zeroops_http_requests_in_flight` + Go runtime collectors
 - [x] migrate idempotent：第二次 up 顯示 `no migrations to run. current version: 1`
 - [x] runtime image 全為 `User=nonroot:nonroot`（4/4）
 - [x] runtime image 無 `/bin/sh`（distroless 驗證）

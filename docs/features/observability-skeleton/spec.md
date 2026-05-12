@@ -92,8 +92,8 @@ func TeamBucket(teamID string) string {
 
 | Metric | Type | Labels | Help |
 |---|---|---|---|
-| `0ops_http_requests_total` | counter | route, method, status, team_bucket | Total HTTP requests handled |
-| `0ops_http_request_duration_seconds` | histogram | route, method, team_bucket | HTTP request duration histogram |
+| `zeroops_http_requests_total` | counter | route, method, status, team_bucket | Total HTTP requests handled |
+| `zeroops_http_request_duration_seconds` | histogram | route, method, team_bucket | HTTP request duration histogram |
 | `0ops_preview_created_total` | counter | action | Number of previews created (by action type) |
 | `0ops_preview_consumed_total` | counter | action, outcome | Previews consumed; outcome ∈ {success, failed, idempotent_replay} |
 | `0ops_preview_expired_total` | counter | action | Previews that expired without consumption |

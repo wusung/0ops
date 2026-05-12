@@ -229,6 +229,7 @@ func newDeploysCommand() *cobra.Command {
 		token     string
 		outputFmt string
 		logLimit  int
+		logFollow bool
 	)
 
 	cmd := &cobra.Command{
@@ -265,7 +266,13 @@ func newDeploysCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			out, err := backendclient.New(ctxInfo.Host, ctxInfo.BearerToken).TailLogs(commandContext(cmd), ctxInfo.TeamSlug, args[0], logLimit)
+			client := backendclient.New(ctxInfo.Host, ctxInfo.BearerToken)
+			var out dto.TailLogsResponse
+			if logFollow {
+				out, err = client.TailLogsFollow(commandContext(cmd), ctxInfo.TeamSlug, args[0], logLimit, "")
+			} else {
+				out, err = client.TailLogs(commandContext(cmd), ctxInfo.TeamSlug, args[0], logLimit)
+			}
 			if err != nil {
 				return err
 			}
@@ -273,6 +280,7 @@ func newDeploysCommand() *cobra.Command {
 		},
 	}
 	logsCmd.Flags().IntVar(&logLimit, "limit", 100, "max log lines")
+	logsCmd.Flags().BoolVar(&logFollow, "follow", false, "stream logs via SSE")
 	cmd.AddCommand(logsCmd)
 
 	return cmd
