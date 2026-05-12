@@ -2,13 +2,79 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/winshare/zeroops/internal/server/auth"
+	"github.com/winshare/zeroops/internal/server/db"
 )
+
+type mockToolGrantsStore struct {
+	grants map[string]map[string]bool
+}
+
+func newMockToolGrantsStore() *mockToolGrantsStore {
+	return &mockToolGrantsStore{
+		grants: make(map[string]map[string]bool),
+	}
+}
+
+func (m *mockToolGrantsStore) IsToolGranted(ctx context.Context, teamID, userID, toolID string) (bool, error) {
+	key := teamID + ":" + userID
+	if tools, ok := m.grants[key]; ok {
+		return tools[toolID], nil
+	}
+	return false, nil
+}
+
+func (m *mockToolGrantsStore) ListGrantedTools(ctx context.Context, teamID, userID string) ([]string, error) {
+	key := teamID + ":" + userID
+	var tools []string
+	if toolMap, ok := m.grants[key]; ok {
+		for tool, allowed := range toolMap {
+			if allowed {
+				tools = append(tools, tool)
+			}
+		}
+	}
+	return tools, nil
+}
+
+func (m *mockToolGrantsStore) UpsertToolGrant(ctx context.Context, teamID, userID, toolID string, allowed bool, grantedByActorID *string) error {
+	key := teamID + ":" + userID
+	if _, ok := m.grants[key]; !ok {
+		m.grants[key] = make(map[string]bool)
+	}
+	m.grants[key][toolID] = allowed
+	return nil
+}
+
+func (m *mockToolGrantsStore) RevokeToolGrant(ctx context.Context, teamID, userID, toolID string) error {
+	key := teamID + ":" + userID
+	if tools, ok := m.grants[key]; ok {
+		delete(tools, toolID)
+	}
+	return nil
+}
+
+func (m *mockToolGrantsStore) ListAllUserGrants(ctx context.Context, teamID, userID string) ([]db.ToolGrant, error) {
+	key := teamID + ":" + userID
+	var grants []db.ToolGrant
+	if toolMap, ok := m.grants[key]; ok {
+		for tool, allowed := range toolMap {
+			grants = append(grants, db.ToolGrant{
+				ToolID:  tool,
+				Allowed: allowed,
+			})
+		}
+	}
+	return grants, nil
+}
 
 func TestDeviceFlowStart(t *testing.T) {
 	handler := deviceFlowStartHandler()
@@ -90,11 +156,18 @@ func TestDeviceFlowPoll(t *testing.T) {
 }
 
 func TestAuthorizeToolsInvalidTool(t *testing.T) {
-	handler := authorizeToolsHandler()
+	store := newMockToolGrantsStore()
+	handler := authorizeToolsHandler(store)
 
 	reqBody := AuthorizeToolsRequest{Tools: []string{"nonexistent_tool"}}
 	body, _ := json.Marshal(reqBody)
 	req := httptest.NewRequest("POST", "/v1/teams/team-1/auth:grant-tools", bytes.NewReader(body))
+
+	// Set up chi router context for team_slug
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("team_slug", "team-1")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -105,11 +178,18 @@ func TestAuthorizeToolsInvalidTool(t *testing.T) {
 }
 
 func TestAuthorizeToolsValid(t *testing.T) {
-	handler := authorizeToolsHandler()
+	store := newMockToolGrantsStore()
+	handler := authorizeToolsHandler(store)
 
 	reqBody := AuthorizeToolsRequest{Tools: []string{"list_apps", "get_app"}}
 	body, _ := json.Marshal(reqBody)
 	req := httptest.NewRequest("POST", "/v1/teams/team-1/auth:grant-tools", bytes.NewReader(body))
+
+	// Set up chi router context for team_slug
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("team_slug", "team-1")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -129,5 +209,15 @@ func TestAuthorizeToolsValid(t *testing.T) {
 
 	if resp["auth_status"] != "authorized" {
 		t.Errorf("auth_status should be authorized, got %v", resp["auth_status"])
+	}
+
+	grantedTools, ok := resp["granted_tools"].([]interface{})
+	if !ok {
+		t.Error("granted_tools should be an array")
+		return
+	}
+
+	if len(grantedTools) != 2 {
+		t.Errorf("expected 2 granted tools, got %d", len(grantedTools))
 	}
 }

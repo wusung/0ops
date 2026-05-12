@@ -148,6 +148,26 @@ func (f *fakeStore) RemoveMember(ctx context.Context, teamID, actorUserID, targe
 	return nil
 }
 
+func (f *fakeStore) IsToolGranted(ctx context.Context, teamID, userID, toolID string) (bool, error) {
+	return false, nil
+}
+
+func (f *fakeStore) ListGrantedTools(ctx context.Context, teamID, userID string) ([]string, error) {
+	return []string{}, nil
+}
+
+func (f *fakeStore) UpsertToolGrant(ctx context.Context, teamID, userID, toolID string, allowed bool, grantedByActorID *string) error {
+	return nil
+}
+
+func (f *fakeStore) RevokeToolGrant(ctx context.Context, teamID, userID, toolID string) error {
+	return nil
+}
+
+func (f *fakeStore) ListAllUserGrants(ctx context.Context, teamID, userID string) ([]db.ToolGrant, error) {
+	return []db.ToolGrant{}, nil
+}
+
 func TestNewRouterListApps(t *testing.T) {
 	store, token := newFakeStore()
 	srv := httptest.NewServer(NewRouter(store))

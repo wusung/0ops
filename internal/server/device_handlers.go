@@ -2,7 +2,10 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/winshare/zeroops/internal/server/apperror"
 	"github.com/winshare/zeroops/internal/server/auth"
@@ -82,7 +85,7 @@ type AuthorizeToolsRequest struct {
 	Tools []string `json:"tools"`
 }
 
-func authorizeToolsHandler() http.HandlerFunc {
+func authorizeToolsHandler(store toolGrantsStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req AuthorizeToolsRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -96,9 +99,30 @@ func authorizeToolsHandler() http.HandlerFunc {
 			return
 		}
 
-		// TODO: Store tool grants in database
-		// TODO: Create final access token
+		// Extract team_slug from URL params
+		teamSlug := chi.URLParam(r, "team_slug")
+		if teamSlug == "" {
+			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "team_slug is required", nil)
+			return
+		}
 
+		// TODO: Extract user_id from temporary token
+		// For now, use a placeholder (this will be implemented when device flow is complete)
+		userID := "placeholder_user_id"
+		teamID := "placeholder_team_id"
+
+		// TODO: Resolve team_id from team_slug
+
+		// Store tool grants
+		for _, tool := range req.Tools {
+			// Set all requested tools as allowed
+			if err := store.UpsertToolGrant(r.Context(), teamID, userID, tool, true, nil); err != nil {
+				apperror.Write(w, "database_error", apperror.ClassInternal, fmt.Sprintf("failed to grant tool %s", tool), nil)
+				return
+			}
+		}
+
+		// TODO: Create final access token with tool grants
 		resp := map[string]interface{}{
 			"access_token":   "final_token",
 			"token_type":     "Bearer",
