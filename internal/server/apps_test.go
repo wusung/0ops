@@ -29,6 +29,7 @@ type fakeStore struct {
 	tokens     map[string]db.CliToken
 	team       db.Team
 	role       string
+	toolGrants []string
 	apps       []db.App
 	domains    []db.DomainBinding
 	deploys    []db.DeployRun
@@ -392,7 +393,7 @@ func (f *fakeStore) IsToolGranted(_ context.Context, _ string, _ string, _ strin
 }
 
 func (f *fakeStore) ListGrantedTools(_ context.Context, _ string, _ string) ([]string, error) {
-	return []string{}, nil
+	return append([]string(nil), f.toolGrants...), nil
 }
 
 func (f *fakeStore) UpsertToolGrant(_ context.Context, _ string, _ string, _ string, _ bool, _ *string) error {
@@ -785,6 +786,12 @@ func TestAppsCreateConfirmIdempotentReplay(t *testing.T) {
 	if second.AppID != first.AppID || second.DeployRunID != first.DeployRunID {
 		t.Fatalf("replay mismatch: first=%+v second=%+v", first, second)
 	}
+	if first.SubdomainURL != "https://nextdemo.winshare.tw" {
+		t.Fatalf("first.SubdomainURL = %q, want https://nextdemo.winshare.tw", first.SubdomainURL)
+	}
+	if second.SubdomainURL != "https://nextdemo.winshare.tw" {
+		t.Fatalf("second.SubdomainURL = %q, want https://nextdemo.winshare.tw", second.SubdomainURL)
+	}
 }
 
 func TestDeployRunCallbackHMACAndDedup(t *testing.T) {
@@ -1028,10 +1035,18 @@ func newFakeStore() (*fakeStore, string) {
 		Scopes:      []string{"apps:read", "apps:write", "teams:read", "members:manage"},
 	}
 	return &fakeStore{
-		token:   baseToken,
-		tokens:  map[string]db.CliToken{baseToken.ID: baseToken},
-		team:    db.Team{ID: "team-1", Slug: "acme", Name: "Acme", Plan: "starter"},
-		role:    "admin",
+		token:  baseToken,
+		tokens: map[string]db.CliToken{baseToken.ID: baseToken},
+		team:   db.Team{ID: "team-1", Slug: "acme", Name: "Acme", Plan: "starter"},
+		role:   "admin",
+		toolGrants: []string{
+			"create_app_preview",
+			"create_app",
+			"invite_member_preview",
+			"invite_member",
+			"remove_member_preview",
+			"remove_member",
+		},
 		members: true,
 		apps: []db.App{
 			{ID: "1", TeamID: "team-1", Slug: "alpha", Name: strPtr("Alpha"), CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},

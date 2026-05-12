@@ -97,3 +97,8 @@ type PATListItem struct {
 	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
 	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
 }
+
+//nolint:revive // exported for public API
+type ListToolGrantsResponse struct {
+	GrantedTools []string `json:"granted_tools"`
+}

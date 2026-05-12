@@ -158,6 +158,7 @@ type mcpFakeStore struct {
 	tokens     map[string]db.CliToken
 	team       db.Team
 	role       string
+	toolGrants []string
 	apps       []db.App
 	domains    []db.DomainBinding
 	deploys    []db.DeployRun
@@ -314,7 +315,7 @@ func (f mcpFakeStore) IsToolGranted(_ context.Context, _ string, _ string, _ str
 	return true, nil
 }
 func (f mcpFakeStore) ListGrantedTools(_ context.Context, _ string, _ string) ([]string, error) {
-	return []string{}, nil
+	return append([]string(nil), f.toolGrants...), nil
 }
 func (f mcpFakeStore) UpsertToolGrant(_ context.Context, _ string, _ string, _ string, _ bool, _ *string) error {
 	return nil
@@ -418,6 +419,14 @@ func newMCPFakeStore() (*mcpFakeStore, string) {
 		tokens: map[string]db.CliToken{baseToken.ID: baseToken},
 		team:   db.Team{ID: "team-1", Slug: "acme", Name: "Acme", Plan: "starter"},
 		role:   "admin", members: true,
+		toolGrants: []string{
+			"create_app_preview",
+			"create_app",
+			"invite_member_preview",
+			"invite_member",
+			"remove_member_preview",
+			"remove_member",
+		},
 		apps:    []db.App{{ID: "1", TeamID: "team-1", Slug: "alpha"}, {ID: "2", TeamID: "team-1", Slug: "beta"}},
 		domains: []db.DomainBinding{{ID: "d1", TeamID: "team-1", AppID: "1", AppSlug: "alpha", Hostname: "alpha.example.com", Kind: strPtr("primary"), Verified: true}},
 		deploys: []db.DeployRun{{
@@ -434,6 +443,45 @@ func newMCPFakeStore() (*mcpFakeStore, string) {
 		memberRows: []db.Member{{UserID: "user-1", GithubLogin: strPtr("owner"), Role: "owner"}},
 		previews:   map[string]db.Preview{},
 	}, token
+}
+
+func TestCreateAppPreviewToolRequiresGrant(t *testing.T) {
+	store, token := newMCPFakeStore()
+	store.toolGrants = nil
+	backend := httptest.NewServer(serverpkg.NewRouter(store))
+	t.Cleanup(backend.Close)
+	t.Setenv("OPS_HOST", backend.URL)
+	t.Setenv("OPS_BEARER_TOKEN", token)
+
+	srv := New(slog.Default())
+	sTransport, cTransport := mcp.NewInMemoryTransports()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.Run(ctx, sTransport) }()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil)
+	session, err := client.Connect(ctx, cTransport, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "create_app_preview",
+		Arguments: map[string]any{
+			"team_slug": store.team.Slug,
+			"slug":      "nextdemo",
+			"repo_url":  "https://github.com/example/nextdemo",
+			"ref":       "main",
+		},
+	})
+	if err != nil {
+		t.Fatalf("create_app_preview call failed unexpectedly: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected create_app_preview to return tool error without grant")
+	}
+	cancel()
+	<-errCh
 }
 
 func strPtr(v string) *string { return &v }

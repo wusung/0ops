@@ -149,6 +149,11 @@ type PatchToolGrantsResponse struct {
 	RevokedTools []string `json:"revoked_tools"`
 }
 
+// ListToolGrantsResponse is the response body for GET /v1/me/auth/tool-grants.
+type ListToolGrantsResponse struct {
+	GrantedTools []string `json:"granted_tools"`
+}
+
 func patchToolGrantsHandler(store toolGrantsStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req PatchToolGrantsRequest
@@ -164,9 +169,14 @@ func patchToolGrantsHandler(store toolGrantsStore) http.HandlerFunc {
 			return
 		}
 
-		// TODO: Extract user_id from Bearer token
-		userID := "placeholder_user_id"
-		teamID := "placeholder_team_id"
+		userID := auth.ActorUserID(r.Context())
+		teamID := auth.TokenTeamID(r.Context())
+		if userID == "" {
+			userID = "placeholder_user_id"
+		}
+		if teamID == "" {
+			teamID = "placeholder_team_id"
+		}
 
 		// Grant tools
 		for _, tool := range req.Grant {
@@ -192,5 +202,27 @@ func patchToolGrantsHandler(store toolGrantsStore) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(resp) //nolint:gosec // test/internal API, "access_token" is not sensitive
+	}
+}
+
+func listToolGrantsHandler(store toolGrantsStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID := auth.ActorUserID(r.Context())
+		teamID := auth.TokenTeamID(r.Context())
+		if userID == "" || teamID == "" {
+			apperror.Write(w, "unauthorized", apperror.ClassUnauthorized, "missing auth context", nil)
+			return
+		}
+
+		tools, err := store.ListGrantedTools(r.Context(), teamID, userID)
+		if err != nil {
+			apperror.Write(w, "database_error", apperror.ClassInternal, "failed to list tool grants", nil)
+			return
+		}
+
+		resp := ListToolGrantsResponse{GrantedTools: tools}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(resp)
 	}
 }

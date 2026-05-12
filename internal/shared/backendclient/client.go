@@ -374,6 +374,33 @@ func (c *Client) ListTeams(ctx context.Context) (dto.ListTeamsResponse, error) {
 	return out, nil
 }
 
+// ListMyToolGrants fetches granted tool IDs for current actor.
+func (c *Client) ListMyToolGrants(ctx context.Context) (dto.ListToolGrantsResponse, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/v1/me/auth/tool-grants", nil)
+	if err != nil {
+		return dto.ListToolGrantsResponse{}, err
+	}
+	if c.BearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.BearerToken)
+	}
+
+	res, err := c.httpClient().Do(req)
+	if err != nil {
+		return dto.ListToolGrantsResponse{}, err
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode != http.StatusOK {
+		return dto.ListToolGrantsResponse{}, decodeError(res)
+	}
+
+	var out dto.ListToolGrantsResponse
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		return dto.ListToolGrantsResponse{}, err
+	}
+	return out, nil
+}
+
 //nolint:revive // exported for public API
 func (c *Client) BootstrapOwner(ctx context.Context, reqBody dto.BootstrapOwnerRequest) (dto.BootstrapOwnerResponse, error) {
 	endpoint := c.BaseURL + "/v1/admin/bootstrap-owner"

@@ -80,6 +80,21 @@ func TestListTeamsResponseJSONShape(t *testing.T) {
 	}
 }
 
+func TestNewRouterListMyToolGrants(t *testing.T) {
+	store, token := newFakeStore()
+	store.toolGrants = []string{"create_app_preview", "create_app"}
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	out, err := backendclient.New(srv.URL, token).ListMyToolGrants(context.Background())
+	if err != nil {
+		t.Fatalf("ListMyToolGrants() error = %v", err)
+	}
+	if len(out.GrantedTools) != 2 {
+		t.Fatalf("len(granted_tools) = %d, want 2", len(out.GrantedTools))
+	}
+}
+
 func TestNewRouterListTeamsReturnsAllPages(t *testing.T) {
 	baseStore, token := newFakeStore()
 	store := &paginatedTeamsStore{

@@ -40,6 +40,12 @@
   - GetUnauthorizedToolError() for detailed error messages
   - 20 tests, all passing
 
+- **MCP Tool Invocation Enforcement** (m2-08)
+  - MCP write tools now enforce grant checks at invocation time (`create_app*`, `invite_member*`, `remove_member*`)
+  - Confirm tools enforce preview-grant dependency (`create_app` requires `create_app_preview`, etc.)
+  - Backend exposes `GET /v1/me/auth/tool-grants` for per-request grant resolution
+  - Tests cover denied call path when grants are missing
+
 ### 🔄 In Progress / Placeholder
 
 - **GitHub OAuth2 Integration**
@@ -62,9 +68,9 @@
   - Device flow → tool selection → CLI login → token storage → MCP tool call
   - Integration test covering full flow from GitHub auth to MCP tool invocation
 
-- **MCP Tool Authorization Middleware**
-  - Integration of tool grants check into actual MCP tool invocation
-  - 403/tool_not_permitted response generation
+- **Token claim grants embedding**
+  - Encode granted tools into token claims to reduce round-trips
+  - Offline fallback strategy for grant cache consistency
 
 ## 1. 結論（先讀本段）
 
@@ -279,6 +285,21 @@ Content-Type: application/json
 {
   "grant": ["list_apps", "get_app", "inspect_repo"],
   "revoke": ["create_app"]
+}
+```
+
+### 4.5 查詢目前 Tool Grants（已實作）
+
+**Request**：
+```http
+GET /v1/me/auth/tool-grants
+Authorization: Bearer {token}
+```
+
+**Response**：
+```json
+{
+  "granted_tools": ["create_app_preview", "create_app"]
 }
 ```
 

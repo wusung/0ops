@@ -107,6 +107,31 @@ type removeMemberInput struct {
 }
 
 func registerTools(srv *mcp.Server) {
+	enforceToolGrant := func(ctx context.Context, host, token, toolName string) error {
+		registry := NewToolRegistry()
+		grantsResp, err := backendclient.New(host, token).ListMyToolGrants(ctx)
+		if err != nil {
+			return err
+		}
+		granted, err := registry.IsToolGranted(toolName, grantsResp.GrantedTools)
+		if err != nil {
+			return err
+		}
+		if !granted {
+			return fmt.Errorf("tool %q is not authorized", toolName)
+		}
+		if requiredPreview, ok := previewDependency(toolName); ok {
+			previewGranted, err := registry.IsToolGranted(requiredPreview, grantsResp.GrantedTools)
+			if err != nil {
+				return err
+			}
+			if !previewGranted {
+				return fmt.Errorf("tool %q requires %q grant", toolName, requiredPreview)
+			}
+		}
+		return nil
+	}
+
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_teams",
 		Description: "List teams available to the current actor.",
@@ -172,6 +197,9 @@ func registerTools(srv *mcp.Server) {
 		if err != nil {
 			return nil, dto.PreviewResponse{}, err
 		}
+		if err := enforceToolGrant(ctx, host, token, "create_app_preview"); err != nil {
+			return nil, dto.PreviewResponse{}, err
+		}
 		out, err := backendclient.New(host, token).PreviewCreateApp(ctx, input.TeamSlug, dto.AppCreateRequest{
 			Slug:    input.Slug,
 			RepoURL: input.RepoURL,
@@ -193,6 +221,9 @@ func registerTools(srv *mcp.Server) {
 		}
 		host, token, err := resolveBackendAuth()
 		if err != nil {
+			return nil, dto.AppCreateResponse{}, err
+		}
+		if err := enforceToolGrant(ctx, host, token, "create_app"); err != nil {
 			return nil, dto.AppCreateResponse{}, err
 		}
 		out, err := backendclient.New(host, token).CreateApp(ctx, input.TeamSlug, dto.ConfirmCreateAppRequest{
@@ -308,6 +339,9 @@ func registerTools(srv *mcp.Server) {
 		if err != nil {
 			return nil, dto.PreviewResponse{}, err
 		}
+		if err := enforceToolGrant(ctx, host, token, "invite_member_preview"); err != nil {
+			return nil, dto.PreviewResponse{}, err
+		}
 		out, err := backendclient.New(host, token).PreviewInviteMember(ctx, input.TeamSlug, dto.InviteMemberRequest{
 			Role:        input.Role,
 			GithubLogin: input.GithubLogin,
@@ -330,6 +364,9 @@ func registerTools(srv *mcp.Server) {
 		if err != nil {
 			return nil, dto.InviteMemberResponse{}, err
 		}
+		if err := enforceToolGrant(ctx, host, token, "invite_member"); err != nil {
+			return nil, dto.InviteMemberResponse{}, err
+		}
 		out, err := backendclient.New(host, token).InviteMember(ctx, input.TeamSlug, dto.ConfirmInviteMemberRequest{
 			PreviewID: input.PreviewID,
 		})
@@ -348,6 +385,9 @@ func registerTools(srv *mcp.Server) {
 		}
 		host, token, err := resolveBackendAuth()
 		if err != nil {
+			return nil, dto.PreviewResponse{}, err
+		}
+		if err := enforceToolGrant(ctx, host, token, "remove_member_preview"); err != nil {
 			return nil, dto.PreviewResponse{}, err
 		}
 		out, err := backendclient.New(host, token).PreviewRemoveMember(ctx, input.TeamSlug, dto.RemoveMemberRequest{
@@ -370,6 +410,9 @@ func registerTools(srv *mcp.Server) {
 		if err != nil {
 			return nil, nil, err
 		}
+		if err := enforceToolGrant(ctx, host, token, "remove_member"); err != nil {
+			return nil, nil, err
+		}
 		if err := backendclient.New(host, token).RemoveMember(ctx, input.TeamSlug, dto.ConfirmRemoveMemberRequest{
 			PreviewID: input.PreviewID,
 		}); err != nil {
@@ -377,6 +420,19 @@ func registerTools(srv *mcp.Server) {
 		}
 		return nil, map[string]string{"status": "removed"}, nil
 	})
+}
+
+func previewDependency(toolName string) (string, bool) {
+	switch toolName {
+	case "create_app":
+		return "create_app_preview", true
+	case "invite_member":
+		return "invite_member_preview", true
+	case "remove_member":
+		return "remove_member_preview", true
+	default:
+		return "", false
+	}
 }
 
 func resolveBackendAuth() (string, string, error) {

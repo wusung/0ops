@@ -1337,6 +1337,7 @@ func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient,
 			return mw.CheckTokenScope(rbac.ActionListTeams, next)
 		})
 		sr.Get("/teams", listTeamsHandler(store))
+		sr.Get("/auth/tool-grants", listToolGrantsHandler(store))
 		sr.Patch("/auth/tool-grants", patchToolGrantsHandler(store))
 	})
 
