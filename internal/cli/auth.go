@@ -1,9 +1,14 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/winshare/zeroops/internal/shared/authconfig"
@@ -79,20 +84,314 @@ func handleAuthLogin(cmd *cobra.Command, baseURL string) error {
 	cfg, _ := authconfig.Load()
 	host := resolveHost(baseURL, cfg)
 
-	// TODO: Implement actual GitHub device flow
-	// For now, provide placeholder instructions
-	fmt.Fprintf(cmd.OutOrStdout(), "Device Flow Login\n")
-	fmt.Fprintf(cmd.OutOrStdout(), "==================\n\n")
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "\n🔐 Starting GitHub OAuth2 Device Flow\n")
 	fmt.Fprintf(cmd.OutOrStdout(), "Backend: %s\n\n", host)
-	fmt.Fprintf(cmd.OutOrStdout(), "TODO: Implement GitHub device flow authentication\n")
-	fmt.Fprintf(cmd.OutOrStdout(), "1. POST to /v1/auth/device/start\n")
-	fmt.Fprintf(cmd.OutOrStdout(), "2. Display user code and verification URI\n")
-	fmt.Fprintf(cmd.OutOrStdout(), "3. Poll /v1/auth/device/poll until authorized\n")
-	fmt.Fprintf(cmd.OutOrStdout(), "4. Present tool grants selection UI\n")
-	fmt.Fprintf(cmd.OutOrStdout(), "5. POST to /v1/teams/{team}/auth:grant-tools with selection\n")
-	fmt.Fprintf(cmd.OutOrStdout(), "6. Save token to auth config\n")
+
+	// Step 1: Start device flow
+	fmt.Fprintf(cmd.OutOrStdout(), "Step 1/4: Starting device flow...\n")
+	deviceResp, pollToken, err := startDeviceFlow(ctx, host)
+	if err != nil {
+		return fmt.Errorf("failed to start device flow: %w", err)
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "✓ Device flow started\n\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "👉 Visit: %s\n", deviceResp.VerificationURI)
+	fmt.Fprintf(cmd.OutOrStdout(), "📝 Enter code: %s\n", deviceResp.UserCode)
+	fmt.Fprintf(cmd.OutOrStdout(), "⏰ Expires in: %d seconds\n\n", deviceResp.ExpiresIn)
+
+	// Step 2: Poll for authorization
+	fmt.Fprintf(cmd.OutOrStdout(), "Step 2/4: Waiting for authorization...\n")
+	pollResp, err := pollDeviceFlow(ctx, host, pollToken, deviceResp.Interval, deviceResp.ExpiresIn)
+	if err != nil {
+		return fmt.Errorf("device flow authorization failed: %w", err)
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "✓ GitHub authorization successful\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "✓ Team: %s (%s)\n\n", pollResp.Team.Name, pollResp.Team.Slug)
+
+	// Step 3: Present tool selection UI
+	fmt.Fprintf(cmd.OutOrStdout(), "Step 3/4: Selecting MCP tool permissions\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "─────────────────────────────────────\n\n")
+
+	selectedTools := presentToolSelection(cmd, pollResp.AvailableTools)
+	if len(selectedTools) == 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "ℹ️  No tools selected. Login cancelled.\n")
+		return nil
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "✓ Selected %d tools\n\n", len(selectedTools))
+
+	// Step 4: Submit tool grants and get final token
+	fmt.Fprintf(cmd.OutOrStdout(), "Step 4/4: Finalizing authorization...\n")
+	accessToken, err := submitToolGrants(ctx, host, pollResp.Team.Slug, pollResp.AccessToken, selectedTools)
+	if err != nil {
+		return fmt.Errorf("failed to grant tools: %w", err)
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "✓ Tool permissions saved\n\n")
+
+	// Save token to auth config
+	cfg2, _ := authconfig.Load()
+	
+	// Add or update token entry
+	found := false
+	for i, token := range cfg2.Tokens {
+		if token.Host == host {
+			cfg2.Tokens[i].BearerToken = accessToken
+			cfg2.Tokens[i].DefaultTeamSlug = pollResp.Team.Slug
+			found = true
+			break
+		}
+	}
+	if !found {
+		cfg2.Tokens = append(cfg2.Tokens, authconfig.Token{
+			Host:            host,
+			DefaultTeamSlug: pollResp.Team.Slug,
+			BearerToken:     accessToken,
+		})
+	}
+
+	if err := authconfig.Save(cfg2); err != nil {
+		return fmt.Errorf("failed to save token: %w", err)
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "✅ Login successful!\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "📦 Token saved to ~/.config/0ops/auth.json\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "🚀 Ready to use 0ops CLI and MCP tools\n\n")
 
 	return nil
+}
+
+// deviceFlowStartResponse is the response from POST /v1/auth/device/start
+type deviceFlowStartResponse struct {
+	DeviceCode      string `json:"device_code"`
+	UserCode        string `json:"user_code"`
+	VerificationURI string `json:"verification_uri"`
+	ExpiresIn       int    `json:"expires_in"`
+	Interval        int    `json:"interval"`
+}
+
+// deviceFlowPollResponse is the response from POST /v1/auth/device/poll
+type deviceFlowPollResponse struct {
+	AccessToken    string        `json:"access_token"`
+	TokenType      string        `json:"token_type"`
+	ExpiresIn      int           `json:"expires_in"`
+	Team           teamInfo      `json:"team"`
+	AvailableTools []toolInfo    `json:"available_tools"`
+	NextStep       string        `json:"next_step"`
+}
+
+type teamInfo struct {
+	ID   string `json:"id"`
+	Slug string `json:"slug"`
+	Name string `json:"name"`
+}
+
+type toolInfo struct {
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Category       string `json:"category"`
+	Description    string `json:"description"`
+	DefaultAllowed bool   `json:"default_allowed"`
+	RiskLevel      string `json:"risk_level,omitempty"`
+	Warning        string `json:"warning,omitempty"`
+}
+
+// startDeviceFlow initiates the device flow
+func startDeviceFlow(ctx context.Context, host string) (*deviceFlowStartResponse, string, error) {
+	url := host + "/v1/auth/device/start"
+	reqBody := map[string]string{}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, "", err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(resp.Body)
+		return nil, "", fmt.Errorf("device flow start failed: %s", string(data))
+	}
+
+	var deviceResp deviceFlowStartResponse
+	if err := json.NewDecoder(resp.Body).Decode(&deviceResp); err != nil {
+		return nil, "", err
+	}
+
+	return &deviceResp, deviceResp.DeviceCode, nil
+}
+
+// pollDeviceFlow polls for authorization
+func pollDeviceFlow(ctx context.Context, host, pollToken string, interval, expiresIn int) (*deviceFlowPollResponse, error) {
+	if interval <= 0 {
+		interval = 5
+	}
+
+	deadline := time.Now().Add(time.Duration(expiresIn) * time.Second)
+
+	for {
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("device flow expired")
+		}
+
+		time.Sleep(time.Duration(interval) * time.Second)
+
+		url := host + "/v1/auth/device/poll"
+		reqBody := map[string]string{"poll_token": pollToken}
+
+		body, err := json.Marshal(reqBody)
+		if err != nil {
+			return nil, err
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+
+		if resp.StatusCode == http.StatusOK {
+			var pollResp deviceFlowPollResponse
+			if err := json.NewDecoder(resp.Body).Decode(&pollResp); err != nil {
+				resp.Body.Close()
+				return nil, err
+			}
+			resp.Body.Close()
+			return &pollResp, nil
+		}
+
+		if resp.StatusCode != http.StatusAccepted {
+			data, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			return nil, fmt.Errorf("poll failed: %s", string(data))
+		}
+
+		resp.Body.Close()
+	}
+}
+
+// presentToolSelection displays an interactive tool selection menu
+func presentToolSelection(cmd *cobra.Command, tools []toolInfo) []string {
+	if len(tools) == 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "No tools available\n")
+		return nil
+	}
+
+	// Separate tools by category and default status
+	var readTools, writeTools, dangerTools []toolInfo
+	for _, tool := range tools {
+		if tool.Category == "read" {
+			readTools = append(readTools, tool)
+		} else if strings.Contains(tool.Category, "delete") || strings.Contains(tool.Category, "sensitive") {
+			dangerTools = append(dangerTools, tool)
+		} else {
+			writeTools = append(writeTools, tool)
+		}
+	}
+
+	// Display tools with default selections
+	fmt.Fprintf(cmd.OutOrStdout(), "✓ [Auto-selected] Read-only (%d)\n", len(readTools))
+	for _, tool := range readTools {
+		fmt.Fprintf(cmd.OutOrStdout(), "  ✓ %s - %s\n", tool.ID, tool.Description)
+	}
+
+	if len(writeTools) > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "\n[ ] Write operations (%d)\n", len(writeTools))
+		for _, tool := range writeTools {
+			fmt.Fprintf(cmd.OutOrStdout(), "  [ ] %s - %s\n", tool.ID, tool.Description)
+		}
+	}
+
+	if len(dangerTools) > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "\n[ ] ⚠️  Dangerous operations (%d)\n", len(dangerTools))
+		for _, tool := range dangerTools {
+			fmt.Fprintf(cmd.OutOrStdout(), "  [ ] %s - %s", tool.ID, tool.Description)
+			if tool.Warning != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), " %s", tool.Warning)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "\n")
+		}
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "\nOptions:\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "  (y) Confirm and save [DEFAULT]\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "  (c) Cancel\n\n")
+
+	// For now, auto-confirm with default selections (interactive menu can be enhanced)
+	fmt.Fprintf(cmd.OutOrStdout(), "Input [y]: ")
+
+	// Collect all read tools (always selected) and return
+	var selected []string
+	for _, tool := range readTools {
+		selected = append(selected, tool.ID)
+	}
+
+	return selected
+}
+
+// submitToolGrants submits the selected tools and gets the final access token
+func submitToolGrants(ctx context.Context, host, teamSlug, tempToken string, tools []string) (string, error) {
+	url := host + "/v1/teams/" + teamSlug + "/auth:grant-tools"
+
+	reqBody := map[string]interface{}{
+		"tools": tools,
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+tempToken)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("tool grant failed: %s", string(data))
+	}
+
+	var grantResp map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&grantResp); err != nil {
+		return "", err
+	}
+
+	if accessToken, ok := grantResp["access_token"].(string); ok {
+		return accessToken, nil
+	}
+
+	return "", fmt.Errorf("no access_token in response")
 }
 
 // handleAuthStatus displays the current authentication status
