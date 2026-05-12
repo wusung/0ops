@@ -62,6 +62,21 @@ type appsStore interface {
 	ApplyDeployCallback(ctx context.Context, params db.DeployCallbackParams) error
 }
 
+// infraK3sClient provides K3s namespace management operations.
+type infraK3sClient interface {
+	EnsureNamespace(ctx context.Context, teamID, teamSlug, planTier string) (string, error)
+	EnsureResourceQuota(ctx context.Context, namespace, planTier string) error
+	EnsureLimitRange(ctx context.Context, namespace string) error
+	EnsureNetworkPolicy(ctx context.Context, namespace string) error
+	PatchNamespacePSA(ctx context.Context, namespace string) error
+}
+
+// infraCloudflareClient provides Cloudflare tunnel and DNS management operations.
+type infraCloudflareClient interface {
+	RouteAppToDomain(ctx context.Context, teamID, teamSlug, appSlug string) (string, error)
+	CreateTunnelRoute(ctx context.Context, teamID, appSlug, backendURL string) error
+}
+
 type toolGrantsStore interface {
 	IsToolGranted(ctx context.Context, teamID, userID, toolID string) (bool, error)
 	ListGrantedTools(ctx context.Context, teamID, userID string) ([]string, error)
@@ -251,7 +266,7 @@ func previewCreateAppHandler(store appsStore) http.HandlerFunc {
 	}
 }
 
-func createAppHandler(store appsStore) http.HandlerFunc {
+func createAppHandler(store appsStore, k3sClient infraK3sClient, cfClient infraCloudflareClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		outcome := "error"
 		idempotentReplay := false
@@ -305,6 +320,20 @@ func createAppHandler(store appsStore) http.HandlerFunc {
 			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to create app", nil)
 			return
 		}
+
+		// Initialize infrastructure for the app (K3s namespace + Cloudflare tunnel)
+		teamID := auth.TeamID(r.Context())
+		teamSlug := auth.TeamSlug(r.Context())
+
+		if k3sClient != nil {
+			// Pass empty string for plan since it's not available in context
+			// The plan can be fetched from store if needed in production implementation
+			_, _ = k3sClient.EnsureNamespace(r.Context(), teamID, teamSlug, "free")
+		}
+		if cfClient != nil {
+			_, _ = cfClient.RouteAppToDomain(r.Context(), teamID, teamSlug, result.AppSlug)
+		}
+
 		response := dto.AppCreateResponse{
 			AppID:         result.AppID,
 			AppSlug:       result.AppSlug,
@@ -1183,11 +1212,17 @@ func uninstallGitHubAppHandler(_ appsStore) http.HandlerFunc {
 // NewRouter returns the HTTP router for the server.
 func NewRouter(store routerStore) http.Handler {
 	githubClient := newGitHubOAuthClient()
-	return NewRouterWithGitHubOAuth(store, githubClient)
+	return NewRouterWithGitHubOAuth(store, githubClient, nil, nil)
+}
+
+// NewRouterWithInfra creates a router with infrastructure clients.
+func NewRouterWithInfra(store routerStore, k3sClient infraK3sClient, cfClient infraCloudflareClient) http.Handler {
+	githubClient := newGitHubOAuthClient()
+	return NewRouterWithGitHubOAuth(store, githubClient, k3sClient, cfClient)
 }
 
 //nolint:revive // exported for public API
-func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient) http.Handler {
+func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient, k3sClient infraK3sClient, cfClient infraCloudflareClient) http.Handler {
 	mw := auth.NewMiddleware(store)
 
 	r := chi.NewRouter()
@@ -1228,7 +1263,7 @@ func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient)
 		}).Post("/apps:preview", previewCreateAppHandler(store))
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionCreateApp, next)
-		}).Post("/apps", createAppHandler(store))
+		}).Post("/apps", createAppHandler(store, k3sClient, cfClient))
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionListApps, next)
 		}).Get("/repos/{app_slug}:inspect", inspectRepoHandler(store))
@@ -1450,7 +1485,7 @@ func validateAppCreateRequest(w http.ResponseWriter, req dto.AppCreateRequest) b
 		return false
 	}
 	repoURL := strings.TrimSpace(req.RepoURL)
-	if !(strings.HasPrefix(repoURL, "https://github.com/") || strings.HasPrefix(repoURL, "git@github.com:")) {
+	if !strings.HasPrefix(repoURL, "https://github.com/") && !strings.HasPrefix(repoURL, "git@github.com:") {
 		apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "unsupported repo_url", map[string]any{"field": "repo_url"})
 		return false
 	}

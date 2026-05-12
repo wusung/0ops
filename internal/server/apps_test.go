@@ -584,7 +584,7 @@ func TestDeviceLoginAndLogoutFlow(t *testing.T) {
 			IntervalSeconds:  1,
 		},
 		user: githuboauth.UserProfile{Login: "owner", Email: "owner@example.com"},
-	}))
+	}, nil, nil))
 	t.Cleanup(srv.Close)
 
 	client := backendclient.New(srv.URL, "")

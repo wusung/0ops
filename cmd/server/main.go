@@ -19,6 +19,8 @@ import (
 	"github.com/winshare/zeroops/internal/server/db"
 	"github.com/winshare/zeroops/internal/server/health"
 	"github.com/winshare/zeroops/internal/server/observability"
+	"github.com/winshare/zeroops/internal/server/services/cloudflare"
+	"github.com/winshare/zeroops/internal/server/services/k3s"
 	"github.com/winshare/zeroops/internal/shared"
 )
 
@@ -38,6 +40,31 @@ func main() {
 	repo := db.NewRepository(pool)
 	appserver.BindCreateAppMetrics(metrics.ObserveCreateAppPreview, metrics.ObserveCreateAppConfirm)
 
+	// Initialize K3s and Cloudflare infrastructure clients
+	k3sCfg := &k3s.Config{
+		KubeconfigPath:            envOr("K3S_KUBECONFIG_PATH", ""),
+		APIServerURL:              envOr("K3S_API_SERVER_URL", ""),
+		DisableNamespaceIsolation: envOr("K3S_DISABLE_ISOLATION", "") == "true",
+	}
+	k3sClient, err := k3s.NewClient(k3sCfg)
+	if err != nil {
+		logger.Error("failed to initialize K3s client", "err", err)
+		os.Exit(1)
+	}
+
+	cfCfg := &cloudflare.Config{
+		TunnelID:               envOr("CF_TUNNEL_ID", ""),
+		APIToken:               envOr("CF_API_TOKEN", ""),
+		AccountID:              envOr("CF_ACCOUNT_ID", ""),
+		ZoneID:                 envOr("CF_ZONE_ID", ""),
+		DisableTunnelIsolation: envOr("CF_DISABLE_TUNNEL", "") == "true",
+	}
+	cfClient, err := cloudflare.NewClient(cfCfg)
+	if err != nil {
+		logger.Error("failed to initialize Cloudflare client", "err", err)
+		os.Exit(1)
+	}
+
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -47,7 +74,7 @@ func main() {
 
 	r.Get("/health", health.Handler())
 	r.Method(http.MethodGet, "/metrics", metrics.Handler())
-	r.Mount("/", appserver.NewRouter(repo))
+	r.Mount("/", appserver.NewRouterWithInfra(repo, k3sClient, cfClient))
 
 	srv := &http.Server{
 		Addr:              addr,
