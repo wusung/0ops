@@ -1,0 +1,125 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-recording-rules
+  namespace: prometheus
+  labels:
+    app: prometheus
+    component: recording-rules
+    version: m2
+data:
+  m2-recording-rules.yaml: |
+    groups:
+    - name: zeroops.m2.slo
+      interval: 30s
+      rules:
+      # SLI #1: API Availability (99.9%)
+      # Track request success rate (non-5xx responses)
+      - record: cluster:zeroops_http_success_rate_5m
+        expr: |
+          sum(rate(zeroops_http_requests_total{status!~"5.."}[5m])) by (team_bucket)
+          /
+          sum(rate(zeroops_http_requests_total[5m])) by (team_bucket)
+
+      - record: cluster:zeroops_http_error_rate_5m
+        expr: |
+          sum(rate(zeroops_http_requests_total{status=~"5.."}[5m])) by (team_bucket)
+          /
+          sum(rate(zeroops_http_requests_total[5m])) by (team_bucket)
+
+      # SLI #2 & #3: API Latency p95 (read < 200ms, preview < 800ms)
+      - record: cluster:zeroops_http_read_latency_p95_5m
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(zeroops_http_request_duration_seconds_bucket{route=~"/v1/teams/.*/apps|/v1/teams/.*/deploys.*|/v1/teams/.*/domains.*",method="GET"}[5m])) by (team_bucket, le)
+          )
+
+      - record: cluster:zeroops_http_preview_latency_p95_5m
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(zeroops_http_request_duration_seconds_bucket{route=~"/v1/teams/.*/apps/preview",method=~"POST|PATCH"}[5m])) by (team_bucket, le)
+          )
+
+      # SLI #4: Build Success Rate (> 85%)
+      - record: cluster:zeroops_build_success_rate_24h
+        expr: |
+          sum(rate(zeroops_create_app_confirms_total{outcome="success"}[24h])) by (team_bucket)
+          /
+          sum(rate(zeroops_create_app_confirms_total[24h])) by (team_bucket)
+
+      # SLI #5: Deploy Lead Time p50 (< 10 min)
+      - record: cluster:zeroops_deploy_lead_time_p50_5m
+        expr: |
+          histogram_quantile(0.50,
+            sum(rate(zeroops_deploy_run_lead_time_seconds_bucket{outcome="success"}[5m])) by (team_bucket, le)
+          )
+
+      # SLI #7: Tunnel Uptime (99.95%)
+      - record: cluster:zeroops_tunnel_availability_current
+        expr: |
+          clamp_min(cloudflare_tunnel_connectors_ready, 1) / clamp_min(cloudflare_tunnel_connectors_ready, 1)
+
+      # SLI #8: Preview Consumption Rate (> 80% in 7d)
+      - record: cluster:zeroops_preview_consumption_rate_7d
+        expr: |
+          sum(rate(zeroops_preview_consumed_total{outcome="success"}[7d])) by (team_bucket)
+          /
+          sum(rate(zeroops_preview_created_total[7d])) by (team_bucket)
+
+      # SLI #9: Preview→Confirm Latency p50 (< 60s)
+      - record: cluster:zeroops_preview_consume_latency_p50_5m
+        expr: |
+          histogram_quantile(0.50,
+            sum(rate(zeroops_preview_consume_duration_seconds_bucket[5m])) by (team_bucket, le)
+          )
+
+    - name: zeroops.m2.burn_rate
+      interval: 1m
+      rules:
+      # SLO burn-rate calculation for multi-window alerting
+      # For 28-day (99.9%) budget: 40 minutes of downtime allowed
+      # Use 1h and 5m windows for fast detection
+      
+      - record: cluster:zeroops_http_error_burn_rate_1h
+        expr: |
+          sum(rate(zeroops_http_requests_total{status=~"5.."}[1h])) by (team_bucket)
+          /
+          (1 - 0.999) / (28 * 24)
+
+      - record: cluster:zeroops_http_error_burn_rate_5m
+        expr: |
+          sum(rate(zeroops_http_requests_total{status=~"5.."}[5m])) by (team_bucket)
+          /
+          (1 - 0.999) / (28 * 24)
+
+      # Build success burn rate (85% SLO)
+      - record: cluster:zeroops_build_fail_burn_rate_1h
+        expr: |
+          sum(rate(zeroops_create_app_confirms_total{outcome!="success"}[1h])) by (team_bucket)
+          /
+          (1 - 0.85) / 7
+
+      - record: cluster:zeroops_build_fail_burn_rate_5m
+        expr: |
+          sum(rate(zeroops_create_app_confirms_total{outcome!="success"}[5m])) by (team_bucket)
+          /
+          (1 - 0.85) / 7
+
+    - name: zeroops.m2.aggregation
+      interval: 30s
+      rules:
+      # Aggregate metrics across team buckets
+      - record: cluster:zeroops_http_requests_total_5m
+        expr: sum(rate(zeroops_http_requests_total[5m])) by (method, status)
+
+      - record: cluster:zeroops_deploy_runs_queued
+        expr: |
+          sum(rate(zeroops_deploy_run_state_transitions_total{state_to="queued"}[5m])) by (team_bucket)
+
+      - record: cluster:zeroops_deploy_runs_building
+        expr: |
+          sum(rate(zeroops_deploy_run_state_transitions_total{state_to="building"}[5m])) by (team_bucket)
+
+      - record: cluster:zeroops_deploy_runs_deployed
+        expr: |
+          sum(rate(zeroops_deploy_run_state_transitions_total{state_to="deployed"}[5m])) by (team_bucket)
