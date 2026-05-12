@@ -148,4 +148,3 @@ func TestNewStateSignerMissingSecret(t *testing.T) {
 		t.Error("expected NewStateSigner to fail with missing secret")
 	}
 }
-

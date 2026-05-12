@@ -1,3 +1,4 @@
+// Package token provides token utilities.
 package token
 
 import (
@@ -83,7 +84,7 @@ func CompareBearerToken(secret, encodedHash string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	got := argon2.IDKey([]byte(secret), salt, iterations, memory, parallel, uint32(len(want)))
+	got := argon2.IDKey([]byte(secret), salt, iterations, memory, parallel, uint32(len(want))) //nolint:gosec // len(want) fits in uint32
 	return subtle.ConstantTimeCompare(got, want) == 1, nil
 }
 

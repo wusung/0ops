@@ -1,3 +1,4 @@
+// Package backendclient provides the backend HTTP client.
 package backendclient
 
 import (
@@ -58,7 +59,7 @@ func (c *Client) ListApps(ctx context.Context, teamSlug string, pageSize int, cu
 	if err != nil {
 		return dto.ListAppsResponse{}, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != http.StatusOK {
 		return dto.ListAppsResponse{}, decodeError(res)
@@ -86,7 +87,7 @@ func (c *Client) GetApp(ctx context.Context, teamSlug, appSlug string) (dto.AppR
 	if err != nil {
 		return dto.AppRef{}, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != http.StatusOK {
 		return dto.AppRef{}, decodeError(res)
@@ -99,6 +100,7 @@ func (c *Client) GetApp(ctx context.Context, teamSlug, appSlug string) (dto.AppR
 	return out, nil
 }
 
+//nolint:revive // exported for public API
 func (c *Client) InspectRepo(ctx context.Context, teamSlug, appSlug string) (dto.RepoInspectResponse, error) {
 	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/repos/" + url.PathEscape(appSlug) + ":inspect"
 	var out dto.RepoInspectResponse
@@ -108,6 +110,7 @@ func (c *Client) InspectRepo(ctx context.Context, teamSlug, appSlug string) (dto
 	return out, nil
 }
 
+//nolint:revive // exported for public API
 func (c *Client) GetDeployStatus(ctx context.Context, teamSlug, appSlug string) (dto.DeployStatusResponse, error) {
 	endpoint, err := url.Parse(c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/deploys/status")
 	if err != nil {
@@ -124,6 +127,7 @@ func (c *Client) GetDeployStatus(ctx context.Context, teamSlug, appSlug string) 
 	return out, nil
 }
 
+//nolint:revive // exported for public API
 func (c *Client) TailLogs(ctx context.Context, teamSlug, appSlug string, limit int) (dto.TailLogsResponse, error) {
 	endpoint, err := url.Parse(c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/deploys/logs")
 	if err != nil {
@@ -143,6 +147,7 @@ func (c *Client) TailLogs(ctx context.Context, teamSlug, appSlug string, limit i
 	return out, nil
 }
 
+//nolint:revive // exported for public API
 func (c *Client) ListDomains(ctx context.Context, teamSlug, appSlug string) (dto.ListDomainsResponse, error) {
 	endpoint, err := url.Parse(c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/domains")
 	if err != nil {
@@ -159,6 +164,7 @@ func (c *Client) ListDomains(ctx context.Context, teamSlug, appSlug string) (dto
 	return out, nil
 }
 
+//nolint:revive // exported for public API
 func (c *Client) StartDeviceLogin(ctx context.Context, reqBody dto.DeviceStartRequest) (dto.DeviceStartResponse, error) {
 	endpoint := c.BaseURL + "/v1/auth/device/start"
 	var out dto.DeviceStartResponse
@@ -168,6 +174,7 @@ func (c *Client) StartDeviceLogin(ctx context.Context, reqBody dto.DeviceStartRe
 	return out, nil
 }
 
+//nolint:revive // exported for public API
 func (c *Client) PollDeviceLogin(ctx context.Context, reqBody dto.DevicePollRequest) (dto.DevicePollResponse, error) {
 	endpoint := c.BaseURL + "/v1/auth/device/poll"
 	payload, err := json.Marshal(reqBody)
@@ -188,7 +195,7 @@ func (c *Client) PollDeviceLogin(ctx context.Context, reqBody dto.DevicePollRequ
 	if err != nil {
 		return dto.DevicePollResponse{}, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	// Handle 202 Accepted - authentication still pending
 	if res.StatusCode == http.StatusAccepted {
@@ -206,6 +213,7 @@ func (c *Client) PollDeviceLogin(ctx context.Context, reqBody dto.DevicePollRequ
 	return out, nil
 }
 
+//nolint:revive // exported for public API
 func (c *Client) CallbackDeviceLogin(ctx context.Context, reqBody dto.DeviceCallbackRequest) (dto.DeviceCallbackResponse, error) {
 	endpoint := c.BaseURL + "/v1/auth/device/callback"
 	var out dto.DeviceCallbackResponse
@@ -215,11 +223,13 @@ func (c *Client) CallbackDeviceLogin(ctx context.Context, reqBody dto.DeviceCall
 	return out, nil
 }
 
+//nolint:revive // exported for public API
 func (c *Client) Logout(ctx context.Context) error {
 	endpoint := c.BaseURL + "/v1/auth/logout"
 	return c.doJSON(ctx, http.MethodPost, endpoint, nil, nil)
 }
 
+//nolint:revive // exported for public API
 func (c *Client) CreateTeamToken(ctx context.Context, teamSlug string, reqBody dto.PATCreateRequest) (dto.PATCreateResponse, error) {
 	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/tokens/"
 	var out dto.PATCreateResponse
@@ -229,6 +239,7 @@ func (c *Client) CreateTeamToken(ctx context.Context, teamSlug string, reqBody d
 	return out, nil
 }
 
+//nolint:revive // exported for public API
 func (c *Client) ListTeamTokens(ctx context.Context, teamSlug string) (dto.PATListResponse, error) {
 	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/tokens/"
 	var out dto.PATListResponse
@@ -238,6 +249,7 @@ func (c *Client) ListTeamTokens(ctx context.Context, teamSlug string) (dto.PATLi
 	return out, nil
 }
 
+//nolint:revive // exported for public API
 func (c *Client) RevokeTeamToken(ctx context.Context, teamSlug, name string) error {
 	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/tokens/" + url.PathEscape(name)
 	return c.doJSON(ctx, http.MethodDelete, endpoint, nil, nil)
@@ -257,7 +269,7 @@ func (c *Client) ListTeams(ctx context.Context) (dto.ListTeamsResponse, error) {
 	if err != nil {
 		return dto.ListTeamsResponse{}, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != http.StatusOK {
 		return dto.ListTeamsResponse{}, decodeError(res)
@@ -270,6 +282,7 @@ func (c *Client) ListTeams(ctx context.Context) (dto.ListTeamsResponse, error) {
 	return out, nil
 }
 
+//nolint:revive // exported for public API
 func (c *Client) BootstrapOwner(ctx context.Context, reqBody dto.BootstrapOwnerRequest) (dto.BootstrapOwnerResponse, error) {
 	endpoint := c.BaseURL + "/v1/admin/bootstrap-owner"
 	var out dto.BootstrapOwnerResponse
@@ -279,6 +292,7 @@ func (c *Client) BootstrapOwner(ctx context.Context, reqBody dto.BootstrapOwnerR
 	return out, nil
 }
 
+//nolint:revive // exported for public API
 func (c *Client) ListMembers(ctx context.Context, teamSlug string) (dto.ListMembersResponse, error) {
 	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/members"
 	var out dto.ListMembersResponse
@@ -288,6 +302,7 @@ func (c *Client) ListMembers(ctx context.Context, teamSlug string) (dto.ListMemb
 	return out, nil
 }
 
+//nolint:revive // exported for public API
 func (c *Client) PreviewInviteMember(ctx context.Context, teamSlug string, reqBody dto.InviteMemberRequest) (dto.PreviewResponse, error) {
 	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/members:preview-invite"
 	var out dto.PreviewResponse
@@ -297,6 +312,7 @@ func (c *Client) PreviewInviteMember(ctx context.Context, teamSlug string, reqBo
 	return out, nil
 }
 
+//nolint:revive // exported for public API
 func (c *Client) InviteMember(ctx context.Context, teamSlug string, reqBody dto.ConfirmInviteMemberRequest) (dto.InviteMemberResponse, error) {
 	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/members:invite"
 	var out dto.InviteMemberResponse
@@ -306,6 +322,7 @@ func (c *Client) InviteMember(ctx context.Context, teamSlug string, reqBody dto.
 	return out, nil
 }
 
+//nolint:revive // exported for public API
 func (c *Client) PreviewRemoveMember(ctx context.Context, teamSlug string, reqBody dto.RemoveMemberRequest) (dto.PreviewResponse, error) {
 	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/members:preview-remove"
 	var out dto.PreviewResponse
@@ -315,11 +332,13 @@ func (c *Client) PreviewRemoveMember(ctx context.Context, teamSlug string, reqBo
 	return out, nil
 }
 
+//nolint:revive // exported for public API
 func (c *Client) RemoveMember(ctx context.Context, teamSlug string, reqBody dto.ConfirmRemoveMemberRequest) error {
 	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/members:remove"
 	return c.doJSON(ctx, http.MethodPost, endpoint, reqBody, nil)
 }
 
+//nolint:revive // exported for public API
 func (c *Client) PreviewGitHubInstall(ctx context.Context, teamSlug string) (dto.PreviewResponse, error) {
 	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/github:preview-install"
 	var out dto.PreviewResponse
@@ -329,6 +348,7 @@ func (c *Client) PreviewGitHubInstall(ctx context.Context, teamSlug string) (dto
 	return out, nil
 }
 
+//nolint:revive // exported for public API
 func (c *Client) ConfirmGitHubInstall(ctx context.Context, teamSlug, previewID string) (dto.GitHubInstallResponse, error) {
 	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/github:install"
 	var out dto.GitHubInstallResponse
@@ -338,6 +358,7 @@ func (c *Client) ConfirmGitHubInstall(ctx context.Context, teamSlug, previewID s
 	return out, nil
 }
 
+//nolint:revive // exported for public API
 func (c *Client) UninstallGitHubApp(ctx context.Context, teamSlug string) error {
 	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/github:uninstall"
 	return c.doJSON(ctx, http.MethodPost, endpoint, nil, nil)
@@ -377,7 +398,7 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, in any, ou
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		return decodeError(res)

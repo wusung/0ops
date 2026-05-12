@@ -145,7 +145,7 @@ func renderApps(cmd *cobra.Command, out dto.ListAppsResponse, outputFmt string) 
 	case "table":
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 		for _, item := range out.Items {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", item.Slug, strOrDash(item.Name), strOrDash(item.RepoURL), strOrDash(item.Status))
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", item.Slug, strOrDash(item.Name), strOrDash(item.RepoURL), strOrDash(item.Status))
 		}
 		return w.Flush()
 	default:
@@ -168,17 +168,17 @@ func renderApp(cmd *cobra.Command, out dto.AppRef, outputFmt string) error {
 		return err
 	case "table":
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-		fmt.Fprintf(w, "id\t%s\n", out.ID)
-		fmt.Fprintf(w, "team_id\t%s\n", out.TeamID)
-		fmt.Fprintf(w, "slug\t%s\n", out.Slug)
-		fmt.Fprintf(w, "name\t%s\n", strOrDash(out.Name))
-		fmt.Fprintf(w, "repo_url\t%s\n", strOrDash(out.RepoURL))
-		fmt.Fprintf(w, "repo_default_branch\t%s\n", strOrDash(out.RepoDefaultBranch))
-		fmt.Fprintf(w, "image_ref\t%s\n", strOrDash(out.ImageRef))
-		fmt.Fprintf(w, "builder\t%s\n", strOrDash(out.Builder))
-		fmt.Fprintf(w, "status\t%s\n", strOrDash(out.Status))
-		fmt.Fprintf(w, "created_at\t%s\n", out.CreatedAt.Format(time.RFC3339))
-		fmt.Fprintf(w, "updated_at\t%s\n", out.UpdatedAt.Format(time.RFC3339))
+		_, _ = fmt.Fprintf(w, "id\t%s\n", out.ID)
+		_, _ = fmt.Fprintf(w, "team_id\t%s\n", out.TeamID)
+		_, _ = fmt.Fprintf(w, "slug\t%s\n", out.Slug)
+		_, _ = fmt.Fprintf(w, "name\t%s\n", strOrDash(out.Name))
+		_, _ = fmt.Fprintf(w, "repo_url\t%s\n", strOrDash(out.RepoURL))
+		_, _ = fmt.Fprintf(w, "repo_default_branch\t%s\n", strOrDash(out.RepoDefaultBranch))
+		_, _ = fmt.Fprintf(w, "image_ref\t%s\n", strOrDash(out.ImageRef))
+		_, _ = fmt.Fprintf(w, "builder\t%s\n", strOrDash(out.Builder))
+		_, _ = fmt.Fprintf(w, "status\t%s\n", strOrDash(out.Status))
+		_, _ = fmt.Fprintf(w, "created_at\t%s\n", out.CreatedAt.Format(time.RFC3339))
+		_, _ = fmt.Fprintf(w, "updated_at\t%s\n", out.UpdatedAt.Format(time.RFC3339))
 		return w.Flush()
 	default:
 		return fmt.Errorf("unsupported output format %q", outputFmt)
@@ -353,7 +353,7 @@ func newTeamsCommand() *cobra.Command {
 		Use:   "use <slug>",
 		Short: "Set the default team for the current host",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			cfg, err := authconfig.Load()
 			if err != nil {
 				return err
@@ -461,7 +461,7 @@ func renderTeams(cmd *cobra.Command, out dto.ListTeamsResponse, outputFmt string
 	case "table":
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 		for _, item := range out.Items {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", item.TeamSlug, item.TeamName, item.Role, item.Plan)
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", item.TeamSlug, item.TeamName, item.Role, item.Plan)
 		}
 		return w.Flush()
 	default:
@@ -484,10 +484,10 @@ func renderRepoInspect(cmd *cobra.Command, out dto.RepoInspectResponse, outputFm
 		return err
 	case "table":
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-		fmt.Fprintf(w, "app_slug\t%s\n", out.AppSlug)
-		fmt.Fprintf(w, "repo_url\t%s\n", strOrDash(out.RepoURL))
-		fmt.Fprintf(w, "repo_default_branch\t%s\n", strOrDash(out.RepoDefaultBranch))
-		fmt.Fprintf(w, "builder\t%s\n", strOrDash(out.Builder))
+		_, _ = fmt.Fprintf(w, "app_slug\t%s\n", out.AppSlug)
+		_, _ = fmt.Fprintf(w, "repo_url\t%s\n", strOrDash(out.RepoURL))
+		_, _ = fmt.Fprintf(w, "repo_default_branch\t%s\n", strOrDash(out.RepoDefaultBranch))
+		_, _ = fmt.Fprintf(w, "builder\t%s\n", strOrDash(out.Builder))
 		return w.Flush()
 	default:
 		return fmt.Errorf("unsupported output format %q", outputFmt)
@@ -509,21 +509,21 @@ func renderDeployStatus(cmd *cobra.Command, out dto.DeployStatusResponse, output
 		return err
 	case "table":
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-		fmt.Fprintf(w, "deploy_id\t%s\n", out.DeployID)
-		fmt.Fprintf(w, "app_slug\t%s\n", out.AppSlug)
-		fmt.Fprintf(w, "status\t%s\n", out.Status)
-		fmt.Fprintf(w, "commit_sha\t%s\n", strOrDash(out.CommitSHA))
-		fmt.Fprintf(w, "ref\t%s\n", strOrDash(out.Ref))
-		fmt.Fprintf(w, "error_summary\t%s\n", strOrDash(out.ErrorSummary))
+		_, _ = fmt.Fprintf(w, "deploy_id\t%s\n", out.DeployID)
+		_, _ = fmt.Fprintf(w, "app_slug\t%s\n", out.AppSlug)
+		_, _ = fmt.Fprintf(w, "status\t%s\n", out.Status)
+		_, _ = fmt.Fprintf(w, "commit_sha\t%s\n", strOrDash(out.CommitSHA))
+		_, _ = fmt.Fprintf(w, "ref\t%s\n", strOrDash(out.Ref))
+		_, _ = fmt.Fprintf(w, "error_summary\t%s\n", strOrDash(out.ErrorSummary))
 		if out.StartedAt != nil {
-			fmt.Fprintf(w, "started_at\t%s\n", out.StartedAt.Format(time.RFC3339))
+			_, _ = fmt.Fprintf(w, "started_at\t%s\n", out.StartedAt.Format(time.RFC3339))
 		} else {
-			fmt.Fprintf(w, "started_at\t-\n")
+			_, _ = fmt.Fprintf(w, "started_at\t-\n")
 		}
 		if out.FinishedAt != nil {
-			fmt.Fprintf(w, "finished_at\t%s\n", out.FinishedAt.Format(time.RFC3339))
+			_, _ = fmt.Fprintf(w, "finished_at\t%s\n", out.FinishedAt.Format(time.RFC3339))
 		} else {
-			fmt.Fprintf(w, "finished_at\t-\n")
+			_, _ = fmt.Fprintf(w, "finished_at\t-\n")
 		}
 		return w.Flush()
 	default:
@@ -547,7 +547,7 @@ func renderTailLogs(cmd *cobra.Command, out dto.TailLogsResponse, outputFmt stri
 	case "table":
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 		for _, item := range out.Items {
-			fmt.Fprintf(w, "%s\t%s\n", item.Timestamp.Format(time.RFC3339), item.Message)
+			_, _ = fmt.Fprintf(w, "%s\t%s\n", item.Timestamp.Format(time.RFC3339), item.Message)
 		}
 		return w.Flush()
 	default:
@@ -579,7 +579,7 @@ func renderDomains(cmd *cobra.Command, out dto.ListDomainsResponse, outputFmt st
 			if item.VerifiedAt != nil {
 				verifiedAt = item.VerifiedAt.Format(time.RFC3339)
 			}
-			fmt.Fprintf(w, "%s\t%s\t%t\t%s\n", item.Hostname, kind, item.Verified, verifiedAt)
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%t\t%s\n", item.Hostname, kind, item.Verified, verifiedAt)
 		}
 		return w.Flush()
 	default:

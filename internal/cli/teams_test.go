@@ -8,8 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	serverpkg "github.com/winshare/zeroops/internal/server"
 	"net/http/httptest"
+
+	serverpkg "github.com/winshare/zeroops/internal/server"
 )
 
 func TestTeamsListCommand(t *testing.T) {
@@ -68,7 +69,7 @@ func TestTeamsUseCommandUpdatesDefaultTeamSlug(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	updated, err := os.ReadFile(filepath.Join(path, "auth.json"))
+	updated, err := os.ReadFile(filepath.Join(path, "auth.json")) //nolint:gosec // path is from test directory
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}

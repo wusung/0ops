@@ -1,16 +1,24 @@
+// Package rbac provides RBAC utilities.
 package rbac
 
 // Action identifies an endpoint-level authorization requirement.
 type Action string
 
 const (
-	ActionListApps         Action = "list_apps"
-	ActionListTeams        Action = "list_teams"
-	ActionListMembers      Action = "list_members"
-	ActionInviteMembers    Action = "invite_members"
-	ActionRemoveMembers    Action = "remove_members"
-	ActionManageTokens     Action = "manage_tokens"
-	ActionManageGithubApp  Action = "manage_github_app"
+	// ActionListApps requires read access to list apps.
+	ActionListApps Action = "list_apps"
+	// ActionListTeams requires read access to list teams.
+	ActionListTeams Action = "list_teams"
+	// ActionListMembers requires admin access to list members.
+	ActionListMembers Action = "list_members"
+	// ActionInviteMembers requires admin access to invite members.
+	ActionInviteMembers Action = "invite_members"
+	// ActionRemoveMembers requires admin access to remove members.
+	ActionRemoveMembers Action = "remove_members"
+	// ActionManageTokens requires admin access to manage tokens.
+	ActionManageTokens Action = "manage_tokens"
+	// ActionManageGithubApp requires admin access to manage GitHub App.
+	ActionManageGithubApp Action = "manage_github_app"
 )
 
 // Requirement couples minimum role with required scope.

@@ -32,7 +32,7 @@ func NewMockStore() *MockStore {
 	}
 }
 
-func (m *MockStore) FindCliTokenByID(ctx context.Context, tokenID string) (db.CliToken, error) {
+func (m *MockStore) FindCliTokenByID(_ context.Context, tokenID string) (db.CliToken, error) {
 	if token, ok := m.tokensByID[tokenID]; ok {
 		return token, nil
 	}
@@ -44,28 +44,28 @@ func (m *MockStore) FindCliTokenByID(ctx context.Context, tokenID string) (db.Cl
 	return db.CliToken{}, errors.New("token not found")
 }
 
-func (m *MockStore) FindCliTokenByHash(ctx context.Context, tokenHash string) (db.CliToken, error) {
+func (m *MockStore) FindCliTokenByHash(_ context.Context, tokenHash string) (db.CliToken, error) {
 	if token, ok := m.tokensByHash[tokenHash]; ok {
 		return token, nil
 	}
 	return db.CliToken{}, errors.New("token not found")
 }
 
-func (m *MockStore) ResolveTeamBySlug(ctx context.Context, slug string) (db.Team, error) {
+func (m *MockStore) ResolveTeamBySlug(_ context.Context, slug string) (db.Team, error) {
 	if team, ok := m.teams[slug]; ok {
 		return team, nil
 	}
 	return db.Team{}, errors.New("team not found")
 }
 
-func (m *MockStore) CheckTeamMembership(ctx context.Context, teamID string, userID string) (bool, error) {
+func (m *MockStore) CheckTeamMembership(_ context.Context, teamID string, userID string) (bool, error) {
 	if members, ok := m.members[teamID]; ok {
 		return members[userID], nil
 	}
 	return false, nil
 }
 
-func (m *MockStore) GetTeamMembershipRole(ctx context.Context, teamID string, userID string) (string, error) {
+func (m *MockStore) GetTeamMembershipRole(_ context.Context, teamID string, userID string) (string, error) {
 	if roles, ok := m.roles[teamID]; ok {
 		if role, ok := roles[userID]; ok {
 			return role, nil
@@ -153,7 +153,7 @@ func TestMiddlewareBearerRevokedToken(t *testing.T) {
 		RevokedAt:   &revokedAt,
 	})
 
-	handler := mw.Bearer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mw.Bearer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -177,13 +177,13 @@ func TestMiddlewareResolveTeamNotFound(t *testing.T) {
 	router := chi.NewRouter()
 	router.Route("/teams/{team_slug}", func(r chi.Router) {
 		r.Use(mw.ResolveTeam)
-		r.Get("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Get("/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
 	})
 
 	req := httptest.NewRequest("GET", "/teams/nonexistent", nil)
-	req = req.WithContext(context.WithValue(req.Context(), "token_team_id", "team-1"))
+	req = req.WithContext(context.WithValue(req.Context(), contextKey("token_team_id"), "team-1"))
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -202,7 +202,7 @@ func TestMiddlewareCheckMembershipNotMember(t *testing.T) {
 	// User not added to members
 	store.SetMembership("team-1", "user-2", false)
 
-	handler := mw.CheckMembership(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mw.CheckMembership(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -226,7 +226,7 @@ func TestMiddlewareCheckTokenScopeForbidden(t *testing.T) {
 	mw := NewMiddleware(store)
 
 	// Create a handler that checks for write scope but token only has read
-	handler := mw.CheckTokenScope(rbac.ActionInviteMembers, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mw.CheckTokenScope(rbac.ActionInviteMembers, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -250,7 +250,7 @@ func TestMiddlewareCheckTokenScopeWithWildcard(t *testing.T) {
 	store := NewMockStore()
 	mw := NewMiddleware(store)
 
-	handler := mw.CheckTokenScope(rbac.ActionListApps, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mw.CheckTokenScope(rbac.ActionListApps, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -275,7 +275,7 @@ func TestMiddlewareCheckRoleForbidden(t *testing.T) {
 	mw := NewMiddleware(store)
 
 	// ActionRemoveMembers requires admin role
-	handler := mw.CheckTokenScope(rbac.ActionRemoveMembers, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mw.CheckTokenScope(rbac.ActionRemoveMembers, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -299,7 +299,7 @@ func TestMiddlewareBearerMissingToken(t *testing.T) {
 	store := NewMockStore()
 	mw := NewMiddleware(store)
 
-	handler := mw.Bearer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mw.Bearer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 

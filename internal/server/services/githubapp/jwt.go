@@ -15,17 +15,22 @@ import (
 )
 
 var (
-	ErrMissingAppID      = errors.New("missing github app id")
+	// ErrMissingAppID indicates the GitHub App ID is not configured.
+	ErrMissingAppID = errors.New("missing github app id")
+	// ErrMissingPrivateKey indicates the private key is not configured.
 	ErrMissingPrivateKey = errors.New("missing github app private key")
+	// ErrInvalidPrivateKey indicates the private key is invalid.
 	ErrInvalidPrivateKey = errors.New("invalid github app private key")
 )
 
+//nolint:revive // exported for public API
 type JWTSigner struct {
 	appID      int64
 	privateKey *rsa.PrivateKey
 	now        func() time.Time
 }
 
+//nolint:revive // exported for public API
 func NewJWTSigner(appID int64, privateKey *rsa.PrivateKey) *JWTSigner {
 	return &JWTSigner{
 		appID:      appID,
@@ -34,6 +39,7 @@ func NewJWTSigner(appID int64, privateKey *rsa.PrivateKey) *JWTSigner {
 	}
 }
 
+//nolint:revive // exported for public API
 func NewJWTSignerFromEnv() (*JWTSigner, error) {
 	appIDRaw := strings.TrimSpace(os.Getenv("OPS_GITHUB_APP_ID"))
 	if appIDRaw == "" {
@@ -57,14 +63,16 @@ func NewJWTSignerFromEnv() (*JWTSigner, error) {
 	return NewJWTSigner(appID, privateKey), nil
 }
 
+//nolint:revive // exported for public API
 func LoadRSAPrivateKeyFromFile(path string) (*rsa.PrivateKey, error) {
-	data, err := os.ReadFile(strings.TrimSpace(path))
+	data, err := os.ReadFile(strings.TrimSpace(path)) //nolint:gosec // path is sanitized with TrimSpace
 	if err != nil {
 		return nil, err
 	}
 	return ParseRSAPrivateKeyPEM(data)
 }
 
+//nolint:revive // exported for public API
 func ParseRSAPrivateKeyPEM(data []byte) (*rsa.PrivateKey, error) {
 	block, _ := pem.Decode(data)
 	if block == nil {
@@ -86,6 +94,7 @@ func ParseRSAPrivateKeyPEM(data []byte) (*rsa.PrivateKey, error) {
 	return key, nil
 }
 
+//nolint:revive // exported for public API
 func (s *JWTSigner) Sign(ttl time.Duration) (string, error) {
 	if s == nil || s.privateKey == nil {
 		return "", ErrMissingPrivateKey

@@ -47,7 +47,7 @@ func (m mockGitHubOAuthClient) FetchUser(context.Context, string) (githuboauth.U
 	return m.user, nil
 }
 
-func (f *cliFakeStore) FindCliTokenByID(ctx context.Context, tokenID string) (db.CliToken, error) {
+func (f *cliFakeStore) FindCliTokenByID(_ context.Context, tokenID string) (db.CliToken, error) {
 	if tokenID == f.token.ID {
 		return f.token, nil
 	}
@@ -56,28 +56,28 @@ func (f *cliFakeStore) FindCliTokenByID(ctx context.Context, tokenID string) (db
 	}
 	return db.CliToken{}, errors.New("not found")
 }
-func (f *cliFakeStore) ResolveTeamBySlug(ctx context.Context, slug string) (db.Team, error) {
+func (f *cliFakeStore) ResolveTeamBySlug(_ context.Context, slug string) (db.Team, error) {
 	if slug != f.team.Slug {
 		return db.Team{}, errors.New("not found")
 	}
 	return f.team, nil
 }
-func (f *cliFakeStore) CheckTeamMembership(ctx context.Context, teamID string, userID string) (bool, error) {
+func (f *cliFakeStore) CheckTeamMembership(_ context.Context, teamID string, userID string) (bool, error) {
 	return f.members && teamID == f.team.ID && userID == f.token.OwnerUserID, nil
 }
-func (f *cliFakeStore) GetTeamMembershipRole(ctx context.Context, teamID string, userID string) (string, error) {
+func (f *cliFakeStore) GetTeamMembershipRole(_ context.Context, teamID string, userID string) (string, error) {
 	if !f.members || teamID != f.team.ID || userID != f.token.OwnerUserID {
 		return "", errors.New("not found")
 	}
 	return f.role, nil
 }
-func (f *cliFakeStore) ListUserTeams(ctx context.Context, userID string, limit int32, afterSlug *string) ([]db.TeamMembership, error) {
+func (f *cliFakeStore) ListUserTeams(_ context.Context, _ string, _ int32, _ *string) ([]db.TeamMembership, error) {
 	return []db.TeamMembership{{Team: f.team, UserID: f.token.OwnerUserID, Role: f.role}}, nil
 }
-func (f *cliFakeStore) ListTeamApps(ctx context.Context, teamID string, limit int32, afterID *string) ([]db.App, error) {
+func (f *cliFakeStore) ListTeamApps(_ context.Context, _ string, _ int32, _ *string) ([]db.App, error) {
 	return f.apps, nil
 }
-func (f *cliFakeStore) GetTeamAppBySlug(ctx context.Context, teamID string, slug string) (db.App, error) {
+func (f *cliFakeStore) GetTeamAppBySlug(_ context.Context, _ string, slug string) (db.App, error) {
 	for _, a := range f.apps {
 		if a.Slug == slug {
 			return a, nil
@@ -85,7 +85,7 @@ func (f *cliFakeStore) GetTeamAppBySlug(ctx context.Context, teamID string, slug
 	}
 	return db.App{}, pgx.ErrNoRows
 }
-func (f *cliFakeStore) ListDomainsByAppSlug(ctx context.Context, teamID string, appSlug string) ([]db.DomainBinding, error) {
+func (f *cliFakeStore) ListDomainsByAppSlug(_ context.Context, _ string, appSlug string) ([]db.DomainBinding, error) {
 	out := make([]db.DomainBinding, 0)
 	for _, item := range f.domains {
 		if item.AppSlug == appSlug {
@@ -94,7 +94,7 @@ func (f *cliFakeStore) ListDomainsByAppSlug(ctx context.Context, teamID string, 
 	}
 	return out, nil
 }
-func (f *cliFakeStore) GetLatestDeployByAppSlug(ctx context.Context, teamID string, appSlug string) (db.DeployRun, error) {
+func (f *cliFakeStore) GetLatestDeployByAppSlug(_ context.Context, _ string, appSlug string) (db.DeployRun, error) {
 	for _, row := range f.deploys {
 		if row.AppSlug == appSlug {
 			return row, nil
@@ -102,22 +102,22 @@ func (f *cliFakeStore) GetLatestDeployByAppSlug(ctx context.Context, teamID stri
 	}
 	return db.DeployRun{}, pgx.ErrNoRows
 }
-func (f *cliFakeStore) ListDeployLogLines(ctx context.Context, teamID string, appSlug string, limit int) ([]db.DeployLogLine, error) {
-	row, err := f.GetLatestDeployByAppSlug(ctx, teamID, appSlug)
+func (f *cliFakeStore) ListDeployLogLines(_ context.Context, teamID string, appSlug string, _ int) ([]db.DeployLogLine, error) {
+	row, err := f.GetLatestDeployByAppSlug(context.Background(), teamID, appSlug)
 	if err != nil {
 		return nil, err
 	}
 	return append([]db.DeployLogLine(nil), row.LogLines...), nil
 }
-func (f *cliFakeStore) HasAnyOwner(ctx context.Context) (bool, error) { return false, nil }
-func (f *cliFakeStore) BootstrapOwner(ctx context.Context, params db.BootstrapOwnerParams) (string, string, error) {
+func (f *cliFakeStore) HasAnyOwner(_ context.Context) (bool, error) { return false, nil }
+func (f *cliFakeStore) BootstrapOwner(_ context.Context, _ db.BootstrapOwnerParams) (string, string, error) {
 	return "team-bootstrap", "user-bootstrap", nil
 }
-func (f *cliFakeStore) ListTeamMembers(ctx context.Context, teamID string) ([]db.Member, error) {
+func (f *cliFakeStore) ListTeamMembers(_ context.Context, _ string) ([]db.Member, error) {
 	return []db.Member{{UserID: "user-1", GithubLogin: strPtr("owner"), Role: "owner"}}, nil
 }
 
-func (f *cliFakeStore) ListTeamTokens(ctx context.Context, teamID string) ([]db.CliToken, error) {
+func (f *cliFakeStore) ListTeamTokens(_ context.Context, teamID string) ([]db.CliToken, error) {
 	out := make([]db.CliToken, 0, len(f.tokens))
 	for _, tok := range f.tokens {
 		if tok.TeamID == teamID && tok.Kind == "pat" {
@@ -126,44 +126,44 @@ func (f *cliFakeStore) ListTeamTokens(ctx context.Context, teamID string) ([]db.
 	}
 	return out, nil
 }
-func (f *cliFakeStore) CreatePreview(ctx context.Context, teamID, actorUserID, action string, args json.RawMessage, summary string) (db.Preview, error) {
+func (f *cliFakeStore) CreatePreview(_ context.Context, teamID, actorUserID, action string, args json.RawMessage, _ string) (db.Preview, error) {
 	return db.Preview{ID: "preview-1", TeamID: teamID, ActorUserID: actorUserID, Action: action, Args: args, ExpiresAt: time.Now().UTC().Add(time.Minute)}, nil
 }
-func (f *cliFakeStore) GetPreview(ctx context.Context, previewID string) (db.Preview, error) {
-	return db.Preview{ID: previewID, TeamID: f.team.ID, ActorUserID: f.token.OwnerUserID, Action: "invite_member", Args: []byte(`{"github_login":"newbie","role":"member"}`), ExpiresAt: time.Now().UTC().Add(time.Minute)}, nil
+func (f *cliFakeStore) GetPreview(_ context.Context, _ string) (db.Preview, error) {
+	return db.Preview{ID: "preview-id", TeamID: f.team.ID, ActorUserID: f.token.OwnerUserID, Action: "invite_member", Args: []byte(`{"github_login":"newbie","role":"member"}`), ExpiresAt: time.Now().UTC().Add(time.Minute)}, nil
 }
-func (f *cliFakeStore) ConsumePreview(ctx context.Context, previewID string) error { return nil }
-func (f *cliFakeStore) InviteMember(ctx context.Context, params db.InviteMemberParams) (db.Member, error) {
+func (f *cliFakeStore) ConsumePreview(_ context.Context, _ string) error { return nil }
+func (f *cliFakeStore) InviteMember(_ context.Context, params db.InviteMemberParams) (db.Member, error) {
 	now := time.Now().UTC()
 	return db.Member{UserID: "user-new", GithubLogin: params.GithubLogin, Email: params.Email, Role: params.Role, InvitedAt: &now, JoinedAt: &now}, nil
 }
-func (f *cliFakeStore) RemoveMember(ctx context.Context, teamID, actorUserID, targetUserID string) error {
+func (f *cliFakeStore) RemoveMember(_ context.Context, _ string, _, _ string) error {
 	return nil
 }
-func (f cliFakeStore) IsToolGranted(ctx context.Context, teamID, userID, toolID string) (bool, error) {
+func (f cliFakeStore) IsToolGranted(_ context.Context, _ string, _ string, _ string) (bool, error) {
 	return true, nil
 }
-func (f cliFakeStore) ListGrantedTools(ctx context.Context, teamID, userID string) ([]string, error) {
+func (f cliFakeStore) ListGrantedTools(_ context.Context, _ string, _ string) ([]string, error) {
 	return []string{}, nil
 }
-func (f cliFakeStore) UpsertToolGrant(ctx context.Context, teamID, userID, toolID string, allowed bool, grantedByActorID *string) error {
+func (f cliFakeStore) UpsertToolGrant(_ context.Context, _ string, _ string, _ string, _ bool, _ *string) error {
 	return nil
 }
-func (f cliFakeStore) RevokeToolGrant(ctx context.Context, teamID, userID, toolID string) error {
+func (f cliFakeStore) RevokeToolGrant(_ context.Context, _ string, _ string, _ string) error {
 	return nil
 }
-func (f cliFakeStore) ListAllUserGrants(ctx context.Context, teamID, userID string) ([]db.ToolGrant, error) {
+func (f cliFakeStore) ListAllUserGrants(_ context.Context, _ string, _ string) ([]db.ToolGrant, error) {
 	return []db.ToolGrant{}, nil
 }
 
-func (f *cliFakeStore) ResolveUserDefaultTeamByGithubLogin(ctx context.Context, githubLogin string) (string, string, string, error) {
+func (f *cliFakeStore) ResolveUserDefaultTeamByGithubLogin(_ context.Context, githubLogin string) (string, string, string, error) {
 	if githubLogin != "owner" {
 		return "", "", "", pgx.ErrNoRows
 	}
 	return f.token.OwnerUserID, f.team.ID, f.team.Slug, nil
 }
 
-func (f *cliFakeStore) CreateCLIToken(ctx context.Context, ownerUserID, teamID string, scopes []string) (string, error) {
+func (f *cliFakeStore) CreateCLIToken(_ context.Context, ownerUserID, teamID string, scopes []string) (string, error) {
 	token, err := auth.NewBearerToken("device", "token-issued")
 	if err != nil {
 		return "", err
@@ -182,7 +182,7 @@ func (f *cliFakeStore) CreateCLIToken(ctx context.Context, ownerUserID, teamID s
 	return token, nil
 }
 
-func (f *cliFakeStore) CreatePAT(ctx context.Context, ownerUserID, teamID, name string, scopes []string, expiresAt time.Time) (string, error) {
+func (f *cliFakeStore) CreatePAT(_ context.Context, ownerUserID, teamID, name string, scopes []string, expiresAt time.Time) (string, error) {
 	token, err := auth.NewBearerToken("pat", "token-pat")
 	if err != nil {
 		return "", err
@@ -206,7 +206,7 @@ func (f *cliFakeStore) CreatePAT(ctx context.Context, ownerUserID, teamID, name 
 	return token, nil
 }
 
-func (f *cliFakeStore) RevokeCLITokenByID(ctx context.Context, tokenID string) error {
+func (f *cliFakeStore) RevokeCLITokenByID(_ context.Context, tokenID string) error {
 	tok, ok := f.tokens[tokenID]
 	if !ok {
 		return pgx.ErrNoRows
@@ -217,7 +217,7 @@ func (f *cliFakeStore) RevokeCLITokenByID(ctx context.Context, tokenID string) e
 	return nil
 }
 
-func (f *cliFakeStore) RevokePATByName(ctx context.Context, teamID, name string) error {
+func (f *cliFakeStore) RevokePATByName(_ context.Context, teamID, name string) error {
 	for id, tok := range f.tokens {
 		if tok.TeamID == teamID && tok.Kind == "pat" && tok.Name == name {
 			now := time.Now().UTC()

@@ -8,7 +8,6 @@ import (
 	"testing"
 )
 
-
 func TestAuthLoginCommand(t *testing.T) {
 	// Create a mock backend server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -16,7 +15,7 @@ func TestAuthLoginCommand(t *testing.T) {
 		case "/v1/auth/device/start":
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{
+			_, _ = w.Write([]byte(`{
 				"device_code": "test-device-code",
 				"user_code": "ABC-1234",
 				"verification_uri": "https://github.com/login/device",
@@ -26,7 +25,7 @@ func TestAuthLoginCommand(t *testing.T) {
 		case "/v1/auth/device/poll":
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{
+			_, _ = w.Write([]byte(`{
 				"access_token": "test-token",
 				"token_type": "Bearer",
 				"expires_in": 86400,
@@ -49,7 +48,7 @@ func TestAuthLoginCommand(t *testing.T) {
 		case "/v1/teams/personal-alice/auth:grant-tools":
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{
+			_, _ = w.Write([]byte(`{
 				"access_token": "final-token",
 				"token_type": "Bearer",
 				"expires_in": 86400,
@@ -116,7 +115,7 @@ func TestAuthGrantCommand(t *testing.T) {
 		if r.Method == http.MethodPatch && r.URL.Path == "/v1/me/auth/tool-grants" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{
+			_, _ = w.Write([]byte(`{
 				"granted_tools": ["list_apps"],
 				"revoked_tools": []
 			}`))
@@ -154,7 +153,7 @@ func TestAuthRevokeCommand(t *testing.T) {
 		if r.Method == http.MethodPatch && r.URL.Path == "/v1/me/auth/tool-grants" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{
+			_, _ = w.Write([]byte(`{
 				"granted_tools": ["list_apps"],
 				"revoked_tools": ["create_app"]
 			}`))

@@ -4,7 +4,10 @@ package rbac
 type Scope string
 
 const (
-	ScopeAppsRead      Scope = "apps:read"
-	ScopeTeamsRead     Scope = "teams:read"
+	// ScopeAppsRead grants read access to apps.
+	ScopeAppsRead Scope = "apps:read"
+	// ScopeTeamsRead grants read access to teams.
+	ScopeTeamsRead Scope = "teams:read"
+	// ScopeMembersManage grants management access to members.
 	ScopeMembersManage Scope = "members:manage"
 )

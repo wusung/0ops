@@ -14,14 +14,21 @@ import (
 )
 
 var (
+	// ErrBootstrapAlreadyDone indicates bootstrap was already executed.
 	ErrBootstrapAlreadyDone = errors.New("bootstrap already done")
-	ErrPreviewNotFound      = errors.New("preview not found")
-	ErrPreviewExpired       = errors.New("preview expired")
-	ErrPreviewConsumed      = errors.New("preview consumed")
-	ErrMemberNotFound       = errors.New("member not found")
-	ErrOwnerRemoval         = errors.New("cannot remove owner")
+	// ErrPreviewNotFound indicates the preview was not found.
+	ErrPreviewNotFound = errors.New("preview not found")
+	// ErrPreviewExpired indicates the preview has expired.
+	ErrPreviewExpired = errors.New("preview expired")
+	// ErrPreviewConsumed indicates the preview has been consumed.
+	ErrPreviewConsumed = errors.New("preview consumed")
+	// ErrMemberNotFound indicates the member was not found.
+	ErrMemberNotFound = errors.New("member not found")
+	// ErrOwnerRemoval indicates an attempt to remove the owner.
+	ErrOwnerRemoval = errors.New("cannot remove owner")
 )
 
+//nolint:revive // exported for public API
 type BootstrapOwnerParams struct {
 	TeamSlug    string
 	TeamName    string
@@ -29,6 +36,7 @@ type BootstrapOwnerParams struct {
 	Email       *string
 }
 
+//nolint:revive // exported for public API
 type Member struct {
 	UserID      string
 	GithubLogin *string
@@ -38,6 +46,7 @@ type Member struct {
 	JoinedAt    *time.Time
 }
 
+//nolint:revive // exported for public API
 type Preview struct {
 	ID          string
 	TeamID      string
@@ -48,6 +57,7 @@ type Preview struct {
 	ConsumedAt  *time.Time
 }
 
+//nolint:revive // exported for public API
 func (r *Repository) HasAnyOwner(ctx context.Context) (bool, error) {
 	var has bool
 	if err := r.pool.QueryRow(ctx, `
@@ -62,6 +72,7 @@ SELECT EXISTS (
 	return has, nil
 }
 
+//nolint:revive // exported for public API
 func (r *Repository) BootstrapOwner(ctx context.Context, params BootstrapOwnerParams) (string, string, error) {
 	hasOwner, err := r.HasAnyOwner(ctx)
 	if err != nil {
@@ -120,6 +131,7 @@ VALUES ($1, $2, 'team', $1, 'bootstrap_owner', '{}'::jsonb, '{"status":"created"
 	return teamID.String(), userID.String(), nil
 }
 
+//nolint:revive // exported for public API
 func (r *Repository) ListTeamMembers(ctx context.Context, teamID string) ([]Member, error) {
 	parsedTeamID, err := parseUUID(teamID)
 	if err != nil {
@@ -172,6 +184,7 @@ ORDER BY tm.joined_at NULLS LAST, ua.id
 	return items, nil
 }
 
+//nolint:revive // exported for public API
 func (r *Repository) CreatePreview(ctx context.Context, teamID, actorUserID, action string, args json.RawMessage, actionSummary string) (Preview, error) {
 	parsedTeamID, err := parseUUID(teamID)
 	if err != nil {
@@ -212,6 +225,7 @@ RETURNING id, expires_at
 	}, nil
 }
 
+//nolint:revive // exported for public API
 func (r *Repository) GetPreview(ctx context.Context, previewID string) (Preview, error) {
 	parsedPreviewID, err := parseUUID(previewID)
 	if err != nil {
@@ -250,6 +264,7 @@ WHERE id = $1
 	}, nil
 }
 
+//nolint:revive // exported for public API
 func (r *Repository) ConsumePreview(ctx context.Context, previewID string) error {
 	parsedPreviewID, err := parseUUID(previewID)
 	if err != nil {
@@ -271,6 +286,7 @@ WHERE id = $1
 	return nil
 }
 
+//nolint:revive // exported for public API
 type InviteMemberParams struct {
 	TeamID      string
 	ActorUserID string
@@ -279,6 +295,7 @@ type InviteMemberParams struct {
 	Role        string
 }
 
+//nolint:revive // exported for public API
 func (r *Repository) InviteMember(ctx context.Context, params InviteMemberParams) (Member, error) {
 	parsedTeamID, err := parseUUID(params.TeamID)
 	if err != nil {
@@ -370,6 +387,7 @@ VALUES ($1, $2, 'user', $3, 'member_invite', '{}'::jsonb, '{"status":"ok"}'::jso
 	}, nil
 }
 
+//nolint:revive // exported for public API
 func (r *Repository) RemoveMember(ctx context.Context, teamID, actorUserID, targetUserID string) error {
 	parsedTeamID, err := parseUUID(teamID)
 	if err != nil {

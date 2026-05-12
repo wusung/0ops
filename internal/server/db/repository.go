@@ -182,11 +182,11 @@ func (r *Repository) UpsertToolGrant(ctx context.Context, teamID, userID, toolID
 	}
 
 	return r.queries.UpsertToolGrant(ctx, sqlcgen.UpsertToolGrantParams{
-		TeamID:            parsedTeamID,
-		UserID:            parsedUserID,
-		ToolID:            toolID,
-		Allowed:           allowed,
-		GrantedByActorID:  parsedActorID,
+		TeamID:           parsedTeamID,
+		UserID:           parsedUserID,
+		ToolID:           toolID,
+		Allowed:          allowed,
+		GrantedByActorID: parsedActorID,
 	})
 }
 

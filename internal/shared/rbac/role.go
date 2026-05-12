@@ -4,10 +4,14 @@ package rbac
 type Role string
 
 const (
+	// RoleViewer is the viewer role.
 	RoleViewer Role = "viewer"
+	// RoleMember is the member role.
 	RoleMember Role = "member"
-	RoleAdmin  Role = "admin"
-	RoleOwner  Role = "owner"
+	// RoleAdmin is the admin role.
+	RoleAdmin Role = "admin"
+	// RoleOwner is the owner role.
+	RoleOwner Role = "owner"
 )
 
 // AtLeast reports whether the role meets the minimum role.

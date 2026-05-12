@@ -12,9 +12,9 @@ type ToolRegistry struct {
 
 // ToolInfo contains metadata about an MCP tool
 type ToolInfo struct {
-	Name        string
-	Description string
-	Category    string // "read", "write", "delete", "sensitive"
+	Name         string
+	Description  string
+	Category     string // "read", "write", "delete", "sensitive"
 	DefaultAllow bool   // whether tool is allowed by default
 }
 

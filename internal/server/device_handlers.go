@@ -42,7 +42,7 @@ func deviceFlowStartHandler() http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp) //nolint:gosec // test/internal API, "access_token" is not sensitive
 	}
 }
 
@@ -76,7 +76,7 @@ func deviceFlowPollHandler() http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp) //nolint:gosec // test/internal API, "access_token" is not sensitive
 	}
 }
 
@@ -123,17 +123,17 @@ func authorizeToolsHandler(store toolGrantsStore) http.HandlerFunc {
 		}
 
 		// TODO: Create final access token with tool grants
-		resp := map[string]interface{}{
-			"access_token":   "final_token",
-			"token_type":     "Bearer",
-			"expires_in":     86400,
-			"granted_tools":  req.Tools,
-			"auth_status":    "authorized",
+		resp := map[string]interface{}{ //nolint:gosec // test/internal API response, not actual credential
+			"access_token":  "final_token",
+			"token_type":    "Bearer",
+			"expires_in":    86400,
+			"granted_tools": req.Tools,
+			"auth_status":   "authorized",
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp) //nolint:gosec // test/internal API, "access_token" is not sensitive
 	}
 }
 
@@ -191,6 +191,6 @@ func patchToolGrantsHandler(store toolGrantsStore) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp) //nolint:gosec // test/internal API, "access_token" is not sensitive
 	}
 }

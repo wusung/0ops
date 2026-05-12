@@ -30,17 +30,19 @@ ADR 之所以高於 plan：plan 為長期演進的廣泛規劃文件，可能殘
 ```mermaid
 flowchart TD
     A["使用者明確指定目標"] --> B["using-superpowers<br/>先判斷並啟用相關 skill"]
-    B --> C{"工作內容是否需修改 repo 內容？"}
-    C -->|是| D{"使用者是否明確要求不使用 git worktree？"}
-    D -->|否| E["using-git-worktrees<br/>先開分支工作"]
-    D -->|是| F["brainstorming<br/>釐清目標、邊界、成功條件"]
-    C -->|否| F
-    E --> F
-    F --> G["writing-plans<br/>產出可執行計畫"]
-    G --> H["test-driven-development<br/>（或先進入 systematic-debugging）"]
-    H --> I["requesting-code-review → receiving-code-review"]
-    I --> J["verification-before-completion"]
-    J --> K["finishing-a-development-branch"]
+    B --> C{"使用者是否明確要求不使用 git worktree？"}
+    C -->|否| D["using-git-worktrees<br/>先開分支工作"]
+    C -->|是| E["brainstorming<br/>釐清目標、邊界、成功條件"]
+    D --> E
+    E --> F{"docs 是否已有該任務/目標相關文件？"}
+    F -->|有| G["executing-plans<br/>直接依既有文件執行"]
+    F -->|無| H["writing-plans<br/>先產出可執行計畫"]
+    H --> G
+    G --> I["test-driven-development<br/>（或先進入 systematic-debugging）"]
+    I --> J["requesting-code-review → receiving-code-review"]
+    J --> K["verification-before-completion"]
+    K --> L["finishing-a-development-branch"]
+    L --> M["Push and create a Pull Request<br/>固定選擇 Option 2"]
 ```
 
 例外僅限：
@@ -59,7 +61,7 @@ flowchart TD
 閱讀專案文件時，固定依以下順序進行：
 
 1. `docs/0ops-business-plan.md`
-2. `docs/0ops-plan.md`（精簡版：Context / Goals / Architecture / Tool catalog / Project structure；詳細章節已拆至 `docs/0ops-plan-*.md`，按需讀取）
+2. `docs/0ops-plan.md`
 3. `docs/agents-guide.md`
 4. `docs/adr-reading-strategy.md` ⭐ **必讀**（定義 ADR 讀取時機與深度）
 5. `docs/adrs/*.md`

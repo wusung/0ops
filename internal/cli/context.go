@@ -97,8 +97,8 @@ func envOr(key, fallback string) string {
 }
 
 func readDotEnv(key string) string {
-	path := filepath.Join(".", ".env")
-	data, err := os.ReadFile(path)
+	path := filepath.Join(".", ".env") //nolint:gosec // Path is constructed safely
+	data, err := os.ReadFile(path)     //nolint:gosec // Path is from constant
 	if err != nil {
 		return ""
 	}
