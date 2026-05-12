@@ -42,6 +42,7 @@ flowchart TD
     I --> J["requesting-code-review → receiving-code-review"]
     J --> K["verification-before-completion"]
     K --> L["finishing-a-development-branch"]
+    L --> M["Push and create a Pull Request<br/>固定選擇 Option 2"]
 ```
 
 例外僅限：
