@@ -1,8 +1,70 @@
 # Feature Spec：mcp-tool-permissions
 
-> **狀態**：draft
+> **狀態**：draft → in-progress
 > **對應需求**：CLI / MCP 登入後授權 tools；GitHub OAuth2 Device Flow + MCP tool permissions selection
 > **對應 Milestone**：M1（與 auth-and-rbac 同步）
+
+## Implementation Status
+
+### ✅ Completed
+
+- **Backend Device Flow Scaffolding**
+  - `/v1/auth/device/start` handler with placeholder responses (f7c6f37)
+  - `/v1/auth/device/poll` handler with placeholder responses (f7c6f37)
+  - `/v1/teams/{team_slug}/auth:grant-tools` endpoint for tool grant submission (f7c6f37)
+  - Device flow types and tool classification logic (auth/device_flow.go) (f7c6f37)
+  - Tool grants DB schema and CRUD layer (migrations/00003, repository methods) (f7c6f37)
+  - Tool grants query layer in sqlc (IsToolGranted, ListGrantedTools, UpsertToolGrant, etc.) (f7c6f37)
+  - Comprehensive backend tests (18 tests, all passing) (f7c6f37)
+
+- **CLI Auth Command** (ada0384)
+  - `0ops auth login` placeholder with flow documentation
+  - `0ops auth status` to display authentication status
+  - `0ops auth grant <tool>` to grant tool permission
+  - `0ops auth revoke <tool>` to revoke tool permission
+  - Comprehensive CLI tests (6 tests, all passing)
+
+- **MCP Auth Reader Module** (0104d81)
+  - TokenClaims struct for JWT/bearer token claims
+  - MCPAuthContext for per-request authentication context
+  - Token validation and extraction functions (placeholder)
+  - Tool permission checking via IsToolGranted()
+  - 7 tests, all passing
+
+- **MCP Tool Registry & Filtering** (f7c6f37)
+  - ToolRegistry with all 8 tools (list_teams, list_apps, get_app, list_members, invite_member_preview, invite_member, remove_member_preview, remove_member)
+  - Tool classification (read, write, delete, sensitive)
+  - Default-allow rules enforcement
+  - GetToolsForUser() filtering by explicit grants
+  - ValidateToolNames() and FilterUnauthorizedTools() helpers
+  - GetUnauthorizedToolError() for detailed error messages
+  - 20 tests, all passing
+
+### 🔄 In Progress / Placeholder
+
+- **GitHub OAuth2 Integration**
+  - Device flow handlers return placeholder responses (TODO: integrate with GitHub API)
+  - No actual user_code/verification_uri generation yet
+  - No polling against GitHub API
+
+- **Bearer Token Generation**
+  - authorizeToolsHandler stores grants but doesn't create final token (TODO: implement token signing)
+  - No token encoding of granted_tools into claims yet
+
+- **CLI Device Flow Integration**
+  - CLI commands exist but are placeholders (no actual HTTP calls to /v1/auth/device/start, poll, grant-tools)
+  - No interactive tool selection menu implementation
+  - No token caching to ~/.config/0ops/auth.json
+
+### ❌ Not Yet Started
+
+- **End-to-End Contract Tests**
+  - Device flow → tool selection → CLI login → token storage → MCP tool call
+  - Integration test covering full flow from GitHub auth to MCP tool invocation
+
+- **MCP Tool Authorization Middleware**
+  - Integration of tool grants check into actual MCP tool invocation
+  - 403/tool_not_permitted response generation
 
 ## 1. 結論（先讀本段）
 
