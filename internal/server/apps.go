@@ -33,9 +33,18 @@ type appsStore interface {
 	RemoveMember(ctx context.Context, teamID, actorUserID, targetUserID string) error
 }
 
+type toolGrantsStore interface {
+	IsToolGranted(ctx context.Context, teamID, userID, toolID string) (bool, error)
+	ListGrantedTools(ctx context.Context, teamID, userID string) ([]string, error)
+	UpsertToolGrant(ctx context.Context, teamID, userID, toolID string, allowed bool, grantedByActorID *string) error
+	RevokeToolGrant(ctx context.Context, teamID, userID, toolID string) error
+	ListAllUserGrants(ctx context.Context, teamID, userID string) ([]db.ToolGrant, error)
+}
+
 type routerStore interface {
 	appsStore
 	teamsStore
+	toolGrantsStore
 }
 
 type appCursor struct {
