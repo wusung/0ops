@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/winshare/zeroops/internal/server/apperror"
@@ -13,7 +14,7 @@ import (
 
 // Store is the auth/store contract needed by the middleware chain.
 type Store interface {
-	FindCliTokenByHash(ctx context.Context, tokenHash string) (db.CliToken, error)
+	FindCliTokenByID(ctx context.Context, tokenID string) (db.CliToken, error)
 	ResolveTeamBySlug(ctx context.Context, slug string) (db.Team, error)
 	CheckTeamMembership(ctx context.Context, teamID string, userID string) (bool, error)
 	GetTeamMembershipRole(ctx context.Context, teamID string, userID string) (string, error)
@@ -38,8 +39,19 @@ func (m *Middleware) Bearer(next http.Handler) http.Handler {
 			return
 		}
 
-		row, err := m.repo.FindCliTokenByHash(r.Context(), HashBearerToken(token))
+		parsed, err := ParseBearerToken(token)
 		if err != nil {
+			apperror.Write(w, "token_invalid", apperror.ClassUnauthorized, "invalid bearer token", nil)
+			return
+		}
+
+		row, err := m.repo.FindCliTokenByID(r.Context(), parsed.ID)
+		if err != nil {
+			apperror.Write(w, "token_invalid", apperror.ClassUnauthorized, "invalid bearer token", nil)
+			return
+		}
+		ok, err := CompareBearerToken(parsed.Secret, row.TokenHash)
+		if err != nil || !ok {
 			apperror.Write(w, "token_invalid", apperror.ClassUnauthorized, "invalid bearer token", nil)
 			return
 		}
@@ -47,9 +59,15 @@ func (m *Middleware) Bearer(next http.Handler) http.Handler {
 			apperror.Write(w, "token_revoked", apperror.ClassUnauthorized, "token revoked", nil)
 			return
 		}
+		if row.ExpiresAt != nil && time.Now().UTC().After(*row.ExpiresAt) {
+			apperror.Write(w, "token_expired", apperror.ClassUnauthorized, "token expired", nil)
+			return
+		}
 
 		ctx := withActorUserID(r.Context(), row.OwnerUserID)
+		ctx = withTokenID(ctx, row.ID)
 		ctx = withTokenTeamID(ctx, row.TeamID)
+		ctx = withTokenKind(ctx, row.Kind)
 		ctx = withTokenScopes(ctx, row.Scopes)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

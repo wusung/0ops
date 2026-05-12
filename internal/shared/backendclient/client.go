@@ -99,6 +99,150 @@ func (c *Client) GetApp(ctx context.Context, teamSlug, appSlug string) (dto.AppR
 	return out, nil
 }
 
+func (c *Client) InspectRepo(ctx context.Context, teamSlug, appSlug string) (dto.RepoInspectResponse, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/repos/" + url.PathEscape(appSlug) + ":inspect"
+	var out dto.RepoInspectResponse
+	if err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &out); err != nil {
+		return dto.RepoInspectResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) GetDeployStatus(ctx context.Context, teamSlug, appSlug string) (dto.DeployStatusResponse, error) {
+	endpoint, err := url.Parse(c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/deploys/status")
+	if err != nil {
+		return dto.DeployStatusResponse{}, err
+	}
+	q := endpoint.Query()
+	q.Set("app_slug", appSlug)
+	endpoint.RawQuery = q.Encode()
+
+	var out dto.DeployStatusResponse
+	if err := c.doJSON(ctx, http.MethodGet, endpoint.String(), nil, &out); err != nil {
+		return dto.DeployStatusResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) TailLogs(ctx context.Context, teamSlug, appSlug string, limit int) (dto.TailLogsResponse, error) {
+	endpoint, err := url.Parse(c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/deploys/logs")
+	if err != nil {
+		return dto.TailLogsResponse{}, err
+	}
+	q := endpoint.Query()
+	q.Set("app_slug", appSlug)
+	if limit > 0 {
+		q.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	endpoint.RawQuery = q.Encode()
+
+	var out dto.TailLogsResponse
+	if err := c.doJSON(ctx, http.MethodGet, endpoint.String(), nil, &out); err != nil {
+		return dto.TailLogsResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) ListDomains(ctx context.Context, teamSlug, appSlug string) (dto.ListDomainsResponse, error) {
+	endpoint, err := url.Parse(c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/domains")
+	if err != nil {
+		return dto.ListDomainsResponse{}, err
+	}
+	q := endpoint.Query()
+	q.Set("app_slug", appSlug)
+	endpoint.RawQuery = q.Encode()
+
+	var out dto.ListDomainsResponse
+	if err := c.doJSON(ctx, http.MethodGet, endpoint.String(), nil, &out); err != nil {
+		return dto.ListDomainsResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) StartDeviceLogin(ctx context.Context, reqBody dto.DeviceStartRequest) (dto.DeviceStartResponse, error) {
+	endpoint := c.BaseURL + "/v1/auth/device/start"
+	var out dto.DeviceStartResponse
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, reqBody, &out); err != nil {
+		return dto.DeviceStartResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) PollDeviceLogin(ctx context.Context, reqBody dto.DevicePollRequest) (dto.DevicePollResponse, error) {
+	endpoint := c.BaseURL + "/v1/auth/device/poll"
+	payload, err := json.Marshal(reqBody)
+	if err != nil {
+		return dto.DevicePollResponse{}, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return dto.DevicePollResponse{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.BearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.BearerToken)
+	}
+
+	res, err := c.httpClient().Do(req)
+	if err != nil {
+		return dto.DevicePollResponse{}, err
+	}
+	defer res.Body.Close()
+
+	// Handle 202 Accepted - authentication still pending
+	if res.StatusCode == http.StatusAccepted {
+		return dto.DevicePollResponse{}, fmt.Errorf("authorization_pending")
+	}
+
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return dto.DevicePollResponse{}, decodeError(res)
+	}
+
+	var out dto.DevicePollResponse
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		return dto.DevicePollResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) CallbackDeviceLogin(ctx context.Context, reqBody dto.DeviceCallbackRequest) (dto.DeviceCallbackResponse, error) {
+	endpoint := c.BaseURL + "/v1/auth/device/callback"
+	var out dto.DeviceCallbackResponse
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, reqBody, &out); err != nil {
+		return dto.DeviceCallbackResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) Logout(ctx context.Context) error {
+	endpoint := c.BaseURL + "/v1/auth/logout"
+	return c.doJSON(ctx, http.MethodPost, endpoint, nil, nil)
+}
+
+func (c *Client) CreateTeamToken(ctx context.Context, teamSlug string, reqBody dto.PATCreateRequest) (dto.PATCreateResponse, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/tokens/"
+	var out dto.PATCreateResponse
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, reqBody, &out); err != nil {
+		return dto.PATCreateResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) ListTeamTokens(ctx context.Context, teamSlug string) (dto.PATListResponse, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/tokens/"
+	var out dto.PATListResponse
+	if err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &out); err != nil {
+		return dto.PATListResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) RevokeTeamToken(ctx context.Context, teamSlug, name string) error {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/tokens/" + url.PathEscape(name)
+	return c.doJSON(ctx, http.MethodDelete, endpoint, nil, nil)
+}
+
 // ListTeams fetches the current actor's teams.
 func (c *Client) ListTeams(ctx context.Context) (dto.ListTeamsResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/v1/me/teams", nil)
@@ -174,6 +318,29 @@ func (c *Client) PreviewRemoveMember(ctx context.Context, teamSlug string, reqBo
 func (c *Client) RemoveMember(ctx context.Context, teamSlug string, reqBody dto.ConfirmRemoveMemberRequest) error {
 	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/members:remove"
 	return c.doJSON(ctx, http.MethodPost, endpoint, reqBody, nil)
+}
+
+func (c *Client) PreviewGitHubInstall(ctx context.Context, teamSlug string) (dto.PreviewResponse, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/github:preview-install"
+	var out dto.PreviewResponse
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, nil, &out); err != nil {
+		return dto.PreviewResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) ConfirmGitHubInstall(ctx context.Context, teamSlug, previewID string) (dto.GitHubInstallResponse, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/github:install"
+	var out dto.GitHubInstallResponse
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, map[string]string{"preview_id": previewID}, &out); err != nil {
+		return dto.GitHubInstallResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) UninstallGitHubApp(ctx context.Context, teamSlug string) error {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/github:uninstall"
+	return c.doJSON(ctx, http.MethodPost, endpoint, nil, nil)
 }
 
 func (c *Client) httpClient() *http.Client {

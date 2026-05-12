@@ -15,7 +15,7 @@ func TestMetricsMiddlewareAndHandlerExposeCustomSeries(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/teams/acme/apps", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -23,8 +23,11 @@ func TestMetricsMiddlewareAndHandlerExposeCustomSeries(t *testing.T) {
 	metrics.Handler().ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 
 	body := metricsRec.Body.String()
-	if !strings.Contains(body, `zeroops_http_request_duration_seconds_count{method="GET",route="/health",status="204"} 1`) {
+	if !strings.Contains(body, `zeroops_http_request_duration_seconds_count{method="GET",route="/health",status="204",team_bucket="ac"} 1`) {
 		t.Fatalf("metrics output missing request duration count: %s", body)
+	}
+	if !strings.Contains(body, `zeroops_http_requests_total{method="GET",route="/health",status="204",team_bucket="ac"} 1`) {
+		t.Fatalf("metrics output missing request total: %s", body)
 	}
 	if !strings.Contains(body, "# HELP zeroops_http_requests_in_flight Current number of HTTP requests being served.") {
 		t.Fatalf("metrics output missing inflight gauge help: %s", body)

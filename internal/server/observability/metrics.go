@@ -4,6 +4,7 @@ package observability
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -14,6 +15,7 @@ import (
 // Metrics holds the Prometheus registry and HTTP collectors.
 type Metrics struct {
 	registry     *prometheus.Registry
+	httpTotal    *prometheus.CounterVec
 	httpDuration *prometheus.HistogramVec
 	httpInflight prometheus.Gauge
 }
@@ -27,13 +29,19 @@ func NewMetrics() *Metrics {
 	)
 	m := &Metrics{
 		registry: reg,
+		httpTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "zeroops",
+			Subsystem: "http",
+			Name:      "requests_total",
+			Help:      "HTTP requests by route, method, status, and team bucket.",
+		}, []string{"route", "method", "status", "team_bucket"}),
 		httpDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: "zeroops",
 			Subsystem: "http",
 			Name:      "request_duration_seconds",
-			Help:      "HTTP request latency by route, method, and status.",
+			Help:      "HTTP request latency by route, method, status, and team bucket.",
 			Buckets:   prometheus.DefBuckets,
-		}, []string{"route", "method", "status"}),
+		}, []string{"route", "method", "status", "team_bucket"}),
 		httpInflight: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "zeroops",
 			Subsystem: "http",
@@ -41,7 +49,7 @@ func NewMetrics() *Metrics {
 			Help:      "Current number of HTTP requests being served.",
 		}),
 	}
-	reg.MustRegister(m.httpDuration, m.httpInflight)
+	reg.MustRegister(m.httpTotal, m.httpDuration, m.httpInflight)
 	return m
 }
 
@@ -65,10 +73,33 @@ func (m *Metrics) Middleware(routeLabel func(*http.Request) string) func(http.Ha
 			next.ServeHTTP(rec, r)
 
 			route := routeLabel(r)
-			m.httpDuration.WithLabelValues(route, r.Method, strconv.Itoa(rec.status)).
+			teamBucket := teamBucketForRequest(r)
+			m.httpTotal.WithLabelValues(route, r.Method, strconv.Itoa(rec.status), teamBucket).Inc()
+			m.httpDuration.WithLabelValues(route, r.Method, strconv.Itoa(rec.status), teamBucket).
 				Observe(time.Since(start).Seconds())
 		})
 	}
+}
+
+func teamBucketForRequest(r *http.Request) string {
+	const prefix = "/v1/teams/"
+	path := r.URL.Path
+	if !strings.HasPrefix(path, prefix) {
+		return "global"
+	}
+	rest := strings.TrimPrefix(path, prefix)
+	slash := strings.IndexByte(rest, '/')
+	if slash <= 0 {
+		return "team"
+	}
+	team := rest[:slash]
+	if team == "" {
+		return "team"
+	}
+	if len(team) == 1 {
+		return strings.ToLower(team)
+	}
+	return strings.ToLower(team[:2])
 }
 
 type statusRecorder struct {

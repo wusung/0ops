@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/winshare/zeroops/internal/server/auth"
 	dbpkg "github.com/winshare/zeroops/internal/server/db"
 )
 
@@ -131,6 +132,113 @@ func TestRepositoryHasAnyOwner(t *testing.T) {
 	}
 	if !hasOwner {
 		t.Fatalf("expected hasOwner=true, got false (initial=%v)", initial)
+	}
+}
+
+func TestRepositoryCreateCLITokenStoresDeviceKind(t *testing.T) {
+	repo, ctx, pool := newTestRepository(t)
+
+	userID := seedUser(ctx, t, pool, "owner-user")
+	teamID, _ := seedTeam(ctx, t, pool, "owner-team", "Owner Team")
+
+	token, err := repo.CreateCLIToken(ctx, userID, teamID, []string{"apps:read"})
+	if err != nil {
+		t.Fatalf("CreateCLIToken() error = %v", err)
+	}
+
+	parsed, err := auth.ParseBearerToken(token)
+	if err != nil {
+		t.Fatalf("ParseBearerToken() error = %v", err)
+	}
+	row, err := repo.FindCliTokenByID(ctx, parsed.ID)
+	if err != nil {
+		t.Fatalf("FindCliTokenByID() error = %v", err)
+	}
+	if row.Kind != "device" {
+		t.Fatalf("Kind = %q, want device", row.Kind)
+	}
+	if row.TeamID != teamID || row.OwnerUserID != userID {
+		t.Fatalf("unexpected token row: %#v", row)
+	}
+}
+
+func TestRepositoryCreatePATStoresExpiry(t *testing.T) {
+	repo, ctx, pool := newTestRepository(t)
+
+	userID := seedUser(ctx, t, pool, "owner-user")
+	teamID, _ := seedTeam(ctx, t, pool, "owner-team", "Owner Team")
+	expiresAt := time.Now().UTC().Add(30 * 24 * time.Hour)
+
+	token, err := repo.CreatePAT(ctx, userID, teamID, "ci", []string{"apps:read"}, expiresAt)
+	if err != nil {
+		t.Fatalf("CreatePAT() error = %v", err)
+	}
+
+	parsed, err := auth.ParseBearerToken(token)
+	if err != nil {
+		t.Fatalf("ParseBearerToken() error = %v", err)
+	}
+	row, err := repo.FindCliTokenByID(ctx, parsed.ID)
+	if err != nil {
+		t.Fatalf("FindCliTokenByID() error = %v", err)
+	}
+	if row.Kind != "pat" {
+		t.Fatalf("Kind = %q, want pat", row.Kind)
+	}
+	if row.ExpiresAt == nil || row.ExpiresAt.IsZero() {
+		t.Fatalf("expected expires_at, got %#v", row.ExpiresAt)
+	}
+}
+
+func TestRepositoryRevokeCLITokenByID(t *testing.T) {
+	repo, ctx, pool := newTestRepository(t)
+
+	userID := seedUser(ctx, t, pool, "owner-user")
+	teamID, _ := seedTeam(ctx, t, pool, "owner-team", "Owner Team")
+
+	token, err := repo.CreateCLIToken(ctx, userID, teamID, []string{"apps:read"})
+	if err != nil {
+		t.Fatalf("CreateCLIToken() error = %v", err)
+	}
+	parsed, err := auth.ParseBearerToken(token)
+	if err != nil {
+		t.Fatalf("ParseBearerToken() error = %v", err)
+	}
+	if err := repo.RevokeCLITokenByID(ctx, parsed.ID); err != nil {
+		t.Fatalf("RevokeCLITokenByID() error = %v", err)
+	}
+	row, err := repo.FindCliTokenByID(ctx, parsed.ID)
+	if err != nil {
+		t.Fatalf("FindCliTokenByID() error = %v", err)
+	}
+	if row.RevokedAt == nil {
+		t.Fatal("expected revoked_at to be set")
+	}
+}
+
+func TestRepositoryRevokePATByName(t *testing.T) {
+	repo, ctx, pool := newTestRepository(t)
+
+	userID := seedUser(ctx, t, pool, "owner-user")
+	teamID, _ := seedTeam(ctx, t, pool, "owner-team", "Owner Team")
+
+	token, err := repo.CreatePAT(ctx, userID, teamID, "ci", []string{"apps:read"}, time.Now().UTC().Add(30*24*time.Hour))
+	if err != nil {
+		t.Fatalf("CreatePAT() error = %v", err)
+	}
+	parsed, err := auth.ParseBearerToken(token)
+	if err != nil {
+		t.Fatalf("ParseBearerToken() error = %v", err)
+	}
+	if err := repo.RevokePATByName(ctx, teamID, "ci"); err != nil {
+		t.Fatalf("RevokePATByName() error = %v", err)
+	}
+	row, err := repo.FindCliTokenByID(ctx, parsed.ID)
+	if err != nil {
+		t.Fatalf("FindCliTokenByID() error = %v", err)
+	}
+	if row.RevokedAt == nil {
+		t.Fatal("expected revoked_at to be set")
 	}
 }
 

@@ -15,23 +15,37 @@ import (
 
 // MockStore implements auth.Store for testing
 type MockStore struct {
-	tokens     map[string]db.CliToken
-	teams      map[string]db.Team
-	members    map[string]map[string]bool
-	roles      map[string]map[string]string
+	tokensByID   map[string]db.CliToken
+	tokensByHash map[string]db.CliToken
+	teams        map[string]db.Team
+	members      map[string]map[string]bool
+	roles        map[string]map[string]string
 }
 
 func NewMockStore() *MockStore {
 	return &MockStore{
-		tokens:  make(map[string]db.CliToken),
-		teams:   make(map[string]db.Team),
-		members: make(map[string]map[string]bool),
-		roles:   make(map[string]map[string]string),
+		tokensByID:   make(map[string]db.CliToken),
+		tokensByHash: make(map[string]db.CliToken),
+		teams:        make(map[string]db.Team),
+		members:      make(map[string]map[string]bool),
+		roles:        make(map[string]map[string]string),
 	}
 }
 
+func (m *MockStore) FindCliTokenByID(ctx context.Context, tokenID string) (db.CliToken, error) {
+	if token, ok := m.tokensByID[tokenID]; ok {
+		return token, nil
+	}
+	if len(m.tokensByHash) == 1 {
+		for _, token := range m.tokensByHash {
+			return token, nil
+		}
+	}
+	return db.CliToken{}, errors.New("token not found")
+}
+
 func (m *MockStore) FindCliTokenByHash(ctx context.Context, tokenHash string) (db.CliToken, error) {
-	if token, ok := m.tokens[tokenHash]; ok {
+	if token, ok := m.tokensByHash[tokenHash]; ok {
 		return token, nil
 	}
 	return db.CliToken{}, errors.New("token not found")
@@ -60,8 +74,14 @@ func (m *MockStore) GetTeamMembershipRole(ctx context.Context, teamID string, us
 	return "", errors.New("membership not found")
 }
 
-func (m *MockStore) SetToken(hash string, token db.CliToken) {
-	m.tokens[hash] = token
+func (m *MockStore) SetToken(token string, row db.CliToken) {
+	parsed, err := ParseBearerToken(token)
+	if err != nil {
+		panic(err)
+	}
+	row.TokenHash = HashBearerToken(parsed.Secret)
+	m.tokensByID[parsed.ID] = row
+	m.tokensByHash[row.TokenHash] = row
 }
 
 func (m *MockStore) SetTeam(slug string, team db.Team) {
@@ -87,9 +107,11 @@ func TestMiddlewareBearerValidToken(t *testing.T) {
 	store := NewMockStore()
 	mw := NewMiddleware(store)
 
-	token := "test-token-12345"
-	hash := HashBearerToken(token)
-	store.SetToken(hash, db.CliToken{
+	token, err := NewBearerToken("device", "token-12345")
+	if err != nil {
+		t.Fatalf("NewBearerToken() error = %v", err)
+	}
+	store.SetToken(token, db.CliToken{
 		OwnerUserID: "user-1",
 		TeamID:      "team-1",
 		Scopes:      []string{"apps:read", "apps:write"},
@@ -119,10 +141,12 @@ func TestMiddlewareBearerRevokedToken(t *testing.T) {
 	store := NewMockStore()
 	mw := NewMiddleware(store)
 
-	token := "test-revoked-token"
-	hash := HashBearerToken(token)
+	token, err := NewBearerToken("device", "revoked-token")
+	if err != nil {
+		t.Fatalf("NewBearerToken() error = %v", err)
+	}
 	revokedAt := time.Now().AddDate(0, 0, -1)
-	store.SetToken(hash, db.CliToken{
+	store.SetToken(token, db.CliToken{
 		OwnerUserID: "user-1",
 		TeamID:      "team-1",
 		Scopes:      []string{"apps:read"},

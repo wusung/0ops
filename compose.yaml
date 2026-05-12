@@ -41,6 +41,8 @@ services:
       OPS_LISTEN_ADDR: ${OPS_LISTEN_ADDR:-:8080}
       OPS_LOG_LEVEL: ${OPS_LOG_LEVEL:-debug}
       OPS_CALLBACK_SECRET: ${OPS_CALLBACK_SECRET:-dev-callback-secret-change-me}
+      GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID}
+      GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET}
     ports:
       - "${OPS_HOST_PORT:-8080}:8080"
     volumes:

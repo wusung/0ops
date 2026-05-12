@@ -6,7 +6,9 @@ type contextKey string
 
 const (
 	keyActorUserID contextKey = "actor_user_id"
+	keyTokenID     contextKey = "token_id"
 	keyTokenTeamID contextKey = "token_team_id"
+	keyTokenKind   contextKey = "token_kind"
 	keyTokenScopes contextKey = "token_scopes"
 	keyTeamID      contextKey = "team_id"
 	keyTeamSlug    contextKey = "team_slug"
@@ -20,6 +22,14 @@ func withActorUserID(ctx context.Context, value string) context.Context {
 
 func withTokenTeamID(ctx context.Context, value string) context.Context {
 	return context.WithValue(ctx, keyTokenTeamID, value)
+}
+
+func withTokenID(ctx context.Context, value string) context.Context {
+	return context.WithValue(ctx, keyTokenID, value)
+}
+
+func withTokenKind(ctx context.Context, value string) context.Context {
+	return context.WithValue(ctx, keyTokenKind, value)
 }
 
 func withTokenScopes(ctx context.Context, value []string) context.Context {
@@ -42,6 +52,16 @@ func ActorUserID(ctx context.Context) string {
 
 func TokenTeamID(ctx context.Context) string {
 	v, _ := ctx.Value(keyTokenTeamID).(string)
+	return v
+}
+
+func TokenID(ctx context.Context) string {
+	v, _ := ctx.Value(keyTokenID).(string)
+	return v
+}
+
+func TokenKind(ctx context.Context) string {
+	v, _ := ctx.Value(keyTokenKind).(string)
 	return v
 }
 

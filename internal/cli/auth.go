@@ -1,396 +1,468 @@
 package cli
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
+	osuser "os/user"
+	"strconv"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
+
 	"github.com/winshare/zeroops/internal/shared/authconfig"
+	"github.com/winshare/zeroops/internal/shared/backendclient"
+	"github.com/winshare/zeroops/internal/shared/dto"
 )
 
-// newAuthCommand returns the auth command for the 0ops CLI
 func newAuthCommand() *cobra.Command {
 	var (
-		baseURL string
-		token   string
+		hostFlag    string
+		tokenFlag   string
+		githubLogin string
+		email       string
+		outputFmt   string
 	)
 
 	cmd := &cobra.Command{
 		Use:   "auth",
-		Short: "Manage authentication and MCP tool permissions",
-	}
-
-	cmd.PersistentFlags().StringVar(&baseURL, "host", "", "backend host")
-	cmd.PersistentFlags().StringVar(&token, "token", "", "bearer token")
-
-	// login subcommand
-	cmd.AddCommand(&cobra.Command{
-		Use:   "login",
-		Short: "Authenticate with GitHub OAuth2 and set MCP tool permissions",
-		Long: `Authenticate with GitHub using device flow and select which MCP tools
-are allowed to be used by the CLI or MCP server.
-
-The login flow will:
-1. Start GitHub device flow authentication
-2. Ask you to visit GitHub to authorize
-3. Present a list of available tools to grant permission to
-4. Save the access token to ~/.config/0ops/auth.json`,
+		Short: "Authenticate CLI with backend",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return handleAuthLogin(cmd, baseURL)
+			return runAuthLogin(cmd, hostFlag, githubLogin, email)
+		},
+	}
+	cmd.PersistentFlags().StringVar(&hostFlag, "host", "", "backend host (default: --host > OPS_HOST > auth.json host > http://127.0.0.1:8080)")
+	cmd.PersistentFlags().StringVar(&tokenFlag, "token", "", "bearer token (default: --token > OPS_BEARER_TOKEN > auth.json)")
+	cmd.PersistentFlags().StringVar(&outputFmt, "output", envOr("OPS_OUTPUT", "table"), "output format")
+
+	loginCmd := &cobra.Command{
+		Use:   "login",
+		Short: "Login via GitHub identity and persist bearer token",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runAuthLogin(cmd, hostFlag, githubLogin, email)
+		},
+	}
+	loginCmd.Flags().StringVar(&githubLogin, "github-login", "", "github login (default: --github-login > OPS_GITHUB_LOGIN > GITHUB_LOGIN > auth.json same-host > localhost:owner > shell user)")
+	loginCmd.Flags().StringVar(&email, "email", "", "email")
+	cmd.AddCommand(loginCmd)
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "logout",
+		Short: "Revoke current token and remove local credential",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctxInfo, err := resolveBackendContext(hostFlag, tokenFlag)
+			if err != nil {
+				return err
+			}
+			if err := backendclient.New(ctxInfo.Host, ctxInfo.BearerToken).Logout(commandContext(cmd)); err != nil {
+				return err
+			}
+			cfg, err := authconfig.Load()
+			if err == nil {
+				cfg.RemoveHost(ctxInfo.Host)
+				if err := authconfig.Save(cfg); err != nil {
+					return err
+				}
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "logged out from %s\n", ctxInfo.Host)
+			return err
 		},
 	})
 
-	// status subcommand
 	cmd.AddCommand(&cobra.Command{
 		Use:   "status",
-		Short: "Show current authentication status",
+		Short: "Show stored auth status for host",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return handleAuthStatus(cmd, baseURL, token)
+			cfg, err := authconfig.Load()
+			host := hostFlag
+			var token authconfig.Token
+			if err == nil {
+				host = resolveHost(hostFlag, cfg)
+				if stored, ok := cfg.TokenForHost(host); ok {
+					token = stored
+				}
+			}
+			if token.Host == "" {
+				token = authconfig.Token{Host: host, BearerToken: tokenFlag}
+			}
+			switch strings.ToLower(outputFmt) {
+			case "json":
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(token)
+			case "table":
+				fmt.Fprintf(cmd.OutOrStdout(), "Authentication Status\n")
+				fmt.Fprintf(cmd.OutOrStdout(), "====================\n\n")
+				w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+				fmt.Fprintf(w, "host\t%s\n", token.Host)
+				fmt.Fprintf(w, "github_login\t%s\n", token.GitHubLogin)
+				fmt.Fprintf(w, "default_team_slug\t%s\n", token.DefaultTeamSlug)
+				return w.Flush()
+			default:
+				return fmt.Errorf("unsupported output format %q", outputFmt)
+			}
 		},
 	})
 
-	// grant subcommand
 	cmd.AddCommand(&cobra.Command{
 		Use:   "grant <tool>",
 		Short: "Grant permission for an MCP tool",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return handleAuthGrant(cmd, baseURL, token, args[0])
+			return handleAuthGrant(cmd, hostFlag, tokenFlag, args[0])
 		},
 	})
 
-	// revoke subcommand
 	cmd.AddCommand(&cobra.Command{
 		Use:   "revoke <tool>",
 		Short: "Revoke permission for an MCP tool",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return handleAuthRevoke(cmd, baseURL, token, args[0])
+			return handleAuthRevoke(cmd, hostFlag, tokenFlag, args[0])
 		},
 	})
+
+	cmd.AddCommand(newAuthTokensCommand())
 
 	return cmd
 }
 
-// handleAuthLogin performs the GitHub OAuth2 device flow login
-func handleAuthLogin(cmd *cobra.Command, baseURL string) error {
-	cfg, _ := authconfig.Load()
-	host := resolveHost(baseURL, cfg)
+func newAuthTokensCommand() *cobra.Command {
+	var (
+		teamFlag    string
+		yesFlag     bool
+		tokenName   string
+		scopesFlag  string
+		expiresFlag string
+	)
 
-	ctx := cmd.Context()
-	if ctx == nil {
-		ctx = context.Background()
+	cmd := &cobra.Command{
+		Use:   "tokens",
+		Short: "Manage PAT tokens",
 	}
+	cmd.PersistentFlags().StringVar(&teamFlag, "team", "", "team slug")
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "list",
+		Short: "List PAT tokens",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			hostFlag, tokenFlag, outputFmt, err := readTokensContextFlags(cmd)
+			if err != nil {
+				return err
+			}
+			ctxInfo, err := resolveAppsContext(teamFlag, hostFlag, tokenFlag)
+			if err != nil {
+				return err
+			}
+			out, err := backendclient.New(ctxInfo.Host, ctxInfo.BearerToken).ListTeamTokens(commandContext(cmd), ctxInfo.TeamSlug)
+			if err != nil {
+				return err
+			}
+			return renderPATList(cmd, out, outputFmt)
+		},
+	})
+
+	createCmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a PAT token",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			hostFlag, tokenFlag, outputFmt, err := readTokensContextFlags(cmd)
+			if err != nil {
+				return err
+			}
+			ctxInfo, err := resolveAppsContext(teamFlag, hostFlag, tokenFlag)
+			if err != nil {
+				return err
+			}
+			scopeList, err := parseScopes(scopesFlag)
+			if err != nil {
+				return err
+			}
+			days, err := parseExpiresDays(expiresFlag)
+			if err != nil {
+				return err
+			}
+			out, err := backendclient.New(ctxInfo.Host, ctxInfo.BearerToken).CreateTeamToken(commandContext(cmd), ctxInfo.TeamSlug, dto.PATCreateRequest{
+				Name:        tokenName,
+				Scopes:      scopeList,
+				ExpiresDays: days,
+			})
+			if err != nil {
+				return err
+			}
+			return renderPATCreate(cmd, out, outputFmt)
+		},
+	}
+	createCmd.Flags().StringVar(&tokenName, "name", "", "token name")
+	createCmd.Flags().StringVar(&scopesFlag, "scopes", "", "comma separated scopes")
+	createCmd.Flags().StringVar(&expiresFlag, "expires", "90d", "expiry window, e.g. 90d")
+	cmd.AddCommand(createCmd)
+
+	revokeCmd := &cobra.Command{
+		Use:   "revoke <name>",
+		Short: "Revoke a PAT token",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			hostFlag, tokenFlag, _, err := readTokensContextFlags(cmd)
+			if err != nil {
+				return err
+			}
+			ctxInfo, err := resolveAppsContext(teamFlag, hostFlag, tokenFlag)
+			if err != nil {
+				return err
+			}
+			if !yesFlag {
+				ok, err := confirmAction(cmd, fmt.Sprintf("Revoke token %q in team %q?", args[0], ctxInfo.TeamSlug))
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return fmt.Errorf("revocation cancelled")
+				}
+			}
+			return backendclient.New(ctxInfo.Host, ctxInfo.BearerToken).RevokeTeamToken(commandContext(cmd), ctxInfo.TeamSlug, args[0])
+		},
+	}
+	revokeCmd.Flags().BoolVar(&yesFlag, "yes", false, "skip confirmation")
+	cmd.AddCommand(revokeCmd)
+
+	return cmd
+}
+
+func readTokensContextFlags(cmd *cobra.Command) (string, string, string, error) {
+	hostFlag, err := cmd.Flags().GetString("host")
+	if err != nil {
+		return "", "", "", err
+	}
+	tokenFlag, err := cmd.Flags().GetString("token")
+	if err != nil {
+		return "", "", "", err
+	}
+	outputFmt, err := cmd.Flags().GetString("output")
+	if err != nil {
+		return "", "", "", err
+	}
+	return hostFlag, tokenFlag, outputFmt, nil
+}
+
+func resolveGitHubLogin(githubLoginFlag, host string, cfg authconfig.File) string {
+	explicit := firstNonEmpty(githubLoginFlag, os.Getenv("OPS_GITHUB_LOGIN"), os.Getenv("GITHUB_LOGIN"))
+	if explicit != "" {
+		return explicit
+	}
+	if fromFile, ok := cfg.TokenForHost(host); ok {
+		if strings.TrimSpace(fromFile.GitHubLogin) != "" {
+			return fromFile.GitHubLogin
+		}
+	}
+	if first, ok := cfg.First(); ok && strings.TrimSpace(first.GitHubLogin) != "" {
+		return first.GitHubLogin
+	}
+	if isLocalHost(host) {
+		return "owner"
+	}
+	if shellUser := firstNonEmpty(os.Getenv("USER"), os.Getenv("USERNAME")); shellUser != "" {
+		return shellUser
+	}
+	if current, err := osuser.Current(); err == nil {
+		return strings.TrimSpace(current.Username)
+	}
+	return ""
+}
+
+func runAuthLogin(cmd *cobra.Command, hostFlag, githubLogin, email string) error {
+	cfg, _ := authconfig.Load()
+	host := resolveHost(hostFlag, cfg)
+	resolvedGithubLogin := resolveGitHubLogin(githubLogin, host, cfg)
+	if strings.TrimSpace(resolvedGithubLogin) == "" {
+		return fmt.Errorf("github login not found. pass --github-login or set OPS_GITHUB_LOGIN")
+	}
+	client := backendclient.New(host, "")
+	ctx := commandContext(cmd)
 
 	fmt.Fprintf(cmd.OutOrStdout(), "\n🔐 Starting GitHub OAuth2 Device Flow\n")
 	fmt.Fprintf(cmd.OutOrStdout(), "Backend: %s\n\n", host)
-
-	// Step 1: Start device flow
 	fmt.Fprintf(cmd.OutOrStdout(), "Step 1/4: Starting device flow...\n")
-	deviceResp, pollToken, err := startDeviceFlow(ctx, host)
+
+	start, err := client.StartDeviceLogin(ctx, dto.DeviceStartRequest{
+		GithubLogin: resolvedGithubLogin,
+		Email:       stringPtrIfNotEmpty(email),
+	})
 	if err != nil {
-		return fmt.Errorf("failed to start device flow: %w", err)
+		return err
+	}
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "✓ Device flow started\n\n👉 Visit: %s\n📝 Enter code: %s\n⏰ Expires in: %d seconds\n\n", start.VerificationURI, start.UserCode, start.TTLSeconds); err != nil {
+		return err
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "✓ Device flow started\n\n")
-	fmt.Fprintf(cmd.OutOrStdout(), "👉 Visit: %s\n", deviceResp.VerificationURI)
-	fmt.Fprintf(cmd.OutOrStdout(), "📝 Enter code: %s\n", deviceResp.UserCode)
-	fmt.Fprintf(cmd.OutOrStdout(), "⏰ Expires in: %d seconds\n\n", deviceResp.ExpiresIn)
+	pollInterval := time.Second
+	if start.IntervalSeconds > 0 {
+		pollInterval = time.Duration(start.IntervalSeconds) * time.Second
+	}
 
-	// Step 2: Poll for authorization
 	fmt.Fprintf(cmd.OutOrStdout(), "Step 2/4: Waiting for authorization...\n")
-	pollResp, err := pollDeviceFlow(ctx, host, pollToken, deviceResp.Interval, deviceResp.ExpiresIn)
-	if err != nil {
-		return fmt.Errorf("device flow authorization failed: %w", err)
-	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "✓ GitHub authorization successful\n")
-	fmt.Fprintf(cmd.OutOrStdout(), "✓ Team: %s (%s)\n\n", pollResp.Team.Name, pollResp.Team.Slug)
-
-	// Step 3: Present tool selection UI
-	fmt.Fprintf(cmd.OutOrStdout(), "Step 3/4: Selecting MCP tool permissions\n")
-	fmt.Fprintf(cmd.OutOrStdout(), "─────────────────────────────────────\n\n")
-
-	selectedTools := presentToolSelection(cmd, pollResp.AvailableTools)
-	if len(selectedTools) == 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "ℹ️  No tools selected. Login cancelled.\n")
-		return nil
-	}
-
-	fmt.Fprintf(cmd.OutOrStdout(), "✓ Selected %d tools\n\n", len(selectedTools))
-
-	// Step 4: Submit tool grants and get final token
-	fmt.Fprintf(cmd.OutOrStdout(), "Step 4/4: Finalizing authorization...\n")
-	accessToken, err := submitToolGrants(ctx, host, pollResp.Team.Slug, pollResp.AccessToken, selectedTools)
-	if err != nil {
-		return fmt.Errorf("failed to grant tools: %w", err)
-	}
-
-	fmt.Fprintf(cmd.OutOrStdout(), "✓ Tool permissions saved\n\n")
-
-	// Save token to auth config
-	cfg2, _ := authconfig.Load()
-	
-	// Add or update token entry
-	found := false
-	for i, token := range cfg2.Tokens {
-		if token.Host == host {
-			cfg2.Tokens[i].BearerToken = accessToken
-			cfg2.Tokens[i].DefaultTeamSlug = pollResp.Team.Slug
-			found = true
-			break
-		}
-	}
-	if !found {
-		cfg2.Tokens = append(cfg2.Tokens, authconfig.Token{
-			Host:            host,
-			DefaultTeamSlug: pollResp.Team.Slug,
-			BearerToken:     accessToken,
-		})
-	}
-
-	if err := authconfig.Save(cfg2); err != nil {
-		return fmt.Errorf("failed to save token: %w", err)
-	}
-
-	fmt.Fprintf(cmd.OutOrStdout(), "✅ Login successful!\n")
-	fmt.Fprintf(cmd.OutOrStdout(), "📦 Token saved to ~/.config/0ops/auth.json\n")
-	fmt.Fprintf(cmd.OutOrStdout(), "🚀 Ready to use 0ops CLI and MCP tools\n\n")
-
-	return nil
-}
-
-// deviceFlowStartResponse is the response from POST /v1/auth/device/start
-type deviceFlowStartResponse struct {
-	DeviceCode      string `json:"device_code"`
-	UserCode        string `json:"user_code"`
-	VerificationURI string `json:"verification_uri"`
-	ExpiresIn       int    `json:"expires_in"`
-	Interval        int    `json:"interval"`
-}
-
-// deviceFlowPollResponse is the response from POST /v1/auth/device/poll
-type deviceFlowPollResponse struct {
-	AccessToken    string        `json:"access_token"`
-	TokenType      string        `json:"token_type"`
-	ExpiresIn      int           `json:"expires_in"`
-	Team           teamInfo      `json:"team"`
-	AvailableTools []toolInfo    `json:"available_tools"`
-	NextStep       string        `json:"next_step"`
-}
-
-type teamInfo struct {
-	ID   string `json:"id"`
-	Slug string `json:"slug"`
-	Name string `json:"name"`
-}
-
-type toolInfo struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	Category       string `json:"category"`
-	Description    string `json:"description"`
-	DefaultAllowed bool   `json:"default_allowed"`
-	RiskLevel      string `json:"risk_level,omitempty"`
-	Warning        string `json:"warning,omitempty"`
-}
-
-// startDeviceFlow initiates the device flow
-func startDeviceFlow(ctx context.Context, host string) (*deviceFlowStartResponse, string, error) {
-	url := host + "/v1/auth/device/start"
-	reqBody := map[string]string{}
-
-	body, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, "", err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return nil, "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		data, _ := io.ReadAll(resp.Body)
-		return nil, "", fmt.Errorf("device flow start failed: %s", string(data))
-	}
-
-	var deviceResp deviceFlowStartResponse
-	if err := json.NewDecoder(resp.Body).Decode(&deviceResp); err != nil {
-		return nil, "", err
-	}
-
-	return &deviceResp, deviceResp.DeviceCode, nil
-}
-
-// pollDeviceFlow polls for authorization
-func pollDeviceFlow(ctx context.Context, host, pollToken string, interval, expiresIn int) (*deviceFlowPollResponse, error) {
-	if interval <= 0 {
-		interval = 5
-	}
-
-	deadline := time.Now().Add(time.Duration(expiresIn) * time.Second)
-
+	// Poll until authorization is complete or error occurs
+	var poll dto.DevicePollResponse
 	for {
-		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("device flow expired")
-		}
-
-		time.Sleep(time.Duration(interval) * time.Second)
-
-		url := host + "/v1/auth/device/poll"
-		reqBody := map[string]string{"poll_token": pollToken}
-
-		body, err := json.Marshal(reqBody)
+		var err error
+		poll, err = client.PollDeviceLogin(ctx, dto.DevicePollRequest{PollToken: start.PollToken})
 		if err != nil {
-			return nil, err
-		}
-
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Content-Type", "application/json")
-
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return nil, err
-		}
-
-		if resp.StatusCode == http.StatusOK {
-			var pollResp deviceFlowPollResponse
-			if err := json.NewDecoder(resp.Body).Decode(&pollResp); err != nil {
-				resp.Body.Close()
-				return nil, err
+			if err.Error() == "authorization_pending" {
+				// Still pending, wait a bit and retry
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(pollInterval):
+					continue
+				}
 			}
-			resp.Body.Close()
-			return &pollResp, nil
+			return err
 		}
+		// Success - we have a token
+		break
+	}
 
-		if resp.StatusCode != http.StatusAccepted {
-			data, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			return nil, fmt.Errorf("poll failed: %s", string(data))
-		}
+	if poll.Team.Slug != "" {
+		poll.DefaultTeamSlug = poll.Team.Slug
+	}
+	if poll.Team.Name != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "✓ GitHub authorization successful\n")
+		fmt.Fprintf(cmd.OutOrStdout(), "✓ Team: %s (%s)\n\n", poll.Team.Name, poll.Team.Slug)
+	}
 
-		resp.Body.Close()
+	cfg, _ = authconfig.Load()
+	if cfg.Version == 0 {
+		cfg.Version = 1
+	}
+	if strings.TrimSpace(poll.DefaultTeamSlug) == "" && poll.Team.Slug != "" {
+		poll.DefaultTeamSlug = poll.Team.Slug
+	}
+	cfg.UpsertTokenForHost(authconfig.Token{
+		Host:            host,
+		GitHubLogin:     poll.GithubLogin,
+		DefaultTeamSlug: poll.DefaultTeamSlug,
+		BearerToken:     poll.BearerToken,
+		IssuedAt:        poll.IssuedAt,
+	})
+	if err := authconfig.Save(cfg); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(cmd.OutOrStdout(), "Login successful for %s on %s\n", poll.GithubLogin, host)
+	return err
+}
+
+func renderPATCreate(cmd *cobra.Command, out dto.PATCreateResponse, outputFmt string) error {
+	switch strings.ToLower(outputFmt) {
+	case "json":
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(out)
+	case "table":
+		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+		fmt.Fprintf(w, "token\t%s\n", out.Token)
+		fmt.Fprintf(w, "name\t%s\n", out.Name)
+		fmt.Fprintf(w, "expires_at\t%s\n", out.ExpiresAt.Format(time.RFC3339))
+		fmt.Fprintf(w, "scopes\t%s\n", strings.Join(out.Scopes, ","))
+		return w.Flush()
+	default:
+		return fmt.Errorf("unsupported output format %q", outputFmt)
 	}
 }
 
-// presentToolSelection displays an interactive tool selection menu
-func presentToolSelection(cmd *cobra.Command, tools []toolInfo) []string {
-	if len(tools) == 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "No tools available\n")
-		return nil
-	}
-
-	// Separate tools by category and default status
-	var readTools, writeTools, dangerTools []toolInfo
-	for _, tool := range tools {
-		if tool.Category == "read" {
-			readTools = append(readTools, tool)
-		} else if strings.Contains(tool.Category, "delete") || strings.Contains(tool.Category, "sensitive") {
-			dangerTools = append(dangerTools, tool)
-		} else {
-			writeTools = append(writeTools, tool)
-		}
-	}
-
-	// Display tools with default selections
-	fmt.Fprintf(cmd.OutOrStdout(), "✓ [Auto-selected] Read-only (%d)\n", len(readTools))
-	for _, tool := range readTools {
-		fmt.Fprintf(cmd.OutOrStdout(), "  ✓ %s - %s\n", tool.ID, tool.Description)
-	}
-
-	if len(writeTools) > 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "\n[ ] Write operations (%d)\n", len(writeTools))
-		for _, tool := range writeTools {
-			fmt.Fprintf(cmd.OutOrStdout(), "  [ ] %s - %s\n", tool.ID, tool.Description)
-		}
-	}
-
-	if len(dangerTools) > 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "\n[ ] ⚠️  Dangerous operations (%d)\n", len(dangerTools))
-		for _, tool := range dangerTools {
-			fmt.Fprintf(cmd.OutOrStdout(), "  [ ] %s - %s", tool.ID, tool.Description)
-			if tool.Warning != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), " %s", tool.Warning)
+func renderPATList(cmd *cobra.Command, out dto.PATListResponse, outputFmt string) error {
+	switch strings.ToLower(outputFmt) {
+	case "json":
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(out)
+	case "table":
+		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+		for _, item := range out.Items {
+			expires := "-"
+			if item.ExpiresAt != nil {
+				expires = item.ExpiresAt.Format(time.RFC3339)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "\n")
+			lastUsed := "-"
+			if item.LastUsedAt != nil {
+				lastUsed = item.LastUsedAt.Format(time.RFC3339)
+			}
+			warning := ""
+			if item.ExpiresAt != nil {
+				remaining := time.Until(*item.ExpiresAt)
+				switch {
+				case remaining <= 0:
+					warning = "expired"
+				case remaining <= 14*24*time.Hour:
+					warning = "expiring_soon"
+				}
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", item.Name, strings.Join(item.Scopes, ","), item.CreatedAt.Format(time.RFC3339), lastUsed, expires, warning)
 		}
+		return w.Flush()
+	default:
+		return fmt.Errorf("unsupported output format %q", outputFmt)
 	}
-
-	fmt.Fprintf(cmd.OutOrStdout(), "\nOptions:\n")
-	fmt.Fprintf(cmd.OutOrStdout(), "  (y) Confirm and save [DEFAULT]\n")
-	fmt.Fprintf(cmd.OutOrStdout(), "  (c) Cancel\n\n")
-
-	// For now, auto-confirm with default selections (interactive menu can be enhanced)
-	fmt.Fprintf(cmd.OutOrStdout(), "Input [y]: ")
-
-	// Collect all read tools (always selected) and return
-	var selected []string
-	for _, tool := range readTools {
-		selected = append(selected, tool.ID)
-	}
-
-	return selected
 }
 
-// submitToolGrants submits the selected tools and gets the final access token
-func submitToolGrants(ctx context.Context, host, teamSlug, tempToken string, tools []string) (string, error) {
-	url := host + "/v1/teams/" + teamSlug + "/auth:grant-tools"
-
-	reqBody := map[string]interface{}{
-		"tools": tools,
+func parseScopes(raw string) ([]string, error) {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		out = append(out, part)
 	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("scopes are required")
+	}
+	return out, nil
+}
 
-	body, err := json.Marshal(reqBody)
+func parseExpiresDays(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 90, nil
+	}
+	raw = strings.TrimSuffix(raw, "d")
+	days, err := strconv.Atoi(raw)
+	if err != nil || days <= 0 {
+		return 0, fmt.Errorf("invalid expires value %q", raw)
+	}
+	return days, nil
+}
+
+func confirmAction(cmd *cobra.Command, question string) (bool, error) {
+	_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s [y/N] ", question)
 	if err != nil {
-		return "", err
+		return false, err
 	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	reader := bufio.NewReader(cmd.InOrStdin())
+	line, err := reader.ReadString('\n')
 	if err != nil {
-		return "", err
+		return false, err
 	}
+	line = strings.ToLower(strings.TrimSpace(line))
+	return line == "y" || line == "yes", nil
+}
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+tempToken)
-
-	resp, err := http.DefaultClient.Do(req)
+func isLocalHost(host string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(host))
 	if err != nil {
-		return "", err
+		return false
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		data, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("tool grant failed: %s", string(data))
-	}
-
-	var grantResp map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&grantResp); err != nil {
-		return "", err
-	}
-
-	if accessToken, ok := grantResp["access_token"].(string); ok {
-		return accessToken, nil
-	}
-
-	return "", fmt.Errorf("no access_token in response")
+	name := strings.ToLower(parsed.Hostname())
+	return name == "localhost" || name == "127.0.0.1" || name == "::1"
 }
 
 // patchToolGrantsRequest is the request body for PATCH /v1/me/auth/tool-grants
@@ -407,8 +479,6 @@ type patchToolGrantsResponse struct {
 
 // patchToolGrants updates tool grants by calling PATCH /v1/me/auth/tool-grants
 func patchToolGrants(ctx context.Context, host, token string, grant, revoke []string) (*patchToolGrantsResponse, error) {
-	url := host + "/v1/me/auth/tool-grants"
-
 	reqBody := patchToolGrantsRequest{
 		Grant:  grant,
 		Revoke: revoke,
@@ -419,11 +489,10 @@ func patchToolGrants(ctx context.Context, host, token string, grant, revoke []st
 		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, host+"/v1/me/auth/tool-grants", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
-
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 
@@ -442,34 +511,7 @@ func patchToolGrants(ctx context.Context, host, token string, grant, revoke []st
 	if err := json.NewDecoder(resp.Body).Decode(&respBody); err != nil {
 		return nil, err
 	}
-
 	return &respBody, nil
-}
-
-// handleAuthStatus displays the current authentication status
-func handleAuthStatus(cmd *cobra.Command, baseURL string, token string) error {
-	ctxInfo, err := resolveBackendContext(baseURL, token)
-	if err != nil {
-		return err
-	}
-
-	cfg, _ := authconfig.Load()
-
-	// Get default team if set
-	defaultTeam := "-"
-	if team, ok := cfg.DefaultTeamForHost(ctxInfo.Host); ok {
-		defaultTeam = team
-	}
-
-	fmt.Fprintf(cmd.OutOrStdout(), "Authentication Status\n")
-	fmt.Fprintf(cmd.OutOrStdout(), "====================\n\n")
-	fmt.Fprintf(cmd.OutOrStdout(), "Backend Host: %s\n", ctxInfo.Host)
-	fmt.Fprintf(cmd.OutOrStdout(), "Token Status: ✓ Authenticated\n")
-	fmt.Fprintf(cmd.OutOrStdout(), "Default Team: %s\n", defaultTeam)
-	fmt.Fprintf(cmd.OutOrStdout(), "\nTODO: Show granted tools from backend\n")
-	fmt.Fprintf(cmd.OutOrStdout(), "TODO: Show token expiration date\n")
-
-	return nil
 }
 
 // handleAuthGrant grants permission for an MCP tool
@@ -478,8 +520,6 @@ func handleAuthGrant(cmd *cobra.Command, baseURL string, tokenFlag string, tool 
 	if err != nil {
 		return err
 	}
-
-	// Validate tool name format
 	if strings.TrimSpace(tool) == "" {
 		return fmt.Errorf("tool name cannot be empty")
 	}
@@ -489,7 +529,6 @@ func handleAuthGrant(cmd *cobra.Command, baseURL string, tokenFlag string, tool 
 		ctx = context.Background()
 	}
 
-	// Make PATCH request to grant tool
 	resp, err := patchToolGrants(ctx, ctxInfo.Host, ctxInfo.BearerToken, []string{tool}, nil)
 	if err != nil {
 		return fmt.Errorf("failed to grant tool: %w", err)
@@ -497,7 +536,6 @@ func handleAuthGrant(cmd *cobra.Command, baseURL string, tokenFlag string, tool 
 
 	fmt.Fprintf(cmd.OutOrStdout(), "✓ Granted permission for tool: %s\n", tool)
 	fmt.Fprintf(cmd.OutOrStdout(), "Total granted tools: %d\n", len(resp.GrantedTools))
-
 	return nil
 }
 
@@ -507,8 +545,6 @@ func handleAuthRevoke(cmd *cobra.Command, baseURL string, tokenFlag string, tool
 	if err != nil {
 		return err
 	}
-
-	// Validate tool name format
 	if strings.TrimSpace(tool) == "" {
 		return fmt.Errorf("tool name cannot be empty")
 	}
@@ -518,7 +554,6 @@ func handleAuthRevoke(cmd *cobra.Command, baseURL string, tokenFlag string, tool
 		ctx = context.Background()
 	}
 
-	// Make PATCH request to revoke tool
 	resp, err := patchToolGrants(ctx, ctxInfo.Host, ctxInfo.BearerToken, nil, []string{tool})
 	if err != nil {
 		return fmt.Errorf("failed to revoke tool: %w", err)
@@ -526,6 +561,5 @@ func handleAuthRevoke(cmd *cobra.Command, baseURL string, tokenFlag string, tool
 
 	fmt.Fprintf(cmd.OutOrStdout(), "✓ Revoked permission for tool: %s\n", tool)
 	fmt.Fprintf(cmd.OutOrStdout(), "Total granted tools: %d\n", len(resp.GrantedTools))
-
 	return nil
 }

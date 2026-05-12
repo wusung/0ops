@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	sqlcgen "github.com/winshare/zeroops/internal/server/db/sqlc"
+	sharedtoken "github.com/winshare/zeroops/internal/shared/token"
 )
 
 // App describes a team app record.
@@ -31,8 +33,13 @@ type CliToken struct {
 	ID          string
 	OwnerUserID string
 	TeamID      string
+	Kind        string
+	Name        string
 	TokenHash   string
 	Scopes      []string
+	CreatedAt   time.Time
+	LastUsedAt  *time.Time
+	ExpiresAt   *time.Time
 	RevokedAt   *time.Time
 }
 
@@ -235,9 +242,184 @@ WHERE team_id = $1
 	}, nil
 }
 
-// FindCliTokenByHash loads a token by hash.
-func (r *Repository) FindCliTokenByHash(ctx context.Context, tokenHash string) (CliToken, error) {
-	row, err := r.queries.FindCliTokenByHash(ctx, tokenHash)
+// ListDomainsByAppSlug returns domains for a team app.
+func (r *Repository) ListDomainsByAppSlug(ctx context.Context, teamID string, appSlug string) ([]DomainBinding, error) {
+	parsedTeamID, err := parseUUID(teamID)
+	if err != nil {
+		return nil, fmt.Errorf("parse team id: %w", err)
+	}
+
+	rows, err := r.pool.Query(ctx, `
+SELECT
+  d.id,
+  d.team_id,
+  d.app_id,
+  a.slug,
+  d.hostname,
+  d.kind,
+  d.verified,
+  d.expires_at,
+  d.verified_at
+FROM domain_binding d
+JOIN app a ON a.id = d.app_id
+WHERE d.team_id = $1
+  AND a.slug = $2
+ORDER BY d.hostname
+`, parsedTeamID, appSlug)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]DomainBinding, 0)
+	for rows.Next() {
+		var row struct {
+			ID         pgtype.UUID
+			TeamID     pgtype.UUID
+			AppID      pgtype.UUID
+			AppSlug    string
+			Hostname   string
+			Kind       pgtype.Text
+			Verified   bool
+			ExpiresAt  pgtype.Timestamptz
+			VerifiedAt pgtype.Timestamptz
+		}
+		if err := rows.Scan(
+			&row.ID,
+			&row.TeamID,
+			&row.AppID,
+			&row.AppSlug,
+			&row.Hostname,
+			&row.Kind,
+			&row.Verified,
+			&row.ExpiresAt,
+			&row.VerifiedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, DomainBinding{
+			ID:         row.ID.String(),
+			TeamID:     row.TeamID.String(),
+			AppID:      row.AppID.String(),
+			AppSlug:    row.AppSlug,
+			Hostname:   row.Hostname,
+			Kind:       textPtr(row.Kind),
+			Verified:   row.Verified,
+			ExpiresAt:  timestamptzPtr(row.ExpiresAt),
+			VerifiedAt: timestamptzPtr(row.VerifiedAt),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
+// GetLatestDeployByAppSlug returns latest deploy status for a team app.
+func (r *Repository) GetLatestDeployByAppSlug(ctx context.Context, teamID string, appSlug string) (DeployRun, error) {
+	parsedTeamID, err := parseUUID(teamID)
+	if err != nil {
+		return DeployRun{}, fmt.Errorf("parse team id: %w", err)
+	}
+
+	var row struct {
+		ID           pgtype.UUID
+		TeamID       pgtype.UUID
+		AppID        pgtype.UUID
+		AppSlug      string
+		Status       string
+		CommitSHA    pgtype.Text
+		Ref          pgtype.Text
+		ErrorSummary pgtype.Text
+		StartedAt    pgtype.Timestamptz
+		FinishedAt   pgtype.Timestamptz
+		Events       []byte
+	}
+	err = r.pool.QueryRow(ctx, `
+SELECT
+  dr.id,
+  dr.team_id,
+  dr.app_id,
+  a.slug,
+  dr.status,
+  dr.commit_sha,
+  dr.ref,
+  dr.error_summary,
+  dr.started_at,
+  dr.finished_at,
+  dr.events
+FROM deploy_run dr
+JOIN app a ON a.id = dr.app_id
+WHERE dr.team_id = $1
+  AND a.slug = $2
+ORDER BY dr.started_at DESC NULLS LAST, dr.id DESC
+LIMIT 1
+`, parsedTeamID, appSlug).Scan(
+		&row.ID,
+		&row.TeamID,
+		&row.AppID,
+		&row.AppSlug,
+		&row.Status,
+		&row.CommitSHA,
+		&row.Ref,
+		&row.ErrorSummary,
+		&row.StartedAt,
+		&row.FinishedAt,
+		&row.Events,
+	)
+	if err != nil {
+		return DeployRun{}, err
+	}
+
+	out := DeployRun{
+		ID:           row.ID.String(),
+		TeamID:       row.TeamID.String(),
+		AppID:        row.AppID.String(),
+		AppSlug:      row.AppSlug,
+		Status:       row.Status,
+		CommitSHA:    textPtr(row.CommitSHA),
+		Ref:          textPtr(row.Ref),
+		ErrorSummary: textPtr(row.ErrorSummary),
+		StartedAt:    timestamptzPtr(row.StartedAt),
+		FinishedAt:   timestamptzPtr(row.FinishedAt),
+	}
+	if len(row.Events) > 0 {
+		var events []struct {
+			Timestamp *time.Time `json:"timestamp"`
+			Message   string     `json:"message"`
+		}
+		if err := json.Unmarshal(row.Events, &events); err == nil {
+			for _, event := range events {
+				if event.Timestamp == nil || event.Message == "" {
+					continue
+				}
+				out.LogLines = append(out.LogLines, DeployLogLine{
+					Timestamp: *event.Timestamp,
+					Message:   event.Message,
+				})
+			}
+		}
+	}
+
+	return out, nil
+}
+
+// ListDeployLogLines returns latest deploy logs for a team app.
+func (r *Repository) ListDeployLogLines(ctx context.Context, teamID string, appSlug string, limit int) ([]DeployLogLine, error) {
+	deploy, err := r.GetLatestDeployByAppSlug(ctx, teamID, appSlug)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > len(deploy.LogLines) {
+		limit = len(deploy.LogLines)
+	}
+	return append([]DeployLogLine(nil), deploy.LogLines[:limit]...), nil
+}
+
+// FindCliTokenByID loads a token by primary key.
+func (r *Repository) FindCliTokenByID(ctx context.Context, tokenID string) (CliToken, error) {
+	row, err := r.queries.FindCliTokenByID(ctx, tokenID)
 	if err != nil {
 		return CliToken{}, err
 	}
@@ -246,10 +428,219 @@ func (r *Repository) FindCliTokenByHash(ctx context.Context, tokenHash string) (
 		ID:          row.ID.String(),
 		OwnerUserID: row.OwnerUserID.String(),
 		TeamID:      row.TeamID.String(),
+		Kind:        row.Kind,
+		Name:        row.Name,
 		TokenHash:   row.TokenHash,
 		Scopes:      append([]string(nil), row.Scopes...),
+		CreatedAt:   row.CreatedAt.Time,
+		LastUsedAt:  timestamptzPtr(row.LastUsedAt),
+		ExpiresAt:   timestamptzPtr(row.ExpiresAt),
 		RevokedAt:   timestamptzPtr(row.RevokedAt),
 	}, nil
+}
+
+// ListTeamTokens returns team-scoped tokens ordered by creation time.
+func (r *Repository) ListTeamTokens(ctx context.Context, teamID string) ([]CliToken, error) {
+	parsedTeamID, err := parseUUID(teamID)
+	if err != nil {
+		return nil, fmt.Errorf("parse team id: %w", err)
+	}
+
+	rows, err := r.pool.Query(ctx, `
+SELECT
+  id,
+  owner_user_id,
+  team_id,
+  kind,
+  name,
+  token_hash,
+  scopes,
+  created_at,
+  last_used_at,
+  expires_at,
+  revoked_at
+FROM cli_token
+WHERE team_id = $1
+ORDER BY created_at DESC, name
+`, parsedTeamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]CliToken, 0)
+	for rows.Next() {
+		var row struct {
+			ID          pgtype.UUID
+			OwnerUserID pgtype.UUID
+			TeamID      pgtype.UUID
+			Kind        string
+			Name        string
+			TokenHash   string
+			Scopes      []string
+			CreatedAt   pgtype.Timestamptz
+			LastUsedAt  pgtype.Timestamptz
+			ExpiresAt   pgtype.Timestamptz
+			RevokedAt   pgtype.Timestamptz
+		}
+		if err := rows.Scan(
+			&row.ID,
+			&row.OwnerUserID,
+			&row.TeamID,
+			&row.Kind,
+			&row.Name,
+			&row.TokenHash,
+			&row.Scopes,
+			&row.CreatedAt,
+			&row.LastUsedAt,
+			&row.ExpiresAt,
+			&row.RevokedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, CliToken{
+			ID:          row.ID.String(),
+			OwnerUserID: row.OwnerUserID.String(),
+			TeamID:      row.TeamID.String(),
+			Kind:        row.Kind,
+			Name:        row.Name,
+			TokenHash:   row.TokenHash,
+			Scopes:      append([]string(nil), row.Scopes...),
+			CreatedAt:   row.CreatedAt.Time,
+			LastUsedAt:  timestamptzPtr(row.LastUsedAt),
+			ExpiresAt:   timestamptzPtr(row.ExpiresAt),
+			RevokedAt:   timestamptzPtr(row.RevokedAt),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// ResolveUserDefaultTeamByGithubLogin resolves a user and one of their team memberships.
+func (r *Repository) ResolveUserDefaultTeamByGithubLogin(ctx context.Context, githubLogin string) (string, string, string, error) {
+	var (
+		userID pgtype.UUID
+		teamID pgtype.UUID
+		slug   string
+	)
+	err := r.pool.QueryRow(ctx, `
+SELECT ua.id, t.id, t.slug
+FROM user_account ua
+JOIN team_membership tm ON tm.user_id = ua.id
+JOIN team t ON t.id = tm.team_id
+WHERE ua.github_login = $1
+ORDER BY CASE tm.role
+  WHEN 'owner' THEN 0
+  WHEN 'admin' THEN 1
+  WHEN 'member' THEN 2
+  ELSE 3
+END, t.slug
+LIMIT 1
+`, githubLogin).Scan(&userID, &teamID, &slug)
+	if err != nil {
+		return "", "", "", err
+	}
+	return userID.String(), teamID.String(), slug, nil
+}
+
+// CreateCLIToken creates a new CLI bearer token and stores only its hash.
+func (r *Repository) CreateCLIToken(ctx context.Context, ownerUserID, teamID string, scopes []string) (string, error) {
+	parsedUserID, err := parseUUID(ownerUserID)
+	if err != nil {
+		return "", fmt.Errorf("parse owner user id: %w", err)
+	}
+	parsedTeamID, err := parseUUID(teamID)
+	if err != nil {
+		return "", fmt.Errorf("parse team id: %w", err)
+	}
+	secret, err := sharedtoken.NewBearerTokenSecret()
+	if err != nil {
+		return "", err
+	}
+	hash, err := sharedtoken.HashBearerToken(secret)
+	if err != nil {
+		return "", err
+	}
+	var tokenID string
+	if err := r.pool.QueryRow(ctx, `
+INSERT INTO cli_token (owner_user_id, team_id, kind, token_hash, name, scopes)
+VALUES ($1, $2, 'device', $3, $4, $5)
+RETURNING id
+`, parsedUserID, parsedTeamID, hash, "device-login", scopes).Scan(&tokenID); err != nil {
+		return "", err
+	}
+	return sharedtoken.FormatBearerToken("device", tokenID, secret), nil
+}
+
+// CreatePAT creates a new personal access token and returns the raw secret once.
+func (r *Repository) CreatePAT(ctx context.Context, ownerUserID, teamID, name string, scopes []string, expiresAt time.Time) (string, error) {
+	parsedUserID, err := parseUUID(ownerUserID)
+	if err != nil {
+		return "", fmt.Errorf("parse owner user id: %w", err)
+	}
+	parsedTeamID, err := parseUUID(teamID)
+	if err != nil {
+		return "", fmt.Errorf("parse team id: %w", err)
+	}
+	secret, err := sharedtoken.NewBearerTokenSecret()
+	if err != nil {
+		return "", err
+	}
+	hash, err := sharedtoken.HashBearerToken(secret)
+	if err != nil {
+		return "", err
+	}
+	var tokenID string
+	if err := r.pool.QueryRow(ctx, `
+INSERT INTO cli_token (owner_user_id, team_id, kind, token_hash, name, scopes, expires_at)
+VALUES ($1, $2, 'pat', $3, $4, $5, $6)
+RETURNING id
+`, parsedUserID, parsedTeamID, hash, name, scopes, expiresAt).Scan(&tokenID); err != nil {
+		return "", err
+	}
+	return sharedtoken.FormatBearerToken("pat", tokenID, secret), nil
+}
+
+// RevokeCLITokenByID marks a token as revoked.
+func (r *Repository) RevokeCLITokenByID(ctx context.Context, tokenID string) error {
+	tag, err := r.pool.Exec(ctx, `
+UPDATE cli_token
+SET revoked_at = now()
+WHERE id = $1
+  AND revoked_at IS NULL
+`, tokenID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+// RevokePATByName marks a PAT as revoked.
+func (r *Repository) RevokePATByName(ctx context.Context, teamID, name string) error {
+	parsedTeamID, err := parseUUID(teamID)
+	if err != nil {
+		return fmt.Errorf("parse team id: %w", err)
+	}
+	tag, err := r.pool.Exec(ctx, `
+UPDATE cli_token
+SET revoked_at = now()
+WHERE team_id = $1
+  AND kind = 'pat'
+  AND name = $2
+  AND revoked_at IS NULL
+`, parsedTeamID, name)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
 }
 
 func textPtr(v pgtype.Text) *string {

@@ -46,6 +46,27 @@ type getAppInput struct {
 
 type listTeamsInput struct{}
 
+type inspectRepoInput struct {
+	TeamSlug string `json:"team_slug"`
+	AppSlug  string `json:"app_slug"`
+}
+
+type deployStatusInput struct {
+	TeamSlug string `json:"team_slug"`
+	AppSlug  string `json:"app_slug"`
+}
+
+type tailLogsInput struct {
+	TeamSlug string `json:"team_slug"`
+	AppSlug  string `json:"app_slug"`
+	Limit    int    `json:"limit,omitempty"`
+}
+
+type listDomainsInput struct {
+	TeamSlug string `json:"team_slug"`
+	AppSlug  string `json:"app_slug"`
+}
+
 type listMembersInput struct {
 	TeamSlug string `json:"team_slug"`
 }
@@ -123,6 +144,78 @@ func registerTools(srv *mcp.Server) {
 		out, err := backendclient.New(host, token).GetApp(ctx, input.TeamSlug, input.AppSlug)
 		if err != nil {
 			return nil, dto.AppRef{}, err
+		}
+		return nil, out, nil
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "inspect_repo",
+		Description: "Inspect app repository metadata.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input inspectRepoInput) (*mcp.CallToolResult, dto.RepoInspectResponse, error) {
+		if input.TeamSlug == "" || input.AppSlug == "" {
+			return nil, dto.RepoInspectResponse{}, fmt.Errorf("team_slug and app_slug are required")
+		}
+		host, token, err := resolveBackendAuth()
+		if err != nil {
+			return nil, dto.RepoInspectResponse{}, err
+		}
+		out, err := backendclient.New(host, token).InspectRepo(ctx, input.TeamSlug, input.AppSlug)
+		if err != nil {
+			return nil, dto.RepoInspectResponse{}, err
+		}
+		return nil, out, nil
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "get_deploy_status",
+		Description: "Get latest deploy status for an app.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input deployStatusInput) (*mcp.CallToolResult, dto.DeployStatusResponse, error) {
+		if input.TeamSlug == "" || input.AppSlug == "" {
+			return nil, dto.DeployStatusResponse{}, fmt.Errorf("team_slug and app_slug are required")
+		}
+		host, token, err := resolveBackendAuth()
+		if err != nil {
+			return nil, dto.DeployStatusResponse{}, err
+		}
+		out, err := backendclient.New(host, token).GetDeployStatus(ctx, input.TeamSlug, input.AppSlug)
+		if err != nil {
+			return nil, dto.DeployStatusResponse{}, err
+		}
+		return nil, out, nil
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "tail_logs",
+		Description: "Tail latest deploy logs for an app.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input tailLogsInput) (*mcp.CallToolResult, dto.TailLogsResponse, error) {
+		if input.TeamSlug == "" || input.AppSlug == "" {
+			return nil, dto.TailLogsResponse{}, fmt.Errorf("team_slug and app_slug are required")
+		}
+		host, token, err := resolveBackendAuth()
+		if err != nil {
+			return nil, dto.TailLogsResponse{}, err
+		}
+		out, err := backendclient.New(host, token).TailLogs(ctx, input.TeamSlug, input.AppSlug, input.Limit)
+		if err != nil {
+			return nil, dto.TailLogsResponse{}, err
+		}
+		return nil, out, nil
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "list_domains",
+		Description: "List domains for an app.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input listDomainsInput) (*mcp.CallToolResult, dto.ListDomainsResponse, error) {
+		if input.TeamSlug == "" || input.AppSlug == "" {
+			return nil, dto.ListDomainsResponse{}, fmt.Errorf("team_slug and app_slug are required")
+		}
+		host, token, err := resolveBackendAuth()
+		if err != nil {
+			return nil, dto.ListDomainsResponse{}, err
+		}
+		out, err := backendclient.New(host, token).ListDomains(ctx, input.TeamSlug, input.AppSlug)
+		if err != nil {
+			return nil, dto.ListDomainsResponse{}, err
 		}
 		return nil, out, nil
 	})

@@ -1,12 +1,25 @@
 package auth
 
-import (
-	"crypto/sha256"
-	"encoding/hex"
-)
+import sharedtoken "github.com/winshare/zeroops/internal/shared/token"
 
-// HashBearerToken produces the stored token hash used by the dev auth chain.
-func HashBearerToken(token string) string {
-	sum := sha256.Sum256([]byte(token))
-	return "sha256:" + hex.EncodeToString(sum[:])
+type ParsedBearerToken = sharedtoken.ParsedBearerToken
+
+func NewBearerToken(kind, id string) (string, error) {
+	return sharedtoken.NewBearerToken(kind, id)
+}
+
+func ParseBearerToken(token string) (ParsedBearerToken, error) {
+	return sharedtoken.ParseBearerToken(token)
+}
+
+func HashBearerToken(secret string) string {
+	hash, err := sharedtoken.HashBearerToken(secret)
+	if err != nil {
+		panic(err)
+	}
+	return hash
+}
+
+func CompareBearerToken(secret, encodedHash string) (bool, error) {
+	return sharedtoken.CompareBearerToken(secret, encodedHash)
 }

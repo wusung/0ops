@@ -49,13 +49,18 @@ WHERE team_id = $1
 ORDER BY slug
 LIMIT $3;
 
--- name: FindCliTokenByHash :one
+-- name: FindCliTokenByID :one
 SELECT
   id,
   owner_user_id,
   team_id,
+  kind,
+  name,
   token_hash,
   scopes,
+  created_at,
+  last_used_at,
+  expires_at,
   revoked_at
 FROM cli_token
 WHERE token_hash = $1;

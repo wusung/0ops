@@ -29,8 +29,12 @@ func NewRootCommand() *cobra.Command {
 	root.SetVersionTemplate("0ops {{.Version}}\n")
 	root.AddCommand(newAuthCommand())
 	root.AddCommand(newAppsCommand())
+	root.AddCommand(newRepoCommand())
+	root.AddCommand(newDeploysCommand())
+	root.AddCommand(newDomainsCommand())
 	root.AddCommand(newTeamsCommand())
 	root.AddCommand(newMembersCommand())
+	root.AddCommand(newAuthCommand())
 	root.AddCommand(newAdminCommand())
 	return root
 }
@@ -181,6 +185,136 @@ func renderApp(cmd *cobra.Command, out dto.AppRef, outputFmt string) error {
 	}
 }
 
+func newRepoCommand() *cobra.Command {
+	var (
+		teamSlug  string
+		baseURL   string
+		token     string
+		outputFmt string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "repo",
+		Short: "Inspect repo metadata",
+	}
+	cmd.PersistentFlags().StringVar(&teamSlug, "team", "", "team slug")
+	cmd.PersistentFlags().StringVar(&baseURL, "host", "", "backend host")
+	cmd.PersistentFlags().StringVar(&token, "token", "", "bearer token")
+	cmd.PersistentFlags().StringVar(&outputFmt, "output", envOr("OPS_OUTPUT", "table"), "output format")
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "inspect <app-slug>",
+		Short: "Inspect app repo metadata",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctxInfo, err := resolveAppsContext(teamSlug, baseURL, token)
+			if err != nil {
+				return err
+			}
+			out, err := backendclient.New(ctxInfo.Host, ctxInfo.BearerToken).InspectRepo(commandContext(cmd), ctxInfo.TeamSlug, args[0])
+			if err != nil {
+				return err
+			}
+			return renderRepoInspect(cmd, out, outputFmt)
+		},
+	})
+
+	return cmd
+}
+
+func newDeploysCommand() *cobra.Command {
+	var (
+		teamSlug  string
+		baseURL   string
+		token     string
+		outputFmt string
+		logLimit  int
+	)
+
+	cmd := &cobra.Command{
+		Use:   "deploys",
+		Short: "Inspect deploy state and logs",
+	}
+	cmd.PersistentFlags().StringVar(&teamSlug, "team", "", "team slug")
+	cmd.PersistentFlags().StringVar(&baseURL, "host", "", "backend host")
+	cmd.PersistentFlags().StringVar(&token, "token", "", "bearer token")
+	cmd.PersistentFlags().StringVar(&outputFmt, "output", envOr("OPS_OUTPUT", "table"), "output format")
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "status <app-slug>",
+		Short: "Get latest deploy status",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctxInfo, err := resolveAppsContext(teamSlug, baseURL, token)
+			if err != nil {
+				return err
+			}
+			out, err := backendclient.New(ctxInfo.Host, ctxInfo.BearerToken).GetDeployStatus(commandContext(cmd), ctxInfo.TeamSlug, args[0])
+			if err != nil {
+				return err
+			}
+			return renderDeployStatus(cmd, out, outputFmt)
+		},
+	})
+	logsCmd := &cobra.Command{
+		Use:   "logs <app-slug>",
+		Short: "Tail latest deploy logs",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctxInfo, err := resolveAppsContext(teamSlug, baseURL, token)
+			if err != nil {
+				return err
+			}
+			out, err := backendclient.New(ctxInfo.Host, ctxInfo.BearerToken).TailLogs(commandContext(cmd), ctxInfo.TeamSlug, args[0], logLimit)
+			if err != nil {
+				return err
+			}
+			return renderTailLogs(cmd, out, outputFmt)
+		},
+	}
+	logsCmd.Flags().IntVar(&logLimit, "limit", 100, "max log lines")
+	cmd.AddCommand(logsCmd)
+
+	return cmd
+}
+
+func newDomainsCommand() *cobra.Command {
+	var (
+		teamSlug  string
+		baseURL   string
+		token     string
+		outputFmt string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "domains",
+		Short: "List app domains",
+	}
+	cmd.PersistentFlags().StringVar(&teamSlug, "team", "", "team slug")
+	cmd.PersistentFlags().StringVar(&baseURL, "host", "", "backend host")
+	cmd.PersistentFlags().StringVar(&token, "token", "", "bearer token")
+	cmd.PersistentFlags().StringVar(&outputFmt, "output", envOr("OPS_OUTPUT", "table"), "output format")
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "list <app-slug>",
+		Short: "List domains for app",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctxInfo, err := resolveAppsContext(teamSlug, baseURL, token)
+			if err != nil {
+				return err
+			}
+			out, err := backendclient.New(ctxInfo.Host, ctxInfo.BearerToken).ListDomains(commandContext(cmd), ctxInfo.TeamSlug, args[0])
+			if err != nil {
+				return err
+			}
+			return renderDomains(cmd, out, outputFmt)
+		},
+	})
+
+	return cmd
+}
+
 func newTeamsCommand() *cobra.Command {
 	var (
 		baseURL   string
@@ -238,6 +372,76 @@ func newTeamsCommand() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&outputFmt, "output", envOr("OPS_OUTPUT", "table"), "output format")
 	cmd.AddCommand(useCmd)
 
+	// Add github subcommand
+	githubCmd := &cobra.Command{
+		Use:   "github",
+		Short: "Manage GitHub integration for the team",
+	}
+
+	githubCmd.AddCommand(&cobra.Command{
+		Use:   "install",
+		Short: "Install GitHub App for the team",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctxInfo, err := resolveAppsContext("", baseURL, token)
+			if err != nil {
+				return err
+			}
+
+			ctx := cmd.Context()
+			if ctx == nil {
+				ctx = context.Background()
+			}
+
+			client := backendclient.New(ctxInfo.Host, ctxInfo.BearerToken)
+
+			// Call backend preview endpoint
+			previewResp, err := client.PreviewGitHubInstall(ctx, ctxInfo.TeamSlug)
+			if err != nil {
+				return fmt.Errorf("preview failed: %w", err)
+			}
+
+			// Call backend confirm endpoint to get install URL
+			confirmResp, err := client.ConfirmGitHubInstall(ctx, ctxInfo.TeamSlug, previewResp.PreviewID)
+			if err != nil {
+				return fmt.Errorf("confirm failed: %w", err)
+			}
+
+			fmt.Printf("Installing GitHub App...\n")
+			fmt.Printf("Install URL: %s\n", confirmResp.InstallURL)
+			// TODO: Open browser with: open.Run(confirmResp.InstallURL)
+			// TODO: Poll backend for installation completion
+			return nil
+		},
+	})
+
+	githubCmd.AddCommand(&cobra.Command{
+		Use:   "uninstall",
+		Short: "Uninstall GitHub App from the team",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctxInfo, err := resolveAppsContext("", baseURL, token)
+			if err != nil {
+				return err
+			}
+
+			ctx := cmd.Context()
+			if ctx == nil {
+				ctx = context.Background()
+			}
+
+			client := backendclient.New(ctxInfo.Host, ctxInfo.BearerToken)
+
+			// Call backend to uninstall
+			if err := client.UninstallGitHubApp(ctx, ctxInfo.TeamSlug); err != nil {
+				return fmt.Errorf("uninstall failed: %w", err)
+			}
+
+			fmt.Printf("GitHub App uninstalled from team %s\n", ctxInfo.TeamSlug)
+			return nil
+		},
+	})
+
+	cmd.AddCommand(githubCmd)
+
 	return cmd
 }
 
@@ -258,6 +462,124 @@ func renderTeams(cmd *cobra.Command, out dto.ListTeamsResponse, outputFmt string
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 		for _, item := range out.Items {
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", item.TeamSlug, item.TeamName, item.Role, item.Plan)
+		}
+		return w.Flush()
+	default:
+		return fmt.Errorf("unsupported output format %q", outputFmt)
+	}
+}
+
+func renderRepoInspect(cmd *cobra.Command, out dto.RepoInspectResponse, outputFmt string) error {
+	switch strings.ToLower(outputFmt) {
+	case "json":
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(out)
+	case "yaml":
+		data, err := yaml.Marshal(out)
+		if err != nil {
+			return err
+		}
+		_, err = cmd.OutOrStdout().Write(data)
+		return err
+	case "table":
+		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+		fmt.Fprintf(w, "app_slug\t%s\n", out.AppSlug)
+		fmt.Fprintf(w, "repo_url\t%s\n", strOrDash(out.RepoURL))
+		fmt.Fprintf(w, "repo_default_branch\t%s\n", strOrDash(out.RepoDefaultBranch))
+		fmt.Fprintf(w, "builder\t%s\n", strOrDash(out.Builder))
+		return w.Flush()
+	default:
+		return fmt.Errorf("unsupported output format %q", outputFmt)
+	}
+}
+
+func renderDeployStatus(cmd *cobra.Command, out dto.DeployStatusResponse, outputFmt string) error {
+	switch strings.ToLower(outputFmt) {
+	case "json":
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(out)
+	case "yaml":
+		data, err := yaml.Marshal(out)
+		if err != nil {
+			return err
+		}
+		_, err = cmd.OutOrStdout().Write(data)
+		return err
+	case "table":
+		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+		fmt.Fprintf(w, "deploy_id\t%s\n", out.DeployID)
+		fmt.Fprintf(w, "app_slug\t%s\n", out.AppSlug)
+		fmt.Fprintf(w, "status\t%s\n", out.Status)
+		fmt.Fprintf(w, "commit_sha\t%s\n", strOrDash(out.CommitSHA))
+		fmt.Fprintf(w, "ref\t%s\n", strOrDash(out.Ref))
+		fmt.Fprintf(w, "error_summary\t%s\n", strOrDash(out.ErrorSummary))
+		if out.StartedAt != nil {
+			fmt.Fprintf(w, "started_at\t%s\n", out.StartedAt.Format(time.RFC3339))
+		} else {
+			fmt.Fprintf(w, "started_at\t-\n")
+		}
+		if out.FinishedAt != nil {
+			fmt.Fprintf(w, "finished_at\t%s\n", out.FinishedAt.Format(time.RFC3339))
+		} else {
+			fmt.Fprintf(w, "finished_at\t-\n")
+		}
+		return w.Flush()
+	default:
+		return fmt.Errorf("unsupported output format %q", outputFmt)
+	}
+}
+
+func renderTailLogs(cmd *cobra.Command, out dto.TailLogsResponse, outputFmt string) error {
+	switch strings.ToLower(outputFmt) {
+	case "json":
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(out)
+	case "yaml":
+		data, err := yaml.Marshal(out)
+		if err != nil {
+			return err
+		}
+		_, err = cmd.OutOrStdout().Write(data)
+		return err
+	case "table":
+		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+		for _, item := range out.Items {
+			fmt.Fprintf(w, "%s\t%s\n", item.Timestamp.Format(time.RFC3339), item.Message)
+		}
+		return w.Flush()
+	default:
+		return fmt.Errorf("unsupported output format %q", outputFmt)
+	}
+}
+
+func renderDomains(cmd *cobra.Command, out dto.ListDomainsResponse, outputFmt string) error {
+	switch strings.ToLower(outputFmt) {
+	case "json":
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(out)
+	case "yaml":
+		data, err := yaml.Marshal(out)
+		if err != nil {
+			return err
+		}
+		_, err = cmd.OutOrStdout().Write(data)
+		return err
+	case "table":
+		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+		for _, item := range out.Items {
+			kind := "-"
+			if item.Kind != nil {
+				kind = *item.Kind
+			}
+			verifiedAt := "-"
+			if item.VerifiedAt != nil {
+				verifiedAt = item.VerifiedAt.Format(time.RFC3339)
+			}
+			fmt.Fprintf(w, "%s\t%s\t%t\t%s\n", item.Hostname, kind, item.Verified, verifiedAt)
 		}
 		return w.Flush()
 	default:
