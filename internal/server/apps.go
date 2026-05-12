@@ -1450,7 +1450,7 @@ func validateAppCreateRequest(w http.ResponseWriter, req dto.AppCreateRequest) b
 		return false
 	}
 	repoURL := strings.TrimSpace(req.RepoURL)
-	if !(strings.HasPrefix(repoURL, "https://github.com/") || strings.HasPrefix(repoURL, "git@github.com:")) {
+	if !strings.HasPrefix(repoURL, "https://github.com/") && !strings.HasPrefix(repoURL, "git@github.com:") {
 		apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "unsupported repo_url", map[string]any{"field": "repo_url"})
 		return false
 	}

@@ -6,6 +6,8 @@ import (
 	"hash/crc32"
 )
 
+// TeamBucketCount is the number of buckets for team distribution (2^6 = 64).
+// Chosen for balanced cardinality (log-scale histogram behavior) and CRC32 distribution properties.
 const TeamBucketCount = 64
 
 // TeamBucket returns the two-digit bucket ID for a given team ID.
