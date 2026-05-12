@@ -79,3 +79,152 @@
 | Image nonroot 執行 | ✅（4/4 image `User=nonroot:nonroot`） |
 | `.env` 不入版本控制 | ✅（`.gitignore` + `.dockerignore` 雙含） |
 | rootless podman 啟動成功 | ✅ |
+
+---
+
+# M2 — gap remediation backlog
+
+> 對應 milestone：**M2**（`create_app` + 兩階段 preview/confirm + idempotency + winshare 子網域 + observability GA + 隔離模型）
+> 對應 milestone 定義：`docs/0ops-plan-milestones.md`
+> 對應主 specs：
+> - `docs/features/create-app-flow/spec.md`
+> - `docs/features/preview-confirm-gate/spec.md`
+> - `docs/features/build-pipeline-and-callback/spec.md`
+> - `docs/features/k3s-namespace-isolation/spec.md`
+> - `docs/features/winshare-subdomain-and-tunnel/spec.md`
+> - `docs/features/observability-skeleton/spec.md`
+> - `docs/features/slo-and-alerting/spec.md`
+> - `docs/features/gitops-render-and-argocd/spec.md`
+
+## 結論
+
+- 目前狀態屬 **M2 部分骨架已存在，但未達 milestone 驗收**。
+- `create_app` 已有 preview/confirm、CLI `--yes`、MCP tool、callback 驗章初版、基本 metrics。
+- 阻擋項集中在：**真實 deploy orchestration、K3s 隔離落地、GitOps/ArgoCD 鏈路、observability GA、MCP description lint 契約、外部驗收證據**。
+
+## P0 — milestone blocker（未完成前不得宣稱 M2 done）
+
+- [ ] **M2.1 create_app orchestration 落地**
+  - 補 `internal/server/services/createapp/`，把目前 handler 內的簡化流程抽成 spec 定義的 `SideEffects / Precheck / Execute / Compensate / state_machine`
+  - 對齊 `docs/features/create-app-flow/spec.md` §1, §5, §6, §7
+  - `deploy_run` 狀態至少補齊：`queued → preparing → building → pushing → rendering → syncing → live`
+  - callback/replay 必須回放 `last_result`，不可只寫 DB row 後直接回成功
+  - 測試：
+    - handler + service unit tests
+    - idempotent replay contract test
+    - failed reversible step → compensate test
+
+- [ ] **M2.2 GitHub Actions dispatch + callback 全鏈路**
+  - 補 backend 到 GHA `workflow_dispatch` 觸發 client
+  - 補 ephemeral `ops_token` 簽發與 callback payload 對應欄位
+  - 對齊 `docs/features/build-pipeline-and-callback/spec.md`
+  - 補 `deploy_run` callback 後續轉態：`building/pushing/rendering/syncing/live/failed`
+  - 補 dedup、timestamp window、signature failure 測試
+  - 驗收證據：
+    - 一次 dispatch 成功
+    - 一次 callback success
+    - 一次 callback duplicate no-op
+
+- [ ] **M2.3 GitOps render/push + ArgoCD sync 鏈路**
+  - 補 render service 與 git push 執行路徑
+  - 定義 `0ops-gitops` repo 目錄責任與最小 manifest 模板
+  - 補 ArgoCD sync 觸發或狀態查詢介面
+  - 對齊 `docs/features/gitops-render-and-argocd/spec.md`
+  - 測試：
+    - render output contract test
+    - git push failure → compensate
+    - sync status transition test
+
+- [ ] **M2.4 K3s namespace isolation 最小可用版**
+  - 把 `internal/server/services/k3s/client.go` 從 no-op 改為真 client
+  - 落地：
+    - `EnsureNamespace`
+    - `EnsureResourceQuota`
+    - `EnsureLimitRange`
+    - `EnsureNetworkPolicy`
+    - `PatchNamespacePSA`
+    - `PatchGHCRImagePullSecret`
+  - 對齊 `docs/features/k3s-namespace-isolation/spec.md`
+  - 驗收證據：
+    - `team-<slug>` namespace 存在
+    - ResourceQuota / LimitRange / NetworkPolicy / PSA label 皆可 `kubectl get` 驗證
+
+- [ ] **M2.5 winshare 子網域真實路由**
+  - 補 Cloudflare / tunnel route 整合，不可只回傳字串 URL
+  - 對齊 `docs/features/winshare-subdomain-and-tunnel/spec.md`
+  - 驗收證據：
+    - `nextdemo.winshare.tw` 外部 HTTP 200
+    - route 建立失敗時有明確錯誤分類與 rollback/收斂策略
+
+- [ ] **M2.6 Observability GA**
+  - 在現有 `internal/server/observability/metrics.go` 之外補齊：
+    - preview/deploy/cf 指標
+    - `preview_consumption_rate`
+    - `preview_to_confirm_latency`
+    - `0ops_cloudflare_api_calls_total`
+    - deploy success/failure / lead time 所需 metrics
+  - 補 dashboard / alert 規則資產，對齊 `docs/features/slo-and-alerting/spec.md`
+  - 驗收證據：
+    - metrics scrape 可見
+    - dashboard 載入
+    - burn-rate rule 可被 promtool 驗證
+
+- [ ] **M2.7 MCP preview/confirm description lint 契約**
+  - 對 `create_app_preview` / `create_app` 補 `ALWAYS` / `NEVER` 必備句式
+  - 補 server startup lint，違反時啟動失敗
+  - 對齊 `docs/features/mcp-tool-description-lint/spec.md`
+  - 驗收證據：
+    - 啟動時 lint pass
+    - 故意放錯 description 時測試紅燈
+
+- [ ] **M2.8 端到端驗收腳本**
+  - 建立一條可重複驗收流程：preview → confirm → dispatch → callback → sync → public URL 200
+  - 驗收至少包含：
+    - CLI 互動式
+    - CLI `--yes`
+    - MCP `create_app_preview` → `create_app`
+    - `nextdemo.winshare.tw` 真 200
+  - 這一條通過前，不得標示 M2 完成
+
+## P1 — 高優先但可在 P0 串接中分批完成
+
+- [ ] **補 DB schema / migration 漂移**
+  - 檢查 `deploy_run` 欄位是否足夠承接 spec：status、trace、scan、classification、events、gitops commit sha 等
+  - 缺欄位就補 migration，不要把 spec 需求留在註解層
+
+- [ ] **補 failure classification 與錯誤模型對齊**
+  - `create_app` / callback / sync / route failure 全部要有穩定錯誤碼與 `failure_classification`
+  - 對齊 `docs/features/error-model/spec.md` 與 `docs/features/reconciler-and-incident/spec.md`
+
+- [ ] **補 trace_id 全鏈路**
+  - backend request → preview row → deploy_run → GHA payload → callback → audit/structured log 必須可串回同一 trace
+
+- [ ] **補 docs 與程式一致性**
+  - 實作完成的每一批，立即回寫：
+    - `docs/0ops-plan.md`
+    - `docs/0ops-plan-observability.md`
+    - 對應 feature spec 若有 drift
+
+## P2 — M2 收尾與後續銜接
+
+- [ ] **補 runbook**
+  - GHA callback 驗章失敗排查
+  - create_app stuck in building/syncing 排查
+  - winshare subdomain 路由失敗排查
+  - burn-rate alert 處理流程
+
+- [ ] **補 lessons**
+  - 完成 M2 後，把踩到的 infra / callback / GitOps / Cloudflare 問題寫入 `tasks/lessons.md`
+
+## 驗收基準（判定 M2 done）
+
+- [ ] `create_app` preview/confirm 真正走完整 saga，而非單純 DB insert
+- [ ] `preview_id` replay 會回放 `last_result`
+- [ ] `deploy_run` 狀態機完整，並有測試
+- [ ] GHA callback 驗章、dedup、狀態推進全通
+- [ ] `team-<slug>` namespace + ResourceQuota + LimitRange + NetworkPolicy + PSA baseline 可被驗證
+- [ ] `nextdemo.winshare.tw` 真實外部 HTTP 200
+- [ ] Prometheus metrics 含 preview/deploy/cf 指標
+- [ ] Grafana dashboard + burn-rate alert 可用
+- [ ] MCP `create_app_preview` / `create_app` description lint 合規
+- [ ] CLI 與 MCP 都各跑過一次端到端驗收
