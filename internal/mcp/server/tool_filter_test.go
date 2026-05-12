@@ -11,8 +11,8 @@ func TestNewToolRegistry(t *testing.T) {
 	}
 
 	allTools := registry.GetAllTools()
-	if len(allTools) != 8 {
-		t.Errorf("expected 8 tools, got %d", len(allTools))
+	if len(allTools) != 10 {
+		t.Errorf("expected 10 tools, got %d", len(allTools))
 	}
 }
 
@@ -51,8 +51,8 @@ func TestGetToolsByCategory(t *testing.T) {
 	}
 
 	writeTools := registry.GetToolsByCategory("write")
-	if len(writeTools) != 2 {
-		t.Errorf("expected 2 write tools, got %d", len(writeTools))
+	if len(writeTools) != 4 {
+		t.Errorf("expected 4 write tools, got %d", len(writeTools))
 	}
 
 	deleteTools := registry.GetToolsByCategory("delete")

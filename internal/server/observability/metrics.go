@@ -14,10 +14,12 @@ import (
 
 // Metrics holds the Prometheus registry and HTTP collectors.
 type Metrics struct {
-	registry     *prometheus.Registry
-	httpTotal    *prometheus.CounterVec
-	httpDuration *prometheus.HistogramVec
-	httpInflight prometheus.Gauge
+	registry          *prometheus.Registry
+	httpTotal         *prometheus.CounterVec
+	httpDuration      *prometheus.HistogramVec
+	httpInflight      prometheus.Gauge
+	createAppPreviews *prometheus.CounterVec
+	createAppConfirms *prometheus.CounterVec
 }
 
 // NewMetrics creates the default HTTP metrics registry.
@@ -48,8 +50,24 @@ func NewMetrics() *Metrics {
 			Name:      "requests_in_flight",
 			Help:      "Current number of HTTP requests being served.",
 		}),
+		createAppPreviews: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "zeroops",
+			Name:      "create_app_previews_total",
+			Help:      "Number of create_app preview requests by outcome.",
+		}, []string{"outcome"}),
+		createAppConfirms: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "zeroops",
+			Name:      "create_app_confirms_total",
+			Help:      "Number of create_app confirm requests by outcome and replay flag.",
+		}, []string{"outcome", "idempotent_replay"}),
 	}
-	reg.MustRegister(m.httpTotal, m.httpDuration, m.httpInflight)
+	reg.MustRegister(
+		m.httpTotal,
+		m.httpDuration,
+		m.httpInflight,
+		m.createAppPreviews,
+		m.createAppConfirms,
+	)
 	return m
 }
 
@@ -79,6 +97,26 @@ func (m *Metrics) Middleware(routeLabel func(*http.Request) string) func(http.Ha
 				Observe(time.Since(start).Seconds())
 		})
 	}
+}
+
+// ObserveCreateAppPreview records create_app preview outcome.
+func (m *Metrics) ObserveCreateAppPreview(outcome string) {
+	if outcome == "" {
+		outcome = "error"
+	}
+	m.createAppPreviews.WithLabelValues(outcome).Inc()
+}
+
+// ObserveCreateAppConfirm records create_app confirm outcome.
+func (m *Metrics) ObserveCreateAppConfirm(outcome string, idempotentReplay bool) {
+	if outcome == "" {
+		outcome = "error"
+	}
+	replay := "false"
+	if idempotentReplay {
+		replay = "true"
+	}
+	m.createAppConfirms.WithLabelValues(outcome, replay).Inc()
 }
 
 func teamBucketForRequest(r *http.Request) string {

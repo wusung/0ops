@@ -28,6 +28,33 @@ type App struct {
 	UpdatedAt         time.Time
 }
 
+// AppCreateParams carries fields required for create_app confirmation.
+type AppCreateParams struct {
+	TeamID      string
+	ActorUserID string
+	Slug        string
+	RepoURL     string
+	Ref         string
+	Builder     *string
+	TraceID     string
+}
+
+// AppCreateResult is the durable result returned from create_app confirmation.
+type AppCreateResult struct {
+	AppID       string
+	AppSlug     string
+	DeployRunID string
+}
+
+// DeployCallbackParams carries callback fields for deploy_run status transition.
+type DeployCallbackParams struct {
+	RunID                 string
+	Status                string
+	TraceID               *string
+	ErrorSummary          *string
+	FailureClassification *string
+}
+
 // CliToken describes an auth token record.
 type CliToken struct {
 	ID          string
@@ -242,6 +269,99 @@ WHERE team_id = $1
 	}, nil
 }
 
+// CreateApp persists app/domain/deploy_run in one transaction for create_app.
+func (r *Repository) CreateApp(ctx context.Context, params AppCreateParams) (AppCreateResult, error) {
+	parsedTeamID, err := parseUUID(params.TeamID)
+	if err != nil {
+		return AppCreateResult{}, fmt.Errorf("parse team id: %w", err)
+	}
+	parsedActorID, err := parseUUID(params.ActorUserID)
+	if err != nil {
+		return AppCreateResult{}, fmt.Errorf("parse actor id: %w", err)
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return AppCreateResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var appID pgtype.UUID
+	if err := tx.QueryRow(ctx, `
+INSERT INTO app (team_id, slug, repo_url, repo_default_branch, builder, created_by, status)
+VALUES ($1, $2, $3, $4, $5, $6, 'queued')
+RETURNING id
+`, parsedTeamID, params.Slug, params.RepoURL, params.Ref, textFromPtr(params.Builder), parsedActorID).Scan(&appID); err != nil {
+		return AppCreateResult{}, err
+	}
+
+	if _, err := tx.Exec(ctx, `
+INSERT INTO domain_binding (app_id, team_id, hostname, kind, verified, verified_at)
+VALUES ($1, $2, $3, 'primary', true, now())
+`, appID, parsedTeamID, fmt.Sprintf("%s.winshare.tw", params.Slug)); err != nil {
+		return AppCreateResult{}, err
+	}
+
+	var deployRunID pgtype.UUID
+	if err := tx.QueryRow(ctx, `
+INSERT INTO deploy_run (app_id, team_id, ref, status, trace_id, started_at)
+VALUES ($1, $2, $3, 'queued', $4, now())
+RETURNING id
+`, appID, parsedTeamID, params.Ref, params.TraceID).Scan(&deployRunID); err != nil {
+		return AppCreateResult{}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return AppCreateResult{}, err
+	}
+
+	return AppCreateResult{
+		AppID:       appID.String(),
+		AppSlug:     params.Slug,
+		DeployRunID: deployRunID.String(),
+	}, nil
+}
+
+// RegisterWebhookDelivery inserts webhook delivery id for dedup. Returns false on duplicate.
+func (r *Repository) RegisterWebhookDelivery(ctx context.Context, provider, deliveryID string) (bool, error) {
+	tag, err := r.pool.Exec(ctx, `
+INSERT INTO webhook_dedup (provider, delivery_id)
+VALUES ($1, $2)
+ON CONFLICT (provider, delivery_id) DO NOTHING
+`, provider, deliveryID)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// ApplyDeployCallback updates a deploy_run from external callback state.
+func (r *Repository) ApplyDeployCallback(ctx context.Context, params DeployCallbackParams) error {
+	parsedRunID, err := parseUUID(params.RunID)
+	if err != nil {
+		return fmt.Errorf("parse run id: %w", err)
+	}
+	tag, err := r.pool.Exec(ctx, `
+UPDATE deploy_run
+SET status = $2,
+    trace_id = COALESCE($3, trace_id),
+    error_summary = $4,
+    failure_classification = $5,
+    finished_at = CASE
+      WHEN $2 IN ('succeeded', 'failed', 'canceled') THEN now()
+      ELSE finished_at
+    END
+WHERE id = $1
+`, parsedRunID, params.Status, textFromPtr(params.TraceID), textFromPtr(params.ErrorSummary), textFromPtr(params.FailureClassification))
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
 // ListDomainsByAppSlug returns domains for a team app.
 func (r *Repository) ListDomainsByAppSlug(ctx context.Context, teamID string, appSlug string) ([]DomainBinding, error) {
 	parsedTeamID, err := parseUUID(teamID)
@@ -329,8 +449,10 @@ func (r *Repository) GetLatestDeployByAppSlug(ctx context.Context, teamID string
 		AppID        pgtype.UUID
 		AppSlug      string
 		Status       string
+		TraceID      pgtype.Text
 		CommitSHA    pgtype.Text
 		Ref          pgtype.Text
+		FailureClass pgtype.Text
 		ErrorSummary pgtype.Text
 		StartedAt    pgtype.Timestamptz
 		FinishedAt   pgtype.Timestamptz
@@ -343,8 +465,10 @@ SELECT
   dr.app_id,
   a.slug,
   dr.status,
+  dr.trace_id,
   dr.commit_sha,
   dr.ref,
+  dr.failure_classification,
   dr.error_summary,
   dr.started_at,
   dr.finished_at,
@@ -361,8 +485,10 @@ LIMIT 1
 		&row.AppID,
 		&row.AppSlug,
 		&row.Status,
+		&row.TraceID,
 		&row.CommitSHA,
 		&row.Ref,
+		&row.FailureClass,
 		&row.ErrorSummary,
 		&row.StartedAt,
 		&row.FinishedAt,
@@ -373,16 +499,18 @@ LIMIT 1
 	}
 
 	out := DeployRun{
-		ID:           row.ID.String(),
-		TeamID:       row.TeamID.String(),
-		AppID:        row.AppID.String(),
-		AppSlug:      row.AppSlug,
-		Status:       row.Status,
-		CommitSHA:    textPtr(row.CommitSHA),
-		Ref:          textPtr(row.Ref),
-		ErrorSummary: textPtr(row.ErrorSummary),
-		StartedAt:    timestamptzPtr(row.StartedAt),
-		FinishedAt:   timestamptzPtr(row.FinishedAt),
+		ID:                    row.ID.String(),
+		TeamID:                row.TeamID.String(),
+		AppID:                 row.AppID.String(),
+		AppSlug:               row.AppSlug,
+		Status:                row.Status,
+		TraceID:               textPtr(row.TraceID),
+		CommitSHA:             textPtr(row.CommitSHA),
+		Ref:                   textPtr(row.Ref),
+		FailureClassification: textPtr(row.FailureClass),
+		ErrorSummary:          textPtr(row.ErrorSummary),
+		StartedAt:             timestamptzPtr(row.StartedAt),
+		FinishedAt:            timestamptzPtr(row.FinishedAt),
 	}
 	if len(row.Events) > 0 {
 		var events []struct {

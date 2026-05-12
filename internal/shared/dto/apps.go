@@ -30,3 +30,26 @@ type ListAppsResponse struct {
 	NextCursor *string  `json:"next_cursor,omitempty"`
 	PageSize   int      `json:"page_size"`
 }
+
+// AppCreateRequest is the create_app preview payload.
+type AppCreateRequest struct {
+	Slug    string  `json:"slug"`
+	RepoURL string  `json:"repo_url"`
+	Ref     string  `json:"ref"`
+	Builder *string `json:"builder,omitempty"`
+}
+
+// ConfirmCreateAppRequest confirms create_app with a preview id.
+type ConfirmCreateAppRequest struct {
+	PreviewID string `json:"preview_id"`
+}
+
+// AppCreateResponse is the create_app confirmation result.
+type AppCreateResponse struct {
+	AppID         string `json:"app_id"`
+	AppSlug       string `json:"app_slug"`
+	DeployRunID   string `json:"deploy_run_id"`
+	TraceID       string `json:"trace_id"`
+	SubdomainURL  string `json:"subdomain_url"`
+	InitialDeploy bool   `json:"initial_deploy"`
+}

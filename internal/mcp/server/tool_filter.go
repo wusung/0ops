@@ -40,6 +40,18 @@ func NewToolRegistry() *ToolRegistry {
 				Category:     "read",
 				DefaultAllow: true,
 			},
+			"create_app_preview": {
+				Name:         "create_app_preview",
+				Description:  "Create preview for create_app action.",
+				Category:     "write",
+				DefaultAllow: false,
+			},
+			"create_app": {
+				Name:         "create_app",
+				Description:  "Confirm create_app with preview_id.",
+				Category:     "write",
+				DefaultAllow: false,
+			},
 			"list_members": {
 				Name:         "list_members",
 				Description:  "List members in a team.",

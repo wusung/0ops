@@ -44,6 +44,19 @@ type getAppInput struct {
 	AppSlug  string `json:"app_slug"`
 }
 
+type createAppPreviewInput struct {
+	TeamSlug string  `json:"team_slug"`
+	Slug     string  `json:"slug"`
+	RepoURL  string  `json:"repo_url"`
+	Ref      string  `json:"ref"`
+	Builder  *string `json:"builder,omitempty"`
+}
+
+type createAppInput struct {
+	TeamSlug  string `json:"team_slug"`
+	PreviewID string `json:"preview_id"`
+}
+
 type listTeamsInput struct{}
 
 type inspectRepoInput struct {
@@ -144,6 +157,49 @@ func registerTools(srv *mcp.Server) {
 		out, err := backendclient.New(host, token).GetApp(ctx, input.TeamSlug, input.AppSlug)
 		if err != nil {
 			return nil, dto.AppRef{}, err
+		}
+		return nil, out, nil
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "create_app_preview",
+		Description: "Create preview for create_app action.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input createAppPreviewInput) (*mcp.CallToolResult, dto.PreviewResponse, error) {
+		if input.TeamSlug == "" || input.Slug == "" || input.RepoURL == "" || input.Ref == "" {
+			return nil, dto.PreviewResponse{}, fmt.Errorf("team_slug, slug, repo_url and ref are required")
+		}
+		host, token, err := resolveBackendAuth()
+		if err != nil {
+			return nil, dto.PreviewResponse{}, err
+		}
+		out, err := backendclient.New(host, token).PreviewCreateApp(ctx, input.TeamSlug, dto.AppCreateRequest{
+			Slug:    input.Slug,
+			RepoURL: input.RepoURL,
+			Ref:     input.Ref,
+			Builder: input.Builder,
+		})
+		if err != nil {
+			return nil, dto.PreviewResponse{}, err
+		}
+		return nil, out, nil
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "create_app",
+		Description: "Confirm create_app with preview_id.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input createAppInput) (*mcp.CallToolResult, dto.AppCreateResponse, error) {
+		if input.TeamSlug == "" || input.PreviewID == "" {
+			return nil, dto.AppCreateResponse{}, fmt.Errorf("team_slug and preview_id are required")
+		}
+		host, token, err := resolveBackendAuth()
+		if err != nil {
+			return nil, dto.AppCreateResponse{}, err
+		}
+		out, err := backendclient.New(host, token).CreateApp(ctx, input.TeamSlug, dto.ConfirmCreateAppRequest{
+			PreviewID: input.PreviewID,
+		})
+		if err != nil {
+			return nil, dto.AppCreateResponse{}, err
 		}
 		return nil, out, nil
 	})

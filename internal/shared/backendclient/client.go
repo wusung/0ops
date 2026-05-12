@@ -101,6 +101,26 @@ func (c *Client) GetApp(ctx context.Context, teamSlug, appSlug string) (dto.AppR
 	return out, nil
 }
 
+// PreviewCreateApp creates a create_app preview.
+func (c *Client) PreviewCreateApp(ctx context.Context, teamSlug string, reqBody dto.AppCreateRequest) (dto.PreviewResponse, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/apps:preview"
+	var out dto.PreviewResponse
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, reqBody, &out); err != nil {
+		return dto.PreviewResponse{}, err
+	}
+	return out, nil
+}
+
+// CreateApp confirms a create_app preview.
+func (c *Client) CreateApp(ctx context.Context, teamSlug string, reqBody dto.ConfirmCreateAppRequest) (dto.AppCreateResponse, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/apps"
+	var out dto.AppCreateResponse
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, reqBody, &out); err != nil {
+		return dto.AppCreateResponse{}, err
+	}
+	return out, nil
+}
+
 //nolint:revive // exported for public API
 func (c *Client) InspectRepo(ctx context.Context, teamSlug, appSlug string) (dto.RepoInspectResponse, error) {
 	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/repos/" + url.PathEscape(appSlug) + ":inspect"

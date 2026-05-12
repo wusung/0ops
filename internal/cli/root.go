@@ -49,6 +49,14 @@ func newAppsCommand() *cobra.Command {
 		allPages  bool
 		outputFmt string
 	)
+	var (
+		createSlug    string
+		createRepoURL string
+		createRef     string
+		createBuilder string
+		createYes     bool
+		createDryRun  bool
+	)
 
 	cmd := &cobra.Command{
 		Use:   "apps",
@@ -125,6 +133,67 @@ func newAppsCommand() *cobra.Command {
 			return renderApp(cmd, out, outputFmt)
 		},
 	})
+	createCmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create an app with preview/confirm flow",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctxInfo, err := resolveAppsContext(teamSlug, baseURL, token)
+			if err != nil {
+				return err
+			}
+			if strings.TrimSpace(createSlug) == "" {
+				return fmt.Errorf("--slug is required")
+			}
+			if strings.TrimSpace(createRepoURL) == "" {
+				return fmt.Errorf("--repo-url is required")
+			}
+			if strings.TrimSpace(createRef) == "" {
+				return fmt.Errorf("--ref is required")
+			}
+
+			request := dto.AppCreateRequest{
+				Slug:    strings.TrimSpace(createSlug),
+				RepoURL: strings.TrimSpace(createRepoURL),
+				Ref:     strings.TrimSpace(createRef),
+			}
+			if strings.TrimSpace(createBuilder) != "" {
+				builder := strings.TrimSpace(createBuilder)
+				request.Builder = &builder
+			}
+
+			client := backendclient.New(ctxInfo.Host, ctxInfo.BearerToken)
+			ctx := commandContext(cmd)
+			preview, err := client.PreviewCreateApp(ctx, ctxInfo.TeamSlug, request)
+			if err != nil {
+				return err
+			}
+			if createDryRun {
+				return renderPreview(cmd, preview, outputFmt)
+			}
+			if !createYes {
+				ok, err := confirmAction(cmd, fmt.Sprintf("Create app %q in team %q?", request.Slug, ctxInfo.TeamSlug))
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return nil
+				}
+			}
+
+			out, err := client.CreateApp(ctx, ctxInfo.TeamSlug, dto.ConfirmCreateAppRequest{PreviewID: preview.PreviewID})
+			if err != nil {
+				return err
+			}
+			return renderAppCreate(cmd, out, outputFmt)
+		},
+	}
+	createCmd.Flags().StringVar(&createSlug, "slug", "", "app slug")
+	createCmd.Flags().StringVar(&createRepoURL, "repo-url", "", "source repository URL")
+	createCmd.Flags().StringVar(&createRef, "ref", "main", "git ref (branch/tag)")
+	createCmd.Flags().StringVar(&createBuilder, "builder", "", "optional buildpack builder")
+	createCmd.Flags().BoolVar(&createYes, "yes", false, "skip confirmation")
+	createCmd.Flags().BoolVar(&createDryRun, "dry-run", false, "preview only, do not confirm")
+	cmd.AddCommand(createCmd)
 
 	return cmd
 }
@@ -179,6 +248,58 @@ func renderApp(cmd *cobra.Command, out dto.AppRef, outputFmt string) error {
 		_, _ = fmt.Fprintf(w, "status\t%s\n", strOrDash(out.Status))
 		_, _ = fmt.Fprintf(w, "created_at\t%s\n", out.CreatedAt.Format(time.RFC3339))
 		_, _ = fmt.Fprintf(w, "updated_at\t%s\n", out.UpdatedAt.Format(time.RFC3339))
+		return w.Flush()
+	default:
+		return fmt.Errorf("unsupported output format %q", outputFmt)
+	}
+}
+
+func renderPreview(cmd *cobra.Command, out dto.PreviewResponse, outputFmt string) error {
+	switch strings.ToLower(outputFmt) {
+	case "json":
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(out)
+	case "yaml":
+		data, err := yaml.Marshal(out)
+		if err != nil {
+			return err
+		}
+		_, err = cmd.OutOrStdout().Write(data)
+		return err
+	case "table":
+		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+		_, _ = fmt.Fprintf(w, "preview_id\t%s\n", out.PreviewID)
+		_, _ = fmt.Fprintf(w, "action\t%s\n", out.Action)
+		_, _ = fmt.Fprintf(w, "summary\t%s\n", out.Summary)
+		_, _ = fmt.Fprintf(w, "expires_at\t%s\n", out.ExpiresAt.Format(time.RFC3339))
+		return w.Flush()
+	default:
+		return fmt.Errorf("unsupported output format %q", outputFmt)
+	}
+}
+
+func renderAppCreate(cmd *cobra.Command, out dto.AppCreateResponse, outputFmt string) error {
+	switch strings.ToLower(outputFmt) {
+	case "json":
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(out)
+	case "yaml":
+		data, err := yaml.Marshal(out)
+		if err != nil {
+			return err
+		}
+		_, err = cmd.OutOrStdout().Write(data)
+		return err
+	case "table":
+		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+		_, _ = fmt.Fprintf(w, "app_id\t%s\n", out.AppID)
+		_, _ = fmt.Fprintf(w, "app_slug\t%s\n", out.AppSlug)
+		_, _ = fmt.Fprintf(w, "deploy_run_id\t%s\n", out.DeployRunID)
+		_, _ = fmt.Fprintf(w, "trace_id\t%s\n", out.TraceID)
+		_, _ = fmt.Fprintf(w, "subdomain_url\t%s\n", out.SubdomainURL)
+		_, _ = fmt.Fprintf(w, "initial_deploy\t%t\n", out.InitialDeploy)
 		return w.Flush()
 	default:
 		return fmt.Errorf("unsupported output format %q", outputFmt)

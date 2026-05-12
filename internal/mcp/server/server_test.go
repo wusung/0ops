@@ -52,6 +52,37 @@ func TestListAppsAndGetAppTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get_app: %v", err)
 	}
+	preview, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "create_app_preview",
+		Arguments: map[string]any{
+			"team_slug": store.team.Slug,
+			"slug":      "nextdemo",
+			"repo_url":  "https://github.com/example/nextdemo",
+			"ref":       "main",
+		},
+	})
+	if err != nil {
+		t.Fatalf("create_app_preview: %v", err)
+	}
+	var previewPayload struct {
+		PreviewID string `json:"preview_id"`
+	}
+	if err := json.Unmarshal([]byte(preview.Content[0].(*mcp.TextContent).Text), &previewPayload); err != nil {
+		t.Fatalf("decode create_app_preview payload: %v", err)
+	}
+	if previewPayload.PreviewID == "" {
+		t.Fatal("expected preview_id from create_app_preview")
+	}
+	_, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "create_app",
+		Arguments: map[string]any{
+			"team_slug":  store.team.Slug,
+			"preview_id": previewPayload.PreviewID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("create_app: %v", err)
+	}
 	cancel()
 	<-errCh
 }
@@ -132,6 +163,7 @@ type mcpFakeStore struct {
 	deploys    []db.DeployRun
 	memberRows []db.Member
 	members    bool
+	previews   map[string]db.Preview
 }
 
 func (f *mcpFakeStore) FindCliTokenByID(_ context.Context, tokenID string) (db.CliToken, error) {
@@ -210,17 +242,72 @@ func (f *mcpFakeStore) ListTeamTokens(_ context.Context, teamID string) ([]db.Cl
 	return out, nil
 }
 func (f *mcpFakeStore) CreatePreview(_ context.Context, teamID, actorUserID, action string, args json.RawMessage, _ string) (db.Preview, error) {
-	return db.Preview{ID: "preview-1", TeamID: teamID, ActorUserID: actorUserID, Action: action, Args: args, ExpiresAt: time.Now().UTC().Add(time.Minute)}, nil
+	preview := db.Preview{ID: "preview-1", TeamID: teamID, ActorUserID: actorUserID, Action: action, Args: args, ExpiresAt: time.Now().UTC().Add(time.Minute)}
+	f.previews[preview.ID] = preview
+	return preview, nil
 }
 func (f *mcpFakeStore) GetPreview(_ context.Context, previewID string) (db.Preview, error) {
-	return db.Preview{ID: previewID, TeamID: f.team.ID, ActorUserID: f.token.OwnerUserID, Action: "invite_member", Args: []byte(`{"github_login":"newbie","role":"member"}`), ExpiresAt: time.Now().UTC().Add(time.Minute)}, nil
+	if preview, ok := f.previews[previewID]; ok {
+		return preview, nil
+	}
+	return db.Preview{}, db.ErrPreviewNotFound
 }
 func (f *mcpFakeStore) ConsumePreview(_ context.Context, _ string) error { return nil }
+func (f *mcpFakeStore) ConsumePreviewWithResult(_ context.Context, previewID string, result json.RawMessage) error {
+	preview, ok := f.previews[previewID]
+	if !ok {
+		return db.ErrPreviewNotFound
+	}
+	if preview.ConsumedAt != nil {
+		return db.ErrPreviewConsumed
+	}
+	now := time.Now().UTC()
+	preview.ConsumedAt = &now
+	preview.LastResult = append(json.RawMessage(nil), result...)
+	f.previews[previewID] = preview
+	return nil
+}
 func (f *mcpFakeStore) InviteMember(_ context.Context, params db.InviteMemberParams) (db.Member, error) {
 	now := time.Now().UTC()
 	return db.Member{UserID: "user-new", Role: params.Role, InvitedAt: &now, JoinedAt: &now}, nil
 }
 func (f *mcpFakeStore) RemoveMember(_ context.Context, _, _, _ string) error {
+	return nil
+}
+func (f *mcpFakeStore) CreateApp(_ context.Context, params db.AppCreateParams) (db.AppCreateResult, error) {
+	appID := "app-nextdemo"
+	deployRunID := "deploy-nextdemo"
+	now := time.Now().UTC()
+	f.apps = append(f.apps, db.App{
+		ID:                appID,
+		TeamID:            params.TeamID,
+		Slug:              params.Slug,
+		RepoURL:           &params.RepoURL,
+		RepoDefaultBranch: &params.Ref,
+		Builder:           params.Builder,
+		Status:            strPtr("queued"),
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	})
+	f.deploys = append(f.deploys, db.DeployRun{
+		ID:      deployRunID,
+		TeamID:  params.TeamID,
+		AppID:   appID,
+		AppSlug: params.Slug,
+		Status:  "queued",
+	})
+	return db.AppCreateResult{
+		AppID:       appID,
+		AppSlug:     params.Slug,
+		DeployRunID: deployRunID,
+	}, nil
+}
+
+func (f *mcpFakeStore) RegisterWebhookDelivery(_ context.Context, _, _ string) (bool, error) {
+	return true, nil
+}
+
+func (f *mcpFakeStore) ApplyDeployCallback(_ context.Context, _ db.DeployCallbackParams) error {
 	return nil
 }
 func (f mcpFakeStore) IsToolGranted(_ context.Context, _ string, _ string, _ string) (bool, error) {
@@ -325,7 +412,7 @@ func newMCPFakeStore() (*mcpFakeStore, string) {
 	if err != nil {
 		panic(err)
 	}
-	baseToken := db.CliToken{ID: "token-1", OwnerUserID: "user-1", TeamID: "team-1", TokenHash: auth.HashBearerToken(parsed.Secret), Scopes: []string{"apps:read", "teams:read", "members:manage"}}
+	baseToken := db.CliToken{ID: "token-1", OwnerUserID: "user-1", TeamID: "team-1", TokenHash: auth.HashBearerToken(parsed.Secret), Scopes: []string{"apps:read", "apps:write", "teams:read", "members:manage"}}
 	return &mcpFakeStore{
 		token:  baseToken,
 		tokens: map[string]db.CliToken{baseToken.ID: baseToken},
@@ -345,6 +432,7 @@ func newMCPFakeStore() (*mcpFakeStore, string) {
 			},
 		}},
 		memberRows: []db.Member{{UserID: "user-1", GithubLogin: strPtr("owner"), Role: "owner"}},
+		previews:   map[string]db.Preview{},
 	}, token
 }
 

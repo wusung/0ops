@@ -36,6 +36,7 @@ func main() {
 	defer pool.Close()
 
 	repo := db.NewRepository(pool)
+	appserver.BindCreateAppMetrics(metrics.ObserveCreateAppPreview, metrics.ObserveCreateAppConfirm)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)

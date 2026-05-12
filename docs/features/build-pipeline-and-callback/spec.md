@@ -12,7 +12,7 @@
 - 5 階段：GHCR login → `pack build` → trivy scan → render & push gitops → callback backend
 - Trivy v1 GA `severity=HIGH,CRITICAL exit-code=0`（觀察期）；1 個月後條件達成升 `exit-code=1`（v1.1）
 - `ops_token` 為 backend 簽發 20 min 短期 HMAC token；綁 `run_id`；GHCR push 與 callback 共用此 token
-- HMAC callback：`HMAC-SHA256({timestamp}.{body})`；header `X-0ops-Timestamp` + `X-0ops-Signature: sha256=<hex>`；timestamp window ±5 min；`webhook_dedup(provider='gha-callback', delivery_id=run_id)` 反 replay
+- HMAC callback：`HMAC-SHA256({timestamp}.{body})`；header `X-0ops-Timestamp` + `X-0ops-Signature: sha256=<hex>`；timestamp window ±5 min；`webhook_dedup(provider='gha-callback', delivery_id)` 反 replay（`delivery_id` 取 `X-0ops-Delivery-ID`，缺值 fallback `run_id`）
 - Callback secret 90 天 rotation；rotation 期間雙 secret 並存 30 分鐘
 - Polling fallback：reconciler 對 `building` 滯留 > 30 min 主動拉 GitHub workflow_run 狀態（屬 `reconciler-and-incident` spec；本 spec 釘介接點）
 - 同一個 callback `run_id` 重送 → 走 `webhook_dedup` 直接回 200，不重做 state machine
@@ -305,8 +305,8 @@ r.Post("/internal/deploy-runs/{run_id}/callback", callback.Handler)
    - 主路徑：用該 deploy_run 之 ops_token 為 key（ops_token 從 deploy_run.events 或 cli_token 表取）
    - fallback：用 OPS_CALLBACK_SECRET 為 key
    - 主成功 → 進；fallback 成功 → log warn (ops_token 失效)；兩者皆失 → 401 invalid_signature
-6. 解 body JSON 為 CallbackPayload
-7. webhook_dedup INSERT (provider='gha-callback', delivery_id=run_id)
+6. 解 body JSON 為 CallbackPayload（`trace_id` 必填）
+7. webhook_dedup INSERT (provider='gha-callback', delivery_id = header `X-0ops-Delivery-ID`，缺值用 run_id)
    - 衝突（已存在）→ 200 ok（idempotent；不再執行 state machine）
 8. 推進 deploy_run state machine：
    - status='success' → transition 'building → pushing → ... → live'（與 plan deploy 狀態機對齊）
