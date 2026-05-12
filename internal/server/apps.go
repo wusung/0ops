@@ -317,6 +317,15 @@ func NewRouter(store routerStore) http.Handler {
 	r := chi.NewRouter()
 	r.Post("/v1/admin/bootstrap-owner", bootstrapOwnerHandler(store))
 
+	// Device flow endpoints (no auth required)
+	r.Route("/v1/auth/device", func(sr chi.Router) {
+		sr.Post("/start", deviceFlowStartHandler())
+		sr.Post("/poll", deviceFlowPollHandler())
+	})
+
+	// Tool authorization endpoint (requires temporary token)
+	r.Post("/v1/teams/{team_slug}/auth:grant-tools", authorizeToolsHandler())
+
 	r.Route("/v1/me", func(sr chi.Router) {
 		sr.Use(mw.Bearer)
 		sr.Use(func(next http.Handler) http.Handler {
