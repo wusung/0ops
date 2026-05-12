@@ -223,6 +223,21 @@ func (f *mcpFakeStore) InviteMember(_ context.Context, params db.InviteMemberPar
 func (f *mcpFakeStore) RemoveMember(_ context.Context, _, _, _ string) error {
 	return nil
 }
+func (f mcpFakeStore) IsToolGranted(ctx context.Context, teamID, userID, toolID string) (bool, error) {
+	return true, nil
+}
+func (f mcpFakeStore) ListGrantedTools(ctx context.Context, teamID, userID string) ([]string, error) {
+	return []string{}, nil
+}
+func (f mcpFakeStore) UpsertToolGrant(ctx context.Context, teamID, userID, toolID string, allowed bool, grantedByActorID *string) error {
+	return nil
+}
+func (f mcpFakeStore) RevokeToolGrant(ctx context.Context, teamID, userID, toolID string) error {
+	return nil
+}
+func (f mcpFakeStore) ListAllUserGrants(ctx context.Context, teamID, userID string) ([]db.ToolGrant, error) {
+	return []db.ToolGrant{}, nil
+}
 
 func (f *mcpFakeStore) ResolveUserDefaultTeamByGithubLogin(_ context.Context, githubLogin string) (string, string, string, error) {
 	if githubLogin != "owner" {

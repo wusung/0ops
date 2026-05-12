@@ -2,8 +2,12 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"os"
 	osuser "os/user"
@@ -78,13 +82,16 @@ func newAuthCommand() *cobra.Command {
 		Short: "Show stored auth status for host",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := authconfig.Load()
-			if err != nil {
-				return err
+			host := hostFlag
+			var token authconfig.Token
+			if err == nil {
+				host = resolveHost(hostFlag, cfg)
+				if stored, ok := cfg.TokenForHost(host); ok {
+					token = stored
+				}
 			}
-			host := resolveHost(hostFlag, cfg)
-			token, ok := cfg.TokenForHost(host)
-			if !ok {
-				return fmt.Errorf("no auth config entry for host %q", host)
+			if token.Host == "" {
+				token = authconfig.Token{Host: host, BearerToken: tokenFlag}
 			}
 			switch strings.ToLower(outputFmt) {
 			case "json":
@@ -92,6 +99,8 @@ func newAuthCommand() *cobra.Command {
 				enc.SetIndent("", "  ")
 				return enc.Encode(token) //nolint:gosec // BearerToken is expected to be in response
 			case "table":
+				fmt.Fprintf(cmd.OutOrStdout(), "Authentication Status\n")
+				fmt.Fprintf(cmd.OutOrStdout(), "====================\n\n")
 				w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 				_, _ = fmt.Fprintf(w, "host\t%s\n", token.Host)
 				_, _ = fmt.Fprintf(w, "github_login\t%s\n", token.GitHubLogin)
@@ -100,6 +109,24 @@ func newAuthCommand() *cobra.Command {
 			default:
 				return fmt.Errorf("unsupported output format %q", outputFmt)
 			}
+		},
+	})
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "grant <tool>",
+		Short: "Grant permission for an MCP tool",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return handleAuthGrant(cmd, hostFlag, tokenFlag, args[0])
+		},
+	})
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "revoke <tool>",
+		Short: "Revoke permission for an MCP tool",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return handleAuthRevoke(cmd, hostFlag, tokenFlag, args[0])
 		},
 	})
 
@@ -261,6 +288,10 @@ func runAuthLogin(cmd *cobra.Command, hostFlag, githubLogin, email string) error
 	client := backendclient.New(host, "")
 	ctx := commandContext(cmd)
 
+	fmt.Fprintf(cmd.OutOrStdout(), "\n🔐 Starting GitHub OAuth2 Device Flow\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "Backend: %s\n\n", host)
+	fmt.Fprintf(cmd.OutOrStdout(), "Step 1/4: Starting device flow...\n")
+
 	start, err := client.StartDeviceLogin(ctx, dto.DeviceStartRequest{
 		GithubLogin: resolvedGithubLogin,
 		Email:       stringPtrIfNotEmpty(email),
@@ -268,7 +299,7 @@ func runAuthLogin(cmd *cobra.Command, hostFlag, githubLogin, email string) error
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Open %s and enter code %s\n", start.VerificationURI, start.UserCode); err != nil {
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "✓ Device flow started\n\n👉 Visit: %s\n📝 Enter code: %s\n⏰ Expires in: %d seconds\n\n", start.VerificationURI, start.UserCode, start.TTLSeconds); err != nil {
 		return err
 	}
 
@@ -276,6 +307,8 @@ func runAuthLogin(cmd *cobra.Command, hostFlag, githubLogin, email string) error
 	if start.IntervalSeconds > 0 {
 		pollInterval = time.Duration(start.IntervalSeconds) * time.Second
 	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "Step 2/4: Waiting for authorization...\n")
 
 	// Poll until authorization is complete or error occurs
 	var poll dto.DevicePollResponse
@@ -298,9 +331,20 @@ func runAuthLogin(cmd *cobra.Command, hostFlag, githubLogin, email string) error
 		break
 	}
 
+	if poll.Team.Slug != "" {
+		poll.DefaultTeamSlug = poll.Team.Slug
+	}
+	if poll.Team.Name != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "✓ GitHub authorization successful\n")
+		fmt.Fprintf(cmd.OutOrStdout(), "✓ Team: %s (%s)\n\n", poll.Team.Name, poll.Team.Slug)
+	}
+
 	cfg, _ = authconfig.Load()
 	if cfg.Version == 0 {
 		cfg.Version = 1
+	}
+	if strings.TrimSpace(poll.DefaultTeamSlug) == "" && poll.Team.Slug != "" {
+		poll.DefaultTeamSlug = poll.Team.Slug
 	}
 	cfg.UpsertTokenForHost(authconfig.Token{
 		Host:            host,
@@ -312,7 +356,7 @@ func runAuthLogin(cmd *cobra.Command, hostFlag, githubLogin, email string) error
 	if err := authconfig.Save(cfg); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(cmd.OutOrStdout(), "logged in as %s on %s\n", poll.GithubLogin, host)
+	_, err = fmt.Fprintf(cmd.OutOrStdout(), "Login successful for %s on %s\n", poll.GithubLogin, host)
 	return err
 }
 
@@ -419,4 +463,103 @@ func isLocalHost(host string) bool {
 	}
 	name := strings.ToLower(parsed.Hostname())
 	return name == "localhost" || name == "127.0.0.1" || name == "::1"
+}
+
+// patchToolGrantsRequest is the request body for PATCH /v1/me/auth/tool-grants
+type patchToolGrantsRequest struct {
+	Grant  []string `json:"grant,omitempty"`
+	Revoke []string `json:"revoke,omitempty"`
+}
+
+// patchToolGrantsResponse is the response body for PATCH /v1/me/auth/tool-grants
+type patchToolGrantsResponse struct {
+	GrantedTools []string `json:"granted_tools"`
+	RevokedTools []string `json:"revoked_tools"`
+}
+
+// patchToolGrants updates tool grants by calling PATCH /v1/me/auth/tool-grants
+func patchToolGrants(ctx context.Context, host, token string, grant, revoke []string) (*patchToolGrantsResponse, error) {
+	reqBody := patchToolGrantsRequest{
+		Grant:  grant,
+		Revoke: revoke,
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, host+"/v1/me/auth/tool-grants", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("patch tool grants failed: %s", string(data))
+	}
+
+	var respBody patchToolGrantsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&respBody); err != nil {
+		return nil, err
+	}
+	return &respBody, nil
+}
+
+// handleAuthGrant grants permission for an MCP tool
+func handleAuthGrant(cmd *cobra.Command, baseURL string, tokenFlag string, tool string) error {
+	ctxInfo, err := resolveBackendContext(baseURL, tokenFlag)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(tool) == "" {
+		return fmt.Errorf("tool name cannot be empty")
+	}
+
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	resp, err := patchToolGrants(ctx, ctxInfo.Host, ctxInfo.BearerToken, []string{tool}, nil)
+	if err != nil {
+		return fmt.Errorf("failed to grant tool: %w", err)
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "✓ Granted permission for tool: %s\n", tool)
+	fmt.Fprintf(cmd.OutOrStdout(), "Total granted tools: %d\n", len(resp.GrantedTools))
+	return nil
+}
+
+// handleAuthRevoke revokes permission for an MCP tool
+func handleAuthRevoke(cmd *cobra.Command, baseURL string, tokenFlag string, tool string) error {
+	ctxInfo, err := resolveBackendContext(baseURL, tokenFlag)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(tool) == "" {
+		return fmt.Errorf("tool name cannot be empty")
+	}
+
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	resp, err := patchToolGrants(ctx, ctxInfo.Host, ctxInfo.BearerToken, nil, []string{tool})
+	if err != nil {
+		return fmt.Errorf("failed to revoke tool: %w", err)
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "✓ Revoked permission for tool: %s\n", tool)
+	fmt.Fprintf(cmd.OutOrStdout(), "Total granted tools: %d\n", len(resp.GrantedTools))
+	return nil
 }

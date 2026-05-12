@@ -24,10 +24,29 @@ type DevicePollRequest struct {
 
 //nolint:revive // exported for public API
 type DevicePollResponse struct {
-	BearerToken     string    `json:"bearer_token"`
-	DefaultTeamSlug string    `json:"default_team_slug"`
-	GithubLogin     string    `json:"github_login"`
-	IssuedAt        time.Time `json:"issued_at"`
+	BearerToken     string       `json:"access_token"`
+	DefaultTeamSlug string       `json:"default_team_slug"`
+	GithubLogin     string       `json:"github_login"`
+	IssuedAt        time.Time    `json:"issued_at"`
+	Team            DeviceTeam   `json:"team,omitempty"`
+	AvailableTools  []DeviceTool `json:"available_tools,omitempty"`
+	NextStep        string       `json:"next_step,omitempty"`
+}
+
+type DeviceTeam struct {
+	ID   string `json:"id"`
+	Slug string `json:"slug"`
+	Name string `json:"name"`
+}
+
+type DeviceTool struct {
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Category       string `json:"category"`
+	Description    string `json:"description"`
+	DefaultAllowed bool   `json:"default_allowed"`
+	RiskLevel      string `json:"risk_level,omitempty"`
+	Warning        string `json:"warning,omitempty"`
 }
 
 //nolint:revive // exported for public API

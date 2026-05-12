@@ -21,7 +21,12 @@ type TeamMembership struct {
 	InvitedAt *time.Time
 }
 
-//nolint:revive // exported for public API
+// ToolGrant describes a tool grant for a user on a team.
+type ToolGrant struct {
+	ToolID  string
+	Allowed bool
+}
+
 type DomainBinding struct {
 	ID         string
 	TeamID     string
