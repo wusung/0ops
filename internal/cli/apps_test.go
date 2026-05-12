@@ -20,14 +20,15 @@ import (
 )
 
 type cliFakeStore struct {
-	token   db.CliToken
-	tokens  map[string]db.CliToken
-	team    db.Team
-	role    string
-	apps    []db.App
-	domains []db.DomainBinding
-	deploys []db.DeployRun
-	members bool
+	token    db.CliToken
+	tokens   map[string]db.CliToken
+	team     db.Team
+	role     string
+	apps     []db.App
+	domains  []db.DomainBinding
+	deploys  []db.DeployRun
+	members  bool
+	previews map[string]db.Preview
 }
 
 type mockGitHubOAuthClient struct {
@@ -127,17 +128,72 @@ func (f *cliFakeStore) ListTeamTokens(_ context.Context, teamID string) ([]db.Cl
 	return out, nil
 }
 func (f *cliFakeStore) CreatePreview(_ context.Context, teamID, actorUserID, action string, args json.RawMessage, _ string) (db.Preview, error) {
-	return db.Preview{ID: "preview-1", TeamID: teamID, ActorUserID: actorUserID, Action: action, Args: args, ExpiresAt: time.Now().UTC().Add(time.Minute)}, nil
+	preview := db.Preview{ID: "preview-1", TeamID: teamID, ActorUserID: actorUserID, Action: action, Args: args, ExpiresAt: time.Now().UTC().Add(time.Minute)}
+	f.previews[preview.ID] = preview
+	return preview, nil
 }
-func (f *cliFakeStore) GetPreview(_ context.Context, _ string) (db.Preview, error) {
-	return db.Preview{ID: "preview-id", TeamID: f.team.ID, ActorUserID: f.token.OwnerUserID, Action: "invite_member", Args: []byte(`{"github_login":"newbie","role":"member"}`), ExpiresAt: time.Now().UTC().Add(time.Minute)}, nil
+func (f *cliFakeStore) GetPreview(_ context.Context, previewID string) (db.Preview, error) {
+	if preview, ok := f.previews[previewID]; ok {
+		return preview, nil
+	}
+	return db.Preview{}, db.ErrPreviewNotFound
 }
 func (f *cliFakeStore) ConsumePreview(_ context.Context, _ string) error { return nil }
+func (f *cliFakeStore) ConsumePreviewWithResult(_ context.Context, previewID string, result json.RawMessage) error {
+	preview, ok := f.previews[previewID]
+	if !ok {
+		return db.ErrPreviewNotFound
+	}
+	if preview.ConsumedAt != nil {
+		return db.ErrPreviewConsumed
+	}
+	now := time.Now().UTC()
+	preview.ConsumedAt = &now
+	preview.LastResult = append(json.RawMessage(nil), result...)
+	f.previews[previewID] = preview
+	return nil
+}
 func (f *cliFakeStore) InviteMember(_ context.Context, params db.InviteMemberParams) (db.Member, error) {
 	now := time.Now().UTC()
 	return db.Member{UserID: "user-new", GithubLogin: params.GithubLogin, Email: params.Email, Role: params.Role, InvitedAt: &now, JoinedAt: &now}, nil
 }
 func (f *cliFakeStore) RemoveMember(_ context.Context, _ string, _, _ string) error {
+	return nil
+}
+func (f *cliFakeStore) CreateApp(_ context.Context, params db.AppCreateParams) (db.AppCreateResult, error) {
+	appID := "app-nextdemo"
+	deployRunID := "deploy-nextdemo"
+	now := time.Now().UTC()
+	f.apps = append(f.apps, db.App{
+		ID:                appID,
+		TeamID:            params.TeamID,
+		Slug:              params.Slug,
+		RepoURL:           &params.RepoURL,
+		RepoDefaultBranch: &params.Ref,
+		Builder:           params.Builder,
+		Status:            strPtr("queued"),
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	})
+	f.deploys = append(f.deploys, db.DeployRun{
+		ID:      deployRunID,
+		TeamID:  params.TeamID,
+		AppID:   appID,
+		AppSlug: params.Slug,
+		Status:  "queued",
+	})
+	return db.AppCreateResult{
+		AppID:       appID,
+		AppSlug:     params.Slug,
+		DeployRunID: deployRunID,
+	}, nil
+}
+
+func (f *cliFakeStore) RegisterWebhookDelivery(_ context.Context, _, _ string) (bool, error) {
+	return true, nil
+}
+
+func (f *cliFakeStore) ApplyDeployCallback(_ context.Context, _ db.DeployCallbackParams) error {
 	return nil
 }
 func (f cliFakeStore) IsToolGranted(_ context.Context, _ string, _ string, _ string) (bool, error) {
@@ -253,6 +309,30 @@ func TestAppsGetCommand(t *testing.T) {
 	t.Cleanup(srv.Close)
 	cmd := NewRootCommand()
 	cmd.SetArgs([]string{"apps", "get", "alpha", "--team", store.team.Slug, "--host", srv.URL, "--token", token, "--output", "json"})
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+}
+
+func TestAppsCreateYesCommand(t *testing.T) {
+	store, token := newCLIFakeStore()
+	srv := httptest.NewServer(serverpkg.NewRouter(store))
+	t.Cleanup(srv.Close)
+	cmd := NewRootCommand()
+	cmd.SetArgs([]string{
+		"apps", "create",
+		"--team", store.team.Slug,
+		"--host", srv.URL,
+		"--token", token,
+		"--slug", "nextdemo",
+		"--repo-url", "https://github.com/example/nextdemo",
+		"--ref", "main",
+		"--yes",
+		"--output", "json",
+	})
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stdout)
@@ -647,7 +727,7 @@ func newCLIFakeStore() (*cliFakeStore, string) {
 	if err != nil {
 		panic(err)
 	}
-	baseToken := db.CliToken{ID: "token-1", OwnerUserID: "user-1", TeamID: "team-1", TokenHash: auth.HashBearerToken(parsed.Secret), Scopes: []string{"apps:read", "teams:read", "members:manage"}}
+	baseToken := db.CliToken{ID: "token-1", OwnerUserID: "user-1", TeamID: "team-1", TokenHash: auth.HashBearerToken(parsed.Secret), Scopes: []string{"apps:read", "apps:write", "teams:read", "members:manage"}}
 	return &cliFakeStore{
 		token: baseToken,
 		tokens: map[string]db.CliToken{
@@ -675,6 +755,7 @@ func newCLIFakeStore() (*cliFakeStore, string) {
 				},
 			},
 		},
+		previews: map[string]db.Preview{},
 	}, token
 }
 

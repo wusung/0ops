@@ -92,7 +92,7 @@ func TestToolsListContainsM1ReadTools(t *testing.T) {
 		seen[tool.Name] = true
 	}
 
-	required := []string{"list_teams", "list_apps", "get_app", "inspect_repo", "get_deploy_status", "tail_logs", "list_domains"}
+	required := []string{"list_teams", "list_apps", "get_app", "inspect_repo", "get_deploy_status", "tail_logs", "list_domains", "create_app_preview", "create_app"}
 	for _, name := range required {
 		if !seen[name] {
 			t.Fatalf("missing tool %q in tools/list", name)

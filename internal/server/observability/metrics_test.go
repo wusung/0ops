@@ -33,3 +33,24 @@ func TestMetricsMiddlewareAndHandlerExposeCustomSeries(t *testing.T) {
 		t.Fatalf("metrics output missing inflight gauge help: %s", body)
 	}
 }
+
+func TestCreateAppMetricsExposeSeries(t *testing.T) {
+	metrics := NewMetrics()
+	metrics.ObserveCreateAppPreview("success")
+	metrics.ObserveCreateAppConfirm("success", false)
+	metrics.ObserveCreateAppConfirm("success", true)
+
+	metricsRec := httptest.NewRecorder()
+	metrics.Handler().ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+
+	body := metricsRec.Body.String()
+	if !strings.Contains(body, `zeroops_create_app_previews_total{outcome="success"} 1`) {
+		t.Fatalf("metrics output missing create_app preview counter: %s", body)
+	}
+	if !strings.Contains(body, `zeroops_create_app_confirms_total{idempotent_replay="false",outcome="success"} 1`) {
+		t.Fatalf("metrics output missing create_app confirm counter (first): %s", body)
+	}
+	if !strings.Contains(body, `zeroops_create_app_confirms_total{idempotent_replay="true",outcome="success"} 1`) {
+		t.Fatalf("metrics output missing create_app confirm counter (replay): %s", body)
+	}
+}

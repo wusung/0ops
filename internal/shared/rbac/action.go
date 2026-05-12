@@ -7,6 +7,8 @@ type Action string
 const (
 	// ActionListApps requires read access to list apps.
 	ActionListApps Action = "list_apps"
+	// ActionCreateApp requires write access to create apps.
+	ActionCreateApp Action = "create_app"
 	// ActionListTeams requires read access to list teams.
 	ActionListTeams Action = "list_teams"
 	// ActionListMembers requires admin access to list members.
@@ -32,6 +34,8 @@ func RequiredFor(action Action) Requirement {
 	switch action {
 	case ActionListApps:
 		return Requirement{MinRole: RoleViewer, RequiredScope: ScopeAppsRead}
+	case ActionCreateApp:
+		return Requirement{MinRole: RoleMember, RequiredScope: ScopeAppsWrite}
 	case ActionListTeams:
 		return Requirement{RequiredScope: ScopeTeamsRead}
 	case ActionListMembers:

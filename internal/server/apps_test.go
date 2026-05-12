@@ -2,11 +2,15 @@ package server
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +36,7 @@ type fakeStore struct {
 	members    bool
 	hasOwner   bool
 	previews   map[string]db.Preview
+	deliveries map[string]struct{}
 }
 
 type mockGitHubOAuthClient struct {
@@ -200,7 +205,31 @@ func (f *fakeStore) GetPreview(_ context.Context, previewID string) (db.Preview,
 	return p, nil
 }
 
-func (f *fakeStore) ConsumePreview(_ context.Context, _ string) error { return nil }
+func (f *fakeStore) ConsumePreview(_ context.Context, previewID string) error {
+	preview, ok := f.previews[previewID]
+	if !ok {
+		return db.ErrPreviewNotFound
+	}
+	now := time.Now().UTC()
+	preview.ConsumedAt = &now
+	f.previews[previewID] = preview
+	return nil
+}
+
+func (f *fakeStore) ConsumePreviewWithResult(_ context.Context, previewID string, result json.RawMessage) error {
+	preview, ok := f.previews[previewID]
+	if !ok {
+		return db.ErrPreviewNotFound
+	}
+	if preview.ConsumedAt != nil {
+		return db.ErrPreviewConsumed
+	}
+	now := time.Now().UTC()
+	preview.ConsumedAt = &now
+	preview.LastResult = append(json.RawMessage(nil), result...)
+	f.previews[previewID] = preview
+	return nil
+}
 
 func (f *fakeStore) InviteMember(_ context.Context, params db.InviteMemberParams) (db.Member, error) {
 	now := time.Now().UTC()
@@ -218,6 +247,67 @@ func (f *fakeStore) InviteMember(_ context.Context, params db.InviteMemberParams
 
 func (f *fakeStore) RemoveMember(_ context.Context, _, _, _ string) error {
 	return nil
+}
+
+func (f *fakeStore) CreateApp(_ context.Context, params db.AppCreateParams) (db.AppCreateResult, error) {
+	appID := "app-nextdemo"
+	deployRunID := "deploy-nextdemo"
+	now := time.Now().UTC()
+	app := db.App{
+		ID:                appID,
+		TeamID:            params.TeamID,
+		Slug:              params.Slug,
+		RepoURL:           &params.RepoURL,
+		RepoDefaultBranch: &params.Ref,
+		Builder:           params.Builder,
+		Status:            strPtr("queued"),
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}
+	f.apps = append(f.apps, app)
+	f.deploys = append(f.deploys, db.DeployRun{
+		ID:      deployRunID,
+		TeamID:  params.TeamID,
+		AppID:   appID,
+		AppSlug: params.Slug,
+		Status:  "queued",
+	})
+	f.domains = append(f.domains, db.DomainBinding{
+		ID:       "domain-nextdemo",
+		TeamID:   params.TeamID,
+		AppID:    appID,
+		AppSlug:  params.Slug,
+		Hostname: params.Slug + ".winshare.tw",
+		Kind:     strPtr("primary"),
+		Verified: true,
+	})
+	return db.AppCreateResult{
+		AppID:       appID,
+		AppSlug:     params.Slug,
+		DeployRunID: deployRunID,
+	}, nil
+}
+
+func (f *fakeStore) RegisterWebhookDelivery(_ context.Context, provider, deliveryID string) (bool, error) {
+	key := provider + "::" + deliveryID
+	if _, ok := f.deliveries[key]; ok {
+		return false, nil
+	}
+	f.deliveries[key] = struct{}{}
+	return true, nil
+}
+
+func (f *fakeStore) ApplyDeployCallback(_ context.Context, params db.DeployCallbackParams) error {
+	for idx := range f.deploys {
+		if f.deploys[idx].ID != params.RunID {
+			continue
+		}
+		f.deploys[idx].Status = params.Status
+		f.deploys[idx].TraceID = params.TraceID
+		f.deploys[idx].ErrorSummary = params.ErrorSummary
+		return nil
+	}
+	return pgx.ErrNoRows
 }
 
 func (f *fakeStore) ResolveUserDefaultTeamByGithubLogin(_ context.Context, githubLogin string) (string, string, string, error) {
@@ -615,6 +705,274 @@ func TestMembersPreviewInviteAndInvite(t *testing.T) {
 	}
 }
 
+func TestAppsPreviewCreateAndCreate(t *testing.T) {
+	store, token := newFakeStore()
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	reqBody := `{"slug":"nextdemo","repo_url":"https://github.com/example/nextdemo","ref":"main"}`
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/teams/"+store.team.Slug+"/apps:preview", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("preview request error = %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("preview status = %d, body = %s", resp.StatusCode, string(body))
+	}
+
+	var preview dto.PreviewResponse
+	if err := json.NewDecoder(resp.Body).Decode(&preview); err != nil {
+		t.Fatalf("decode preview response: %v", err)
+	}
+	if preview.PreviewID == "" {
+		t.Fatal("expected preview_id")
+	}
+
+	confirmReq, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/teams/"+store.team.Slug+"/apps", strings.NewReader(`{"preview_id":"`+preview.PreviewID+`"}`))
+	if err != nil {
+		t.Fatalf("http.NewRequest() confirm error = %v", err)
+	}
+	confirmReq.Header.Set("Authorization", "Bearer "+token)
+	confirmReq.Header.Set("Content-Type", "application/json")
+
+	confirmResp, err := http.DefaultClient.Do(confirmReq)
+	if err != nil {
+		t.Fatalf("confirm request error = %v", err)
+	}
+	defer func() { _ = confirmResp.Body.Close() }()
+	if confirmResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(confirmResp.Body)
+		t.Fatalf("confirm status = %d, body = %s", confirmResp.StatusCode, string(body))
+	}
+}
+
+func TestAppsCreateConfirmIdempotentReplay(t *testing.T) {
+	store, token := newFakeStore()
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	client := backendclient.New(srv.URL, token)
+	preview, err := client.PreviewCreateApp(context.Background(), store.team.Slug, dto.AppCreateRequest{
+		Slug:    "nextdemo",
+		RepoURL: "https://github.com/example/nextdemo",
+		Ref:     "main",
+	})
+	if err != nil {
+		t.Fatalf("PreviewCreateApp() error = %v", err)
+	}
+
+	first, err := client.CreateApp(context.Background(), store.team.Slug, dto.ConfirmCreateAppRequest{
+		PreviewID: preview.PreviewID,
+	})
+	if err != nil {
+		t.Fatalf("CreateApp() first call error = %v", err)
+	}
+	second, err := client.CreateApp(context.Background(), store.team.Slug, dto.ConfirmCreateAppRequest{
+		PreviewID: preview.PreviewID,
+	})
+	if err != nil {
+		t.Fatalf("CreateApp() replay call error = %v", err)
+	}
+
+	if second.AppID != first.AppID || second.DeployRunID != first.DeployRunID {
+		t.Fatalf("replay mismatch: first=%+v second=%+v", first, second)
+	}
+}
+
+func TestDeployRunCallbackHMACAndDedup(t *testing.T) {
+	t.Setenv("OPS_CALLBACK_SECRET", "callback-secret")
+	store, _ := newFakeStore()
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	body := `{"run_id":"deploy-1","status":"failure","trace_id":"trace-1","failure_classification":"build_compile_error","error_summary":"build failed"}`
+	ts := strconv.FormatInt(time.Now().UTC().Unix(), 10)
+	mac := hmac.New(sha256.New, []byte("callback-secret"))
+	_, _ = mac.Write([]byte(ts + "." + body))
+	sig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/internal/deploy-runs/deploy-1/callback", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-0ops-Timestamp", ts)
+	req.Header.Set("X-0ops-Signature", sig)
+	req.Header.Set("X-0ops-Delivery-ID", "delivery-1")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("callback request error = %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		bodyText, _ := io.ReadAll(resp.Body)
+		t.Fatalf("callback status = %d, body = %s", resp.StatusCode, string(bodyText))
+	}
+	if got := store.deploys[0].Status; got != "failed" {
+		t.Fatalf("store.deploys[0].Status = %q, want failed", got)
+	}
+	if got := store.deploys[0].TraceID; got == nil || *got != "trace-1" {
+		t.Fatalf("store.deploys[0].TraceID = %v, want trace-1", got)
+	}
+
+	req2, err := http.NewRequest(http.MethodPost, srv.URL+"/internal/deploy-runs/deploy-1/callback", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("http.NewRequest() duplicate error = %v", err)
+	}
+	req2.Header = req.Header.Clone()
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatalf("duplicate callback request error = %v", err)
+	}
+	defer func() { _ = resp2.Body.Close() }()
+	if resp2.StatusCode != http.StatusOK {
+		bodyText, _ := io.ReadAll(resp2.Body)
+		t.Fatalf("duplicate callback status = %d, body = %s", resp2.StatusCode, string(bodyText))
+	}
+}
+
+func TestDeployRunCallbackRejectInvalidSignature(t *testing.T) {
+	t.Setenv("OPS_CALLBACK_SECRET", "callback-secret")
+	store, _ := newFakeStore()
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	body := `{"run_id":"deploy-1","status":"success","trace_id":"trace-1"}`
+	ts := strconv.FormatInt(time.Now().UTC().Unix(), 10)
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/internal/deploy-runs/deploy-1/callback", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-0ops-Timestamp", ts)
+	req.Header.Set("X-0ops-Signature", "sha256=deadbeef")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("callback request error = %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusUnauthorized {
+		bodyText, _ := io.ReadAll(resp.Body)
+		t.Fatalf("callback status = %d, body = %s", resp.StatusCode, string(bodyText))
+	}
+}
+
+func TestDeployRunCallbackRejectStaleTimestamp(t *testing.T) {
+	t.Setenv("OPS_CALLBACK_SECRET", "callback-secret")
+	store, _ := newFakeStore()
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	body := `{"run_id":"deploy-1","status":"success","trace_id":"trace-1"}`
+	ts := strconv.FormatInt(time.Now().UTC().Add(-6*time.Minute).Unix(), 10)
+	mac := hmac.New(sha256.New, []byte("callback-secret"))
+	_, _ = mac.Write([]byte(ts + "." + body))
+	sig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/internal/deploy-runs/deploy-1/callback", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-0ops-Timestamp", ts)
+	req.Header.Set("X-0ops-Signature", sig)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("callback request error = %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest {
+		bodyText, _ := io.ReadAll(resp.Body)
+		t.Fatalf("callback status = %d, body = %s", resp.StatusCode, string(bodyText))
+	}
+
+	var out struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if out.Error.Code != "stale_timestamp" {
+		t.Fatalf("error.code = %q, want stale_timestamp", out.Error.Code)
+	}
+}
+
+func TestDeployRunCallbackRequiresTraceID(t *testing.T) {
+	t.Setenv("OPS_CALLBACK_SECRET", "callback-secret")
+	store, _ := newFakeStore()
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	body := `{"run_id":"deploy-1","status":"success"}`
+	ts := strconv.FormatInt(time.Now().UTC().Unix(), 10)
+	mac := hmac.New(sha256.New, []byte("callback-secret"))
+	_, _ = mac.Write([]byte(ts + "." + body))
+	sig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/internal/deploy-runs/deploy-1/callback", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-0ops-Timestamp", ts)
+	req.Header.Set("X-0ops-Signature", sig)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("callback request error = %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest {
+		bodyText, _ := io.ReadAll(resp.Body)
+		t.Fatalf("callback status = %d, body = %s", resp.StatusCode, string(bodyText))
+	}
+}
+
+func TestDeployRunCallbackFailedStatusRequiresFailureClassification(t *testing.T) {
+	t.Setenv("OPS_CALLBACK_SECRET", "callback-secret")
+	store, _ := newFakeStore()
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	body := `{"run_id":"deploy-1","status":"failure","trace_id":"trace-1"}`
+	ts := strconv.FormatInt(time.Now().UTC().Unix(), 10)
+	mac := hmac.New(sha256.New, []byte("callback-secret"))
+	_, _ = mac.Write([]byte(ts + "." + body))
+	sig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/internal/deploy-runs/deploy-1/callback", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-0ops-Timestamp", ts)
+	req.Header.Set("X-0ops-Signature", sig)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("callback request error = %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest {
+		bodyText, _ := io.ReadAll(resp.Body)
+		t.Fatalf("callback status = %d, body = %s", resp.StatusCode, string(bodyText))
+	}
+}
+
 func TestAuthTokensCreateDefaultsToNinetyDays(t *testing.T) {
 	store, token := newFakeStore()
 	srv := httptest.NewServer(NewRouter(store))
@@ -667,7 +1025,7 @@ func newFakeStore() (*fakeStore, string) {
 		OwnerUserID: "user-1",
 		TeamID:      "team-1",
 		TokenHash:   auth.HashBearerToken(parsed.Secret),
-		Scopes:      []string{"apps:read", "teams:read", "members:manage"},
+		Scopes:      []string{"apps:read", "apps:write", "teams:read", "members:manage"},
 	}
 	return &fakeStore{
 		token:   baseToken,
@@ -698,6 +1056,7 @@ func newFakeStore() (*fakeStore, string) {
 		},
 		memberRows: []db.Member{{UserID: "user-1", GithubLogin: strPtr("owner"), Role: "owner"}},
 		previews:   map[string]db.Preview{},
+		deliveries: map[string]struct{}{},
 	}, token
 }
 

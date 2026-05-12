@@ -48,15 +48,17 @@ type DeployLogLine struct {
 
 //nolint:revive // exported for public API
 type DeployRun struct {
-	ID           string
-	TeamID       string
-	AppID        string
-	AppSlug      string
-	Status       string
-	CommitSHA    *string
-	Ref          *string
-	ErrorSummary *string
-	StartedAt    *time.Time
-	FinishedAt   *time.Time
-	LogLines     []DeployLogLine
+	ID                    string
+	TeamID                string
+	AppID                 string
+	AppSlug               string
+	Status                string
+	TraceID               *string
+	CommitSHA             *string
+	Ref                   *string
+	FailureClassification *string
+	ErrorSummary          *string
+	StartedAt             *time.Time
+	FinishedAt            *time.Time
+	LogLines              []DeployLogLine
 }

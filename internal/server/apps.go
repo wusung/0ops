@@ -3,13 +3,20 @@ package server
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -41,6 +48,7 @@ type appsStore interface {
 	CreatePreview(ctx context.Context, teamID, actorUserID, action string, args json.RawMessage, summary string) (db.Preview, error)
 	GetPreview(ctx context.Context, previewID string) (db.Preview, error)
 	ConsumePreview(ctx context.Context, previewID string) error
+	ConsumePreviewWithResult(ctx context.Context, previewID string, result json.RawMessage) error
 	InviteMember(ctx context.Context, params db.InviteMemberParams) (db.Member, error)
 	RemoveMember(ctx context.Context, teamID, actorUserID, targetUserID string) error
 	ResolveUserDefaultTeamByGithubLogin(ctx context.Context, githubLogin string) (userID string, teamID string, teamSlug string, err error)
@@ -49,6 +57,9 @@ type appsStore interface {
 	CreatePAT(ctx context.Context, ownerUserID, teamID, name string, scopes []string, expiresAt time.Time) (string, error)
 	RevokeCLITokenByID(ctx context.Context, tokenID string) error
 	RevokePATByName(ctx context.Context, teamID, name string) error
+	CreateApp(ctx context.Context, params db.AppCreateParams) (db.AppCreateResult, error)
+	RegisterWebhookDelivery(ctx context.Context, provider, deliveryID string) (bool, error)
+	ApplyDeployCallback(ctx context.Context, params db.DeployCallbackParams) error
 }
 
 type toolGrantsStore interface {
@@ -71,9 +82,35 @@ type appCursor struct {
 }
 
 const (
-	previewActionInvite = "invite_member"
-	previewActionRemove = "remove_member"
+	previewActionInvite    = "invite_member"
+	previewActionRemove    = "remove_member"
+	previewActionCreate    = "create_app"
+	deployCallbackProvider = "gha-callback"
 )
+
+var appSlugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$`)
+
+var (
+	recordCreateAppPreviewMetric = func(string) {}
+	recordCreateAppConfirmMetric = func(string, bool) {}
+)
+
+// BindCreateAppMetrics wires create_app-specific metric recorders.
+func BindCreateAppMetrics(
+	previewRecorder func(outcome string),
+	confirmRecorder func(outcome string, idempotentReplay bool),
+) {
+	if previewRecorder == nil {
+		recordCreateAppPreviewMetric = func(string) {}
+	} else {
+		recordCreateAppPreviewMetric = previewRecorder
+	}
+	if confirmRecorder == nil {
+		recordCreateAppConfirmMetric = func(string, bool) {}
+	} else {
+		recordCreateAppConfirmMetric = confirmRecorder
+	}
+}
 
 type deviceLoginSession struct {
 	GithubLogin     string
@@ -92,6 +129,14 @@ type githubOAuthClient interface {
 	StartDeviceAuthorization(ctx context.Context) (githuboauth.DeviceAuthorization, error)
 	ExchangeDeviceCode(ctx context.Context, deviceCode string) (githuboauth.AccessTokenResponse, error)
 	FetchUser(ctx context.Context, accessToken string) (githuboauth.UserProfile, error)
+}
+
+type deployCallbackRequest struct {
+	RunID                 string  `json:"run_id"`
+	Status                string  `json:"status"`
+	TraceID               *string `json:"trace_id,omitempty"`
+	ErrorSummary          *string `json:"error_summary,omitempty"`
+	FailureClassification *string `json:"failure_classification,omitempty"`
 }
 
 func listAppsHandler(store appsStore) http.HandlerFunc {
@@ -158,6 +203,221 @@ func getAppHandler(store appsStore) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(newAppRef(row))
+	}
+}
+
+func previewCreateAppHandler(store appsStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		outcome := "error"
+		defer func() { recordCreateAppPreviewMetric(outcome) }()
+
+		var req dto.AppCreateRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		if !validateAppCreateRequest(w, req) {
+			return
+		}
+
+		if _, err := store.GetTeamAppBySlug(r.Context(), auth.TeamID(r.Context()), req.Slug); err == nil {
+			apperror.Write(w, "slug_taken", apperror.ClassConflict, "app slug already exists", map[string]any{"slug": req.Slug})
+			return
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to check app slug", nil)
+			return
+		}
+
+		args, err := json.Marshal(req)
+		if err != nil {
+			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to encode preview args", nil)
+			return
+		}
+
+		summary := fmt.Sprintf("Create app %q from %s", req.Slug, req.RepoURL)
+		out, err := store.CreatePreview(
+			r.Context(),
+			auth.TeamID(r.Context()),
+			auth.ActorUserID(r.Context()),
+			previewActionCreate,
+			args,
+			summary,
+		)
+		if err != nil {
+			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to create preview", nil)
+			return
+		}
+		writePreviewResponse(w, out, summary)
+		outcome = "success"
+	}
+}
+
+func createAppHandler(store appsStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		outcome := "error"
+		idempotentReplay := false
+		defer func() { recordCreateAppConfirmMetric(outcome, idempotentReplay) }()
+
+		var req dto.ConfirmCreateAppRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		preview, ok, replayed := validateCreateAppPreview(w, r, store, req.PreviewID)
+		if replayed {
+			outcome = "success"
+			idempotentReplay = true
+			return
+		}
+		if !ok {
+			return
+		}
+
+		var payload dto.AppCreateRequest
+		if err := json.Unmarshal(preview.Args, &payload); err != nil {
+			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "invalid preview args", nil)
+			return
+		}
+		if !validateAppCreateRequest(w, payload) {
+			return
+		}
+
+		if _, err := store.GetTeamAppBySlug(r.Context(), auth.TeamID(r.Context()), payload.Slug); err == nil {
+			apperror.Write(w, "slug_taken", apperror.ClassConflict, "app slug already exists", map[string]any{"slug": payload.Slug})
+			return
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to check app slug", nil)
+			return
+		}
+
+		traceID := strings.TrimSpace(middleware.GetReqID(r.Context()))
+		if traceID == "" {
+			traceID = preview.ID
+		}
+		result, err := store.CreateApp(r.Context(), db.AppCreateParams{
+			TeamID:      auth.TeamID(r.Context()),
+			ActorUserID: auth.ActorUserID(r.Context()),
+			Slug:        payload.Slug,
+			RepoURL:     payload.RepoURL,
+			Ref:         payload.Ref,
+			Builder:     payload.Builder,
+			TraceID:     traceID,
+		})
+		if err != nil {
+			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to create app", nil)
+			return
+		}
+		response := dto.AppCreateResponse{
+			AppID:         result.AppID,
+			AppSlug:       result.AppSlug,
+			DeployRunID:   result.DeployRunID,
+			TraceID:       traceID,
+			SubdomainURL:  fmt.Sprintf("https://%s.winshare.tw", result.AppSlug),
+			InitialDeploy: true,
+		}
+		responseJSON, err := json.Marshal(response)
+		if err != nil {
+			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to encode create_app result", nil)
+			return
+		}
+		if err := store.ConsumePreviewWithResult(r.Context(), preview.ID, responseJSON); err != nil {
+			apperror.Write(w, "preview_consumed", apperror.ClassConflict, "preview already consumed", nil)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(response)
+		outcome = "success"
+	}
+}
+
+func deployRunCallbackHandler(store appsStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		secret := strings.TrimSpace(getCallbackSecret())
+		if secret == "" {
+			apperror.Write(w, "internal_error", apperror.ClassInternal, "callback secret not configured", nil)
+			return
+		}
+
+		timestamp := strings.TrimSpace(r.Header.Get("X-0ops-Timestamp"))
+		signature := strings.TrimSpace(r.Header.Get("X-0ops-Signature"))
+		if !validateCallbackTimestamp(timestamp, time.Now().UTC(), 5*time.Minute) {
+			apperror.Write(w, "stale_timestamp", apperror.ClassBadRequest, "stale callback timestamp", nil)
+			return
+		}
+
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "invalid payload", nil)
+			return
+		}
+		if !validateCallbackSignature(secret, timestamp, body, signature) {
+			apperror.Write(w, "invalid_signature", apperror.ClassUnauthorized, "invalid callback signature", nil)
+			return
+		}
+
+		runID := strings.TrimSpace(chi.URLParam(r, "run_id"))
+		if runID == "" {
+			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "run_id is required", nil)
+			return
+		}
+
+		var req deployCallbackRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "invalid json payload", nil)
+			return
+		}
+		if strings.TrimSpace(req.RunID) != runID {
+			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "run_id mismatch", nil)
+			return
+		}
+		status, ok := normalizeDeployStatus(req.Status)
+		if !ok {
+			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "invalid deploy status", map[string]any{"field": "status"})
+			return
+		}
+		traceID := trimStringPtr(req.TraceID)
+		if traceID == nil {
+			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "trace_id is required", map[string]any{"field": "trace_id"})
+			return
+		}
+		failureClassification := trimStringPtr(req.FailureClassification)
+		if status == "failed" && failureClassification == nil {
+			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "failure_classification is required for failed status", map[string]any{"field": "failure_classification"})
+			return
+		}
+
+		deliveryID := strings.TrimSpace(r.Header.Get("X-0ops-Delivery-ID"))
+		if deliveryID == "" {
+			deliveryID = runID
+		}
+		inserted, err := store.RegisterWebhookDelivery(r.Context(), deployCallbackProvider, deliveryID)
+		if err != nil {
+			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to record callback delivery", nil)
+			return
+		}
+		if !inserted {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "duplicate"})
+			return
+		}
+
+		err = store.ApplyDeployCallback(r.Context(), db.DeployCallbackParams{
+			RunID:                 runID,
+			Status:                status,
+			TraceID:               traceID,
+			ErrorSummary:          trimStringPtr(req.ErrorSummary),
+			FailureClassification: failureClassification,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				apperror.Write(w, "deploy_run_not_found", apperror.ClassNotFound, "deploy run not found", nil)
+				return
+			}
+			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to apply deploy callback", nil)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok"})
 	}
 }
 
@@ -932,6 +1192,7 @@ func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient)
 
 	r := chi.NewRouter()
 	r.Post("/v1/admin/bootstrap-owner", bootstrapOwnerHandler(store))
+	r.Post("/internal/deploy-runs/{run_id}/callback", deployRunCallbackHandler(store))
 	r.Route("/v1/auth", func(sr chi.Router) {
 		sr.Post("/device/start", startDeviceLoginHandler(store, githubClient))
 		sr.Post("/device/callback", callbackDeviceLoginHandler(store))
@@ -962,6 +1223,12 @@ func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient)
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionListApps, next)
 		}).Get("/apps/{app_slug}", getAppHandler(store))
+		sr.With(func(next http.Handler) http.Handler {
+			return mw.CheckTokenScope(rbac.ActionCreateApp, next)
+		}).Post("/apps:preview", previewCreateAppHandler(store))
+		sr.With(func(next http.Handler) http.Handler {
+			return mw.CheckTokenScope(rbac.ActionCreateApp, next)
+		}).Post("/apps", createAppHandler(store))
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionListApps, next)
 		}).Get("/repos/{app_slug}:inspect", inspectRepoHandler(store))
@@ -1012,6 +1279,69 @@ func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient)
 	})
 
 	return r
+}
+
+func getCallbackSecret() string {
+	if v := strings.TrimSpace(os.Getenv("OPS_CALLBACK_SECRET")); v != "" {
+		return v
+	}
+	return strings.TrimSpace(os.Getenv("OPS_GHA_CALLBACK_SECRET"))
+}
+
+func validateCallbackTimestamp(raw string, now time.Time, maxSkew time.Duration) bool {
+	sec, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return false
+	}
+	ts := time.Unix(sec, 0).UTC()
+	if now.Sub(ts) > maxSkew {
+		return false
+	}
+	if ts.Sub(now) > maxSkew {
+		return false
+	}
+	return true
+}
+
+func validateCallbackSignature(secret, timestamp string, body []byte, got string) bool {
+	if !strings.HasPrefix(got, "sha256=") {
+		return false
+	}
+	rawSig := strings.TrimPrefix(got, "sha256=")
+	wantBytes, err := hex.DecodeString(rawSig)
+	if err != nil {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(timestamp))
+	_, _ = mac.Write([]byte("."))
+	_, _ = mac.Write(body)
+	want := mac.Sum(nil)
+	return subtle.ConstantTimeCompare(want, wantBytes) == 1
+}
+
+func normalizeDeployStatus(raw string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "success", "succeeded":
+		return "succeeded", true
+	case "failure", "failed":
+		return "failed", true
+	case "cancelled", "canceled":
+		return "canceled", true
+	default:
+		return "", false
+	}
+}
+
+func trimStringPtr(v *string) *string {
+	if v == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*v)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
 }
 
 type disabledGitHubOAuthClient struct {
@@ -1104,6 +1434,33 @@ func validMemberRole(role string) bool {
 	}
 }
 
+func validateAppCreateRequest(w http.ResponseWriter, req dto.AppCreateRequest) bool {
+	slug := strings.TrimSpace(req.Slug)
+	if !appSlugPattern.MatchString(slug) {
+		apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "invalid slug", map[string]any{"field": "slug"})
+		return false
+	}
+	switch slug {
+	case "system", "api", "auth", "v1", "me":
+		apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "reserved slug", map[string]any{"field": "slug"})
+		return false
+	}
+	if strings.TrimSpace(req.RepoURL) == "" {
+		apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "repo_url is required", map[string]any{"field": "repo_url"})
+		return false
+	}
+	repoURL := strings.TrimSpace(req.RepoURL)
+	if !(strings.HasPrefix(repoURL, "https://github.com/") || strings.HasPrefix(repoURL, "git@github.com:")) {
+		apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "unsupported repo_url", map[string]any{"field": "repo_url"})
+		return false
+	}
+	if strings.TrimSpace(req.Ref) == "" {
+		apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "ref is required", map[string]any{"field": "ref"})
+		return false
+	}
+	return true
+}
+
 func validatePreview(w http.ResponseWriter, r *http.Request, store appsStore, previewID, action string) (db.Preview, bool) {
 	if previewID == "" {
 		apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "preview_id is required", nil)
@@ -1131,6 +1488,41 @@ func validatePreview(w http.ResponseWriter, r *http.Request, store appsStore, pr
 		return db.Preview{}, false
 	}
 	return preview, true
+}
+
+func validateCreateAppPreview(w http.ResponseWriter, r *http.Request, store appsStore, previewID string) (db.Preview, bool, bool) {
+	if previewID == "" {
+		apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "preview_id is required", nil)
+		return db.Preview{}, false, false
+	}
+	preview, err := store.GetPreview(r.Context(), previewID)
+	if err != nil {
+		if errors.Is(err, db.ErrPreviewNotFound) {
+			apperror.Write(w, "preview_not_found", apperror.ClassNotFound, "preview not found", nil)
+			return db.Preview{}, false, false
+		}
+		apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to load preview", nil)
+		return db.Preview{}, false, false
+	}
+	if preview.Action != previewActionCreate || preview.TeamID != auth.TeamID(r.Context()) || preview.ActorUserID != auth.ActorUserID(r.Context()) {
+		apperror.Write(w, "preview_not_found", apperror.ClassNotFound, "preview not found", nil)
+		return db.Preview{}, false, false
+	}
+	if preview.ConsumedAt != nil {
+		if len(preview.LastResult) == 0 {
+			apperror.Write(w, "preview_consumed", apperror.ClassConflict, "preview already consumed", nil)
+			return db.Preview{}, false, false
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(preview.LastResult)
+		return db.Preview{}, false, true
+	}
+	if preview.ExpiresAt.Before(time.Now().UTC()) {
+		apperror.Write(w, "preview_expired", apperror.ClassConflict, "preview expired", nil)
+		return db.Preview{}, false, false
+	}
+	return preview, true, false
 }
 
 func writePreviewResponse(w http.ResponseWriter, preview db.Preview, summary string) {

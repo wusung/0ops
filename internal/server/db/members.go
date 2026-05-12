@@ -53,6 +53,7 @@ type Preview struct {
 	ActorUserID string
 	Action      string
 	Args        json.RawMessage
+	LastResult  json.RawMessage
 	ExpiresAt   time.Time
 	ConsumedAt  *time.Time
 }
@@ -238,15 +239,16 @@ func (r *Repository) GetPreview(ctx context.Context, previewID string) (Preview,
 		actorUserID pgtype.UUID
 		action      string
 		args        []byte
+		lastResult  []byte
 		expiresAt   pgtype.Timestamptz
 		consumedAt  pgtype.Timestamptz
 	)
 
 	if err := r.pool.QueryRow(ctx, `
-SELECT id, team_id, actor_user_id, action, args, expires_at, consumed_at
+SELECT id, team_id, actor_user_id, action, args, last_result, expires_at, consumed_at
 FROM preview
 WHERE id = $1
-`, parsedPreviewID).Scan(&id, &teamID, &actorUserID, &action, &args, &expiresAt, &consumedAt); err != nil {
+`, parsedPreviewID).Scan(&id, &teamID, &actorUserID, &action, &args, &lastResult, &expiresAt, &consumedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Preview{}, ErrPreviewNotFound
 		}
@@ -259,6 +261,7 @@ WHERE id = $1
 		ActorUserID: actorUserID.String(),
 		Action:      action,
 		Args:        json.RawMessage(args),
+		LastResult:  json.RawMessage(lastResult),
 		ExpiresAt:   expiresAt.Time,
 		ConsumedAt:  timestamptzPtr(consumedAt),
 	}, nil
@@ -277,6 +280,31 @@ SET consumed_at = now()
 WHERE id = $1
   AND consumed_at IS NULL
 `, parsedPreviewID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrPreviewConsumed
+	}
+	return nil
+}
+
+// ConsumePreviewWithResult marks preview as consumed and persists last_result.
+func (r *Repository) ConsumePreviewWithResult(ctx context.Context, previewID string, result json.RawMessage) error {
+	parsedPreviewID, err := parseUUID(previewID)
+	if err != nil {
+		return fmt.Errorf("parse preview id: %w", err)
+	}
+	if len(result) == 0 {
+		result = json.RawMessage(`{}`)
+	}
+
+	tag, err := r.pool.Exec(ctx, `
+UPDATE preview
+SET consumed_at = now(), last_result = $2::jsonb
+WHERE id = $1
+  AND consumed_at IS NULL
+`, parsedPreviewID, []byte(result))
 	if err != nil {
 		return err
 	}
