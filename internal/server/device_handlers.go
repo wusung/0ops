@@ -136,3 +136,61 @@ func authorizeToolsHandler(store toolGrantsStore) http.HandlerFunc {
 		json.NewEncoder(w).Encode(resp)
 	}
 }
+
+// PatchToolGrantsRequest is the request body for PATCH /v1/me/auth/tool-grants
+type PatchToolGrantsRequest struct {
+	Grant  []string `json:"grant,omitempty"`
+	Revoke []string `json:"revoke,omitempty"`
+}
+
+// PatchToolGrantsResponse is the response body for PATCH /v1/me/auth/tool-grants
+type PatchToolGrantsResponse struct {
+	GrantedTools []string `json:"granted_tools"`
+	RevokedTools []string `json:"revoked_tools"`
+}
+
+func patchToolGrantsHandler(store toolGrantsStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req PatchToolGrantsRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "invalid request body", nil)
+			return
+		}
+
+		// Validate tool names if any are provided
+		allTools := append(req.Grant, req.Revoke...)
+		if err := auth.ValidateToolGrants(allTools); err != nil {
+			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "invalid tools", map[string]any{"details": err.Error()})
+			return
+		}
+
+		// TODO: Extract user_id from Bearer token
+		userID := "placeholder_user_id"
+		teamID := "placeholder_team_id"
+
+		// Grant tools
+		for _, tool := range req.Grant {
+			if err := store.UpsertToolGrant(r.Context(), teamID, userID, tool, true, nil); err != nil {
+				apperror.Write(w, "database_error", apperror.ClassInternal, fmt.Sprintf("failed to grant tool %s", tool), nil)
+				return
+			}
+		}
+
+		// Revoke tools
+		for _, tool := range req.Revoke {
+			if err := store.RevokeToolGrant(r.Context(), teamID, userID, tool); err != nil {
+				apperror.Write(w, "database_error", apperror.ClassInternal, fmt.Sprintf("failed to revoke tool %s", tool), nil)
+				return
+			}
+		}
+
+		resp := PatchToolGrantsResponse{
+			GrantedTools: req.Grant,
+			RevokedTools: req.Revoke,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(resp)
+	}
+}

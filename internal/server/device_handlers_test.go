@@ -221,3 +221,124 @@ func TestAuthorizeToolsValid(t *testing.T) {
 		t.Errorf("expected 2 granted tools, got %d", len(grantedTools))
 	}
 }
+
+func TestPatchToolGrantsGrant(t *testing.T) {
+	store := newMockToolGrantsStore()
+	handler := patchToolGrantsHandler(store)
+
+	reqBody := PatchToolGrantsRequest{
+		Grant: []string{"list_apps", "create_app"},
+	}
+	body, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest("PATCH", "/v1/me/auth/tool-grants", bytes.NewReader(body))
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp PatchToolGrantsResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(resp.GrantedTools) != 2 {
+		t.Errorf("expected 2 granted tools, got %d", len(resp.GrantedTools))
+	}
+
+	if len(resp.RevokedTools) != 0 {
+		t.Errorf("expected 0 revoked tools, got %d", len(resp.RevokedTools))
+	}
+}
+
+func TestPatchToolGrantsRevoke(t *testing.T) {
+	store := newMockToolGrantsStore()
+
+	// Seed some grants first
+	store.UpsertToolGrant(context.Background(), "placeholder_team_id", "placeholder_user_id", "list_apps", true, nil)
+	store.UpsertToolGrant(context.Background(), "placeholder_team_id", "placeholder_user_id", "create_app", true, nil)
+
+	handler := patchToolGrantsHandler(store)
+
+	reqBody := PatchToolGrantsRequest{
+		Revoke: []string{"create_app"},
+	}
+	body, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest("PATCH", "/v1/me/auth/tool-grants", bytes.NewReader(body))
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp PatchToolGrantsResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(resp.RevokedTools) != 1 {
+		t.Errorf("expected 1 revoked tool, got %d", len(resp.RevokedTools))
+	}
+
+	if resp.RevokedTools[0] != "create_app" {
+		t.Errorf("expected revoked tool to be create_app, got %s", resp.RevokedTools[0])
+	}
+}
+
+func TestPatchToolGrantsMixed(t *testing.T) {
+	store := newMockToolGrantsStore()
+
+	// Seed some grants first
+	store.UpsertToolGrant(context.Background(), "placeholder_team_id", "placeholder_user_id", "list_apps", true, nil)
+
+	handler := patchToolGrantsHandler(store)
+
+	reqBody := PatchToolGrantsRequest{
+		Grant:  []string{"create_app"},
+		Revoke: []string{"list_apps"},
+	}
+	body, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest("PATCH", "/v1/me/auth/tool-grants", bytes.NewReader(body))
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp PatchToolGrantsResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(resp.GrantedTools) != 1 {
+		t.Errorf("expected 1 granted tool, got %d", len(resp.GrantedTools))
+	}
+
+	if len(resp.RevokedTools) != 1 {
+		t.Errorf("expected 1 revoked tool, got %d", len(resp.RevokedTools))
+	}
+}
+
+func TestPatchToolGrantsInvalidTool(t *testing.T) {
+	store := newMockToolGrantsStore()
+	handler := patchToolGrantsHandler(store)
+
+	reqBody := PatchToolGrantsRequest{
+		Grant: []string{"nonexistent_tool"},
+	}
+	body, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest("PATCH", "/v1/me/auth/tool-grants", bytes.NewReader(body))
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}

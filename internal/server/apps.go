@@ -341,6 +341,7 @@ func NewRouter(store routerStore) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionListTeams, next)
 		})
 		sr.Get("/teams", listTeamsHandler(store))
+		sr.Patch("/auth/tool-grants", patchToolGrantsHandler(store))
 	})
 
 	r.Route("/v1/teams/{team_slug}", func(sr chi.Router) {
