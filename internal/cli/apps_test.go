@@ -526,7 +526,7 @@ func TestAuthLoginThenAppsListWithoutTokenFlag(t *testing.T) {
 			IntervalSeconds:  1,
 		},
 		user: githuboauth.UserProfile{Login: "owner", Email: "owner@example.com"},
-	}))
+	}, nil, nil))
 	t.Cleanup(srv.Close)
 
 	cfgDir := t.TempDir()
@@ -570,7 +570,7 @@ func TestAuthLoginThenTeamsListWithoutTokenFlag(t *testing.T) {
 			IntervalSeconds:  1,
 		},
 		user: githuboauth.UserProfile{Login: "owner", Email: "owner@example.com"},
-	}))
+	}, nil, nil))
 	t.Cleanup(srv.Close)
 
 	cfgDir := t.TempDir()
@@ -609,7 +609,7 @@ func TestAuthLoginUsesDefaultHostAndGithubLoginFromEnv(t *testing.T) {
 			IntervalSeconds:  1,
 		},
 		user: githuboauth.UserProfile{Login: "owner", Email: "owner@example.com"},
-	}))
+	}, nil, nil))
 	t.Cleanup(srv.Close)
 
 	cfgDir := t.TempDir()
@@ -650,7 +650,7 @@ func TestAuthCommandRunsLoginFlowByDefault(t *testing.T) {
 			IntervalSeconds:  1,
 		},
 		user: githuboauth.UserProfile{Login: "owner", Email: "owner@example.com"},
-	}))
+	}, nil, nil))
 	t.Cleanup(srv.Close)
 
 	cfgDir := t.TempDir()
@@ -687,7 +687,7 @@ func TestAuthLoginUsesLocalhostDefaultGithubLogin(t *testing.T) {
 			IntervalSeconds:  1,
 		},
 		user: githuboauth.UserProfile{Login: "owner", Email: "owner@example.com"},
-	}))
+	}, nil, nil))
 	t.Cleanup(srv.Close)
 
 	cfgDir := t.TempDir()

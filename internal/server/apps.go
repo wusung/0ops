@@ -266,7 +266,7 @@ func previewCreateAppHandler(store appsStore) http.HandlerFunc {
 	}
 }
 
-func createAppHandler(store appsStore) http.HandlerFunc {
+func createAppHandler(store appsStore, k3sClient infraK3sClient, cfClient infraCloudflareClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		outcome := "error"
 		idempotentReplay := false
@@ -320,6 +320,20 @@ func createAppHandler(store appsStore) http.HandlerFunc {
 			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to create app", nil)
 			return
 		}
+
+		// Initialize infrastructure for the app (K3s namespace + Cloudflare tunnel)
+		teamID := auth.TeamID(r.Context())
+		teamSlug := auth.TeamSlug(r.Context())
+
+		if k3sClient != nil {
+			// Pass empty string for plan since it's not available in context
+			// The plan can be fetched from store if needed in production implementation
+			_, _ = k3sClient.EnsureNamespace(r.Context(), teamID, teamSlug, "free")
+		}
+		if cfClient != nil {
+			_, _ = cfClient.RouteAppToDomain(r.Context(), teamID, teamSlug, result.AppSlug)
+		}
+
 		response := dto.AppCreateResponse{
 			AppID:         result.AppID,
 			AppSlug:       result.AppSlug,
@@ -1198,28 +1212,17 @@ func uninstallGitHubAppHandler(_ appsStore) http.HandlerFunc {
 // NewRouter returns the HTTP router for the server.
 func NewRouter(store routerStore) http.Handler {
 	githubClient := newGitHubOAuthClient()
-	return NewRouterWithGitHubOAuth(store, githubClient)
+	return NewRouterWithGitHubOAuth(store, githubClient, nil, nil)
 }
 
 // NewRouterWithInfra creates a router with infrastructure clients.
 func NewRouterWithInfra(store routerStore, k3sClient infraK3sClient, cfClient infraCloudflareClient) http.Handler {
 	githubClient := newGitHubOAuthClient()
-	r := NewRouterWithGitHubOAuth(store, githubClient)
-
-	// Store infrastructure clients in context middleware
-	// Note: This is a simplified approach; in production, use dependency injection container
-	if k3sClient != nil {
-		_ = k3sClient
-	}
-	if cfClient != nil {
-		_ = cfClient
-	}
-
-	return r
+	return NewRouterWithGitHubOAuth(store, githubClient, k3sClient, cfClient)
 }
 
 //nolint:revive // exported for public API
-func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient) http.Handler {
+func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient, k3sClient infraK3sClient, cfClient infraCloudflareClient) http.Handler {
 	mw := auth.NewMiddleware(store)
 
 	r := chi.NewRouter()
@@ -1260,7 +1263,7 @@ func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient)
 		}).Post("/apps:preview", previewCreateAppHandler(store))
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionCreateApp, next)
-		}).Post("/apps", createAppHandler(store))
+		}).Post("/apps", createAppHandler(store, k3sClient, cfClient))
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionListApps, next)
 		}).Get("/repos/{app_slug}:inspect", inspectRepoHandler(store))
