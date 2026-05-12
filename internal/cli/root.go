@@ -27,6 +27,7 @@ func NewRootCommand() *cobra.Command {
 	}
 	root.Version = shared.Version
 	root.SetVersionTemplate("0ops {{.Version}}\n")
+	root.AddCommand(newAuthCommand())
 	root.AddCommand(newAppsCommand())
 	root.AddCommand(newTeamsCommand())
 	root.AddCommand(newMembersCommand())

@@ -82,6 +82,21 @@ func (f cliFakeStore) InviteMember(ctx context.Context, params db.InviteMemberPa
 func (f cliFakeStore) RemoveMember(ctx context.Context, teamID, actorUserID, targetUserID string) error {
 	return nil
 }
+func (f cliFakeStore) IsToolGranted(ctx context.Context, teamID, userID, toolID string) (bool, error) {
+	return true, nil
+}
+func (f cliFakeStore) ListGrantedTools(ctx context.Context, teamID, userID string) ([]string, error) {
+	return []string{}, nil
+}
+func (f cliFakeStore) UpsertToolGrant(ctx context.Context, teamID, userID, toolID string, allowed bool, grantedByActorID *string) error {
+	return nil
+}
+func (f cliFakeStore) RevokeToolGrant(ctx context.Context, teamID, userID, toolID string) error {
+	return nil
+}
+func (f cliFakeStore) ListAllUserGrants(ctx context.Context, teamID, userID string) ([]db.ToolGrant, error) {
+	return []db.ToolGrant{}, nil
+}
 
 func TestAppsListCommand(t *testing.T) {
 	store, token := newCLIFakeStore()

@@ -333,7 +333,7 @@ func NewRouter(store routerStore) http.Handler {
 	})
 
 	// Tool authorization endpoint (requires temporary token)
-	r.Post("/v1/teams/{team_slug}/auth:grant-tools", authorizeToolsHandler())
+	r.Post("/v1/teams/{team_slug}/auth:grant-tools", authorizeToolsHandler(store))
 
 	r.Route("/v1/me", func(sr chi.Router) {
 		sr.Use(mw.Bearer)
