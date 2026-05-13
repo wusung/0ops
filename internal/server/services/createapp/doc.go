@@ -1,2 +1,2 @@
-// Package createapp implements the create_app saga orchestration.
+// Package createapp contains the create_app orchestration service.
 package createapp

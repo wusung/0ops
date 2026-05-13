@@ -5,178 +5,209 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
-	"github.com/winshare/zeroops/internal/server/apperror"
-	"github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/shared/dto"
-
 	"github.com/jackc/pgx/v5"
+
+	"github.com/winshare/zeroops/internal/server/db"
+	gitopssvc "github.com/winshare/zeroops/internal/server/services/gitops"
+	workflowdispatch "github.com/winshare/zeroops/internal/server/services/workflowdispatch"
+	"github.com/winshare/zeroops/internal/shared/dto"
 )
 
 const previewAction = "create_app"
 
+var slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$`)
+
+var (
+	// ErrValidationFailed is returned when the create_app payload is invalid.
+	ErrValidationFailed = errors.New("validation failed")
+	// ErrPreviewConsumed is returned when a consumed preview cannot be replayed.
+	ErrPreviewConsumed = errors.New("preview consumed")
+	// ErrPreviewExpired is returned when the preview has expired.
+	ErrPreviewExpired = errors.New("preview expired")
+	// ErrPreviewNotFound is returned when the preview cannot be found.
+	ErrPreviewNotFound = errors.New("preview not found")
+	// ErrSlugTaken is returned when the slug is already in use.
+	ErrSlugTaken = errors.New("slug taken")
+)
+
+// Store captures the db operations required by the create_app orchestration.
 type Store interface {
-	ResolveTeamBySlug(context.Context, string) (db.Team, error)
-	GetTeamAppBySlug(context.Context, string, string) (db.App, error)
-	CreatePreview(context.Context, string, string, string, json.RawMessage, string) (db.Preview, error)
-	GetPreview(context.Context, string) (db.Preview, error)
-	ConsumePreviewWithResult(context.Context, string, json.RawMessage) error
-	CreateApp(context.Context, db.AppCreateParams) (db.AppCreateResult, error)
-	DeleteAppByID(context.Context, string) error
+	GetTeamAppBySlug(ctx context.Context, teamID string, slug string) (db.App, error)
+	GetPreview(ctx context.Context, previewID string) (db.Preview, error)
+	ConsumePreviewWithResult(ctx context.Context, previewID string, result json.RawMessage) error
+	CreateApp(ctx context.Context, params db.AppCreateParams) (db.AppCreateResult, error)
 }
 
+// K3sClient captures the namespace provisioning calls used by create_app.
 type K3sClient interface {
-	EnsureNamespace(context.Context, string, string, string) (string, error)
-	EnsureResourceQuota(context.Context, string, string) error
-	EnsureLimitRange(context.Context, string) error
-	EnsureNetworkPolicy(context.Context, string) error
-	PatchNamespacePSA(context.Context, string) error
+	EnsureNamespace(ctx context.Context, teamID, teamSlug, planTier string) (string, error)
 }
 
+// CloudflareClient captures the route provisioning calls used by create_app.
+type CloudflareClient interface {
+	RouteAppToDomain(ctx context.Context, teamID, teamSlug, appSlug string) (string, error)
+}
+
+// Dispatcher triggers the GitHub build workflow.
+type Dispatcher interface {
+	Dispatch(ctx context.Context, payload workflowdispatch.ClientPayload) error
+}
+
+// OpsTokenSigner issues ephemeral workflow tokens.
+type OpsTokenSigner interface {
+	Issue(runID, traceID string, scopes []string) (string, error)
+}
+
+// Service orchestrates create_app preview replay and confirmation.
 type Service struct {
-	store Store
-	k3s   K3sClient
-	now   func() time.Time
+	store           Store
+	k3sClient       K3sClient
+	cfClient        CloudflareClient
+	gitops          gitopssvc.Service
+	dispatcher      Dispatcher
+	tokenSigner     OpsTokenSigner
+	callbackBaseURL string
+	planTier        string
+	now             func() time.Time
 }
 
-func New(store Store, k3s K3sClient) *Service {
+// ConfirmResult is the durable create_app response plus replay metadata.
+type ConfirmResult struct {
+	Response dto.AppCreateResponse
+	Replayed bool
+}
+
+// New returns a create_app orchestration service.
+func New(store Store, k3sClient K3sClient, cfClient CloudflareClient, gitops gitopssvc.Service, dispatcher Dispatcher, tokenSigner OpsTokenSigner, callbackBaseURL string) *Service {
 	return &Service{
-		store: store,
-		k3s:   k3s,
-		now:   time.Now,
+		store:           store,
+		k3sClient:       k3sClient,
+		cfClient:        cfClient,
+		gitops:          gitops,
+		dispatcher:      dispatcher,
+		tokenSigner:     tokenSigner,
+		callbackBaseURL: strings.TrimRight(callbackBaseURL, "/"),
+		planTier:        "free",
+		now:             time.Now,
 	}
 }
 
-func (s *Service) PreviewCreateApp(ctx context.Context, teamSlug, actorUserID string, req dto.AppCreateRequest) (db.Preview, string, error) {
-	if err := validateSlug(req.Slug); err != nil {
-		return db.Preview{}, "", apperror.New(apperror.ClassBadRequest, "validation_failed", "invalid app slug", map[string]any{"field": "slug"})
-	}
-	if err := validateRepoURL(req.RepoURL); err != nil {
-		return db.Preview{}, "", apperror.New(apperror.ClassBadRequest, "validation_failed", "invalid repo url", map[string]any{"field": "repo_url"})
-	}
-	if strings.TrimSpace(req.Ref) == "" {
-		return db.Preview{}, "", apperror.New(apperror.ClassBadRequest, "validation_failed", "ref is required", map[string]any{"field": "ref"})
-	}
-
-	team, err := s.store.ResolveTeamBySlug(ctx, teamSlug)
-	if err != nil {
-		return db.Preview{}, "", apperror.New(apperror.ClassNotFound, "team_not_found", "team not found", nil)
-	}
-	if team.ArchivedAt != nil {
-		return db.Preview{}, "", apperror.New(apperror.ClassNotFound, "team_not_found", "team not found", nil)
-	}
-	if _, err := s.store.GetTeamAppBySlug(ctx, team.ID, req.Slug); err == nil {
-		return db.Preview{}, "", apperror.New(apperror.ClassConflict, "slug_taken", "app slug already exists", map[string]any{"slug": req.Slug})
-	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return db.Preview{}, "", apperror.New(apperror.ClassInternal, "internal_error", "failed to check app slug", nil)
-	}
-
-	args, err := json.Marshal(req)
-	if err != nil {
-		return db.Preview{}, "", apperror.New(apperror.ClassInternal, "internal_error", "failed to encode preview args", nil)
-	}
-
-	summary := fmt.Sprintf("Create app %q from %s", req.Slug, req.RepoURL)
-	preview, err := s.store.CreatePreview(ctx, team.ID, actorUserID, previewAction, args, summary)
-	if err != nil {
-		return db.Preview{}, "", apperror.New(apperror.ClassInternal, "internal_error", "failed to create preview", nil)
-	}
-	return preview, summary, nil
-}
-
-func (s *Service) ConfirmCreateApp(ctx context.Context, teamSlug, actorUserID, previewID, traceID string) (dto.AppCreateResponse, bool, error) {
-	if strings.TrimSpace(previewID) == "" {
-		return dto.AppCreateResponse{}, false, apperror.New(apperror.ClassBadRequest, "validation_failed", "preview_id is required", nil)
-	}
-
-	team, err := s.store.ResolveTeamBySlug(ctx, teamSlug)
-	if err != nil {
-		return dto.AppCreateResponse{}, false, apperror.New(apperror.ClassNotFound, "team_not_found", "team not found", nil)
-	}
-	if team.ArchivedAt != nil {
-		return dto.AppCreateResponse{}, false, apperror.New(apperror.ClassNotFound, "team_not_found", "team not found", nil)
-	}
+// Confirm executes the create_app confirm flow for a validated preview.
+func (s *Service) Confirm(ctx context.Context, teamID, actorUserID, teamSlug, previewID, traceID string) (ConfirmResult, error) {
 	preview, err := s.store.GetPreview(ctx, previewID)
 	if err != nil {
-		return dto.AppCreateResponse{}, false, apperror.New(apperror.ClassNotFound, "preview_not_found", "preview not found", nil)
+		if errors.Is(err, db.ErrPreviewNotFound) {
+			return ConfirmResult{}, ErrPreviewNotFound
+		}
+		return ConfirmResult{}, err
 	}
-	if preview.Action != previewAction || preview.TeamID != team.ID || preview.ActorUserID != actorUserID {
-		return dto.AppCreateResponse{}, false, apperror.New(apperror.ClassNotFound, "preview_not_found", "preview not found", nil)
+
+	if preview.Action != previewAction || preview.TeamID != teamID || preview.ActorUserID != actorUserID {
+		return ConfirmResult{}, ErrPreviewNotFound
 	}
 	if preview.ConsumedAt != nil {
 		if len(preview.LastResult) == 0 {
-			return dto.AppCreateResponse{}, false, apperror.New(apperror.ClassConflict, "preview_consumed", "preview already consumed", nil)
+			return ConfirmResult{}, ErrPreviewConsumed
 		}
-		var replay dto.AppCreateResponse
-		if err := json.Unmarshal(preview.LastResult, &replay); err != nil {
-			return dto.AppCreateResponse{}, false, apperror.New(apperror.ClassInternal, "internal_error", "failed to decode replay result", nil)
+		var response dto.AppCreateResponse
+		if err := json.Unmarshal(preview.LastResult, &response); err != nil {
+			return ConfirmResult{}, fmt.Errorf("decode replay result: %w", err)
 		}
-		return replay, true, nil
+		return ConfirmResult{Response: response, Replayed: true}, nil
 	}
 	if preview.ExpiresAt.Before(s.now().UTC()) {
-		return dto.AppCreateResponse{}, false, apperror.New(apperror.ClassConflict, "preview_expired", "preview expired", nil)
+		return ConfirmResult{}, ErrPreviewExpired
 	}
+
+	var payload dto.AppCreateRequest
+	if err := json.Unmarshal(preview.Args, &payload); err != nil {
+		return ConfirmResult{}, fmt.Errorf("decode preview args: %w", err)
+	}
+	if err := validateRequest(payload); err != nil {
+		return ConfirmResult{}, fmt.Errorf("%w: %v", ErrValidationFailed, err)
+	}
+
+	if _, err := s.store.GetTeamAppBySlug(ctx, teamID, payload.Slug); err == nil {
+		return ConfirmResult{}, ErrSlugTaken
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return ConfirmResult{}, err
+	}
+
 	traceID = strings.TrimSpace(traceID)
 	if traceID == "" {
 		traceID = preview.ID
 	}
 
-	var req dto.AppCreateRequest
-	if err := json.Unmarshal(preview.Args, &req); err != nil {
-		return dto.AppCreateResponse{}, false, apperror.New(apperror.ClassBadRequest, "validation_failed", "invalid preview args", nil)
-	}
-	if err := validateSlug(req.Slug); err != nil {
-		return dto.AppCreateResponse{}, false, apperror.New(apperror.ClassBadRequest, "validation_failed", "invalid app slug", map[string]any{"field": "slug"})
-	}
-	if err := validateRepoURL(req.RepoURL); err != nil {
-		return dto.AppCreateResponse{}, false, apperror.New(apperror.ClassBadRequest, "validation_failed", "invalid repo url", map[string]any{"field": "repo_url"})
-	}
-	if strings.TrimSpace(req.Ref) == "" {
-		return dto.AppCreateResponse{}, false, apperror.New(apperror.ClassBadRequest, "validation_failed", "ref is required", map[string]any{"field": "ref"})
-	}
-	if _, err := s.store.GetTeamAppBySlug(ctx, team.ID, req.Slug); err == nil {
-		return dto.AppCreateResponse{}, false, apperror.New(apperror.ClassConflict, "slug_taken", "app slug already exists", map[string]any{"slug": req.Slug})
-	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return dto.AppCreateResponse{}, false, apperror.New(apperror.ClassInternal, "internal_error", "failed to check app slug", nil)
-	}
-
 	result, err := s.store.CreateApp(ctx, db.AppCreateParams{
-		TeamID:      team.ID,
+		TeamID:      teamID,
 		ActorUserID: actorUserID,
-		Slug:        req.Slug,
-		RepoURL:     req.RepoURL,
-		Ref:         req.Ref,
-		Builder:     req.Builder,
+		Slug:        payload.Slug,
+		RepoURL:     payload.RepoURL,
+		Ref:         payload.Ref,
+		Builder:     payload.Builder,
 		TraceID:     traceID,
 	})
 	if err != nil {
-		return dto.AppCreateResponse{}, false, apperror.New(apperror.ClassInternal, "internal_error", "failed to create app", nil)
+		return ConfirmResult{}, err
 	}
 
-	namespace := ""
-	if s.k3s != nil {
-		namespace, err = s.k3s.EnsureNamespace(ctx, team.ID, team.Slug, team.Plan)
+	commitSHA := payload.Ref
+	imageRef := fmt.Sprintf("ghcr.io/winshare/0ops-apps/%s/%s:%s", teamSlug, result.AppSlug, result.DeployRunID)
+	if s.gitops != nil {
+		gitopsResult, err := s.gitops.RenderAndPush(ctx, gitopssvc.RenderInput{
+			Action:      previewAction,
+			TeamSlug:    teamSlug,
+			AppSlug:     result.AppSlug,
+			RepoURL:     payload.RepoURL,
+			Ref:         payload.Ref,
+			DeployRunID: result.DeployRunID,
+			PreviewID:   preview.ID,
+			TraceID:     traceID,
+			PrimaryPort: 3000,
+		})
 		if err != nil {
-			_ = s.store.DeleteAppByID(ctx, result.AppID)
-			return dto.AppCreateResponse{}, false, apperror.New(apperror.ClassInternal, "k3s_namespace_failed", "failed to ensure team namespace", nil)
+			return ConfirmResult{}, err
 		}
-		if err := s.k3s.EnsureResourceQuota(ctx, namespace, team.Plan); err != nil {
-			_ = s.store.DeleteAppByID(ctx, result.AppID)
-			return dto.AppCreateResponse{}, false, apperror.New(apperror.ClassInternal, "k3s_resource_quota_failed", "failed to ensure namespace quota", nil)
+		if gitopsResult.SourceCommitSHA != "" {
+			commitSHA = gitopsResult.SourceCommitSHA
 		}
-		if err := s.k3s.EnsureLimitRange(ctx, namespace); err != nil {
-			_ = s.store.DeleteAppByID(ctx, result.AppID)
-			return dto.AppCreateResponse{}, false, apperror.New(apperror.ClassInternal, "k3s_limit_range_failed", "failed to ensure namespace limit range", nil)
+		if gitopsResult.ImageRef != "" {
+			imageRef = gitopsResult.ImageRef
 		}
-		if err := s.k3s.EnsureNetworkPolicy(ctx, namespace); err != nil {
-			_ = s.store.DeleteAppByID(ctx, result.AppID)
-			return dto.AppCreateResponse{}, false, apperror.New(apperror.ClassInternal, "k3s_network_policy_failed", "failed to ensure namespace network policy", nil)
+	}
+
+	if s.k3sClient != nil {
+		_, _ = s.k3sClient.EnsureNamespace(ctx, teamID, teamSlug, s.planTier)
+	}
+	if s.cfClient != nil {
+		_, _ = s.cfClient.RouteAppToDomain(ctx, teamID, teamSlug, result.AppSlug)
+	}
+
+	if s.dispatcher != nil {
+		if s.tokenSigner == nil {
+			return ConfirmResult{}, errors.New("missing workflow token signer")
 		}
-		if err := s.k3s.PatchNamespacePSA(ctx, namespace); err != nil {
-			_ = s.store.DeleteAppByID(ctx, result.AppID)
-			return dto.AppCreateResponse{}, false, apperror.New(apperror.ClassInternal, "k3s_psa_failed", "failed to patch namespace psa", nil)
+		opsToken := ""
+		opsToken, err = s.tokenSigner.Issue(result.DeployRunID, traceID, []string{"ghcr:push", "callback:write"})
+		if err != nil {
+			return ConfirmResult{}, err
+		}
+		if err := s.dispatcher.Dispatch(ctx, workflowdispatch.ClientPayload{
+			RunID:       result.DeployRunID,
+			AppSlug:     result.AppSlug,
+			TeamSlug:    teamSlug,
+			CommitSHA:   commitSHA,
+			Ref:         payload.Ref,
+			ImageRef:    imageRef,
+			OpsToken:    opsToken,
+			CallbackURL: fmt.Sprintf("%s/internal/deploy-runs/%s/callback", s.callbackBaseURL, result.DeployRunID),
+			TraceID:     traceID,
+		}); err != nil {
+			return ConfirmResult{}, err
 		}
 	}
 
@@ -190,13 +221,37 @@ func (s *Service) ConfirmCreateApp(ctx context.Context, teamSlug, actorUserID, p
 	}
 	responseJSON, err := json.Marshal(response)
 	if err != nil {
-		_ = s.store.DeleteAppByID(ctx, result.AppID)
-		return dto.AppCreateResponse{}, false, apperror.New(apperror.ClassInternal, "internal_error", "failed to encode create_app result", nil)
+		return ConfirmResult{}, err
 	}
 	if err := s.store.ConsumePreviewWithResult(ctx, preview.ID, responseJSON); err != nil {
-		_ = s.store.DeleteAppByID(ctx, result.AppID)
-		return dto.AppCreateResponse{}, false, apperror.New(apperror.ClassConflict, "preview_consumed", "preview already consumed", nil)
+		if errors.Is(err, db.ErrPreviewConsumed) {
+			return ConfirmResult{}, ErrPreviewConsumed
+		}
+		return ConfirmResult{}, err
 	}
 
-	return response, false, nil
+	return ConfirmResult{Response: response}, nil
+}
+
+func validateRequest(req dto.AppCreateRequest) error {
+	slug := strings.TrimSpace(req.Slug)
+	if !slugPattern.MatchString(slug) {
+		return fmt.Errorf("invalid slug")
+	}
+	switch slug {
+	case "system", "api", "auth", "v1", "me":
+		return fmt.Errorf("reserved slug")
+	}
+
+	repoURL := strings.TrimSpace(req.RepoURL)
+	if repoURL == "" {
+		return fmt.Errorf("repo_url is required")
+	}
+	if !strings.HasPrefix(repoURL, "https://github.com/") && !strings.HasPrefix(repoURL, "git@github.com:") {
+		return fmt.Errorf("unsupported repo_url")
+	}
+	if strings.TrimSpace(req.Ref) == "" {
+		return fmt.Errorf("ref is required")
+	}
+	return nil
 }

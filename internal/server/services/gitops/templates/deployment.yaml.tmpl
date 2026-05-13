@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .AppSlug }}
+  namespace: team-{{ .TeamSlug }}
+  labels:
+    app.0ops.io/slug: {{ .AppSlug }}
+    app.0ops.io/team: {{ .TeamSlug }}
+    app.0ops.io/managed-by: 0ops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.0ops.io/slug: {{ .AppSlug }}
+  template:
+    metadata:
+      labels:
+        app.0ops.io/slug: {{ .AppSlug }}
+        app.0ops.io/team: {{ .TeamSlug }}
+        app.0ops.io/managed-by: 0ops
+    spec:
+      containers:
+        - name: app
+          image: {{ .ImageRef }}
+          ports:
+            - containerPort: {{ .PrimaryPort }}

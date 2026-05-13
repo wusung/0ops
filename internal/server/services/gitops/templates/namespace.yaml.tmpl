@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: team-{{ .TeamSlug }}
+  labels:
+    app.0ops.io/team: {{ .TeamSlug }}
+    pod-security.kubernetes.io/enforce: baseline

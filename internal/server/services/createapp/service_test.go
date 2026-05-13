@@ -13,220 +13,166 @@ import (
 	"github.com/winshare/zeroops/internal/shared/dto"
 )
 
-type fakeCreateAppStore struct {
-	team             db.Team
-	apps             []db.App
-	previews         map[string]db.Preview
-	nextPreviewID    string
-	nextAppResult    db.AppCreateResult
-	createAppCalls   int
-	deleteAppCalls   []string
-	consumeCalls     []string
-	lastConsumedJSON json.RawMessage
+type fakeStore struct {
+	preview     db.Preview
+	app         db.App
+	createCalls int
+	consumeArgs []json.RawMessage
 }
 
-func (f *fakeCreateAppStore) ResolveTeamBySlug(_ context.Context, slug string) (db.Team, error) {
-	if slug != f.team.Slug {
-		return db.Team{}, pgx.ErrNoRows
-	}
-	return f.team, nil
-}
-
-func (f *fakeCreateAppStore) GetTeamAppBySlug(_ context.Context, teamID, slug string) (db.App, error) {
-	if teamID != f.team.ID {
-		return db.App{}, pgx.ErrNoRows
-	}
-	for _, app := range f.apps {
-		if app.Slug == slug {
-			return app, nil
-		}
+func (f *fakeStore) GetTeamAppBySlug(context.Context, string, string) (db.App, error) {
+	if f.app.Slug != "" {
+		return f.app, nil
 	}
 	return db.App{}, pgx.ErrNoRows
 }
 
-func (f *fakeCreateAppStore) CreatePreview(_ context.Context, teamID, actorUserID, action string, args json.RawMessage, summary string) (db.Preview, error) {
-	id := f.nextPreviewID
-	if id == "" {
-		id = "preview-1"
+func (f *fakeStore) GetPreview(context.Context, string) (db.Preview, error) {
+	if f.preview.ID == "" {
+		return db.Preview{}, db.ErrPreviewNotFound
 	}
-	out := db.Preview{
-		ID:          id,
-		TeamID:      teamID,
-		ActorUserID: actorUserID,
-		Action:      action,
-		Args:        args,
-		ExpiresAt:   time.Now().UTC().Add(10 * time.Minute),
-	}
-	if f.previews == nil {
-		f.previews = map[string]db.Preview{}
-	}
-	f.previews[id] = out
-	_ = summary
-	return out, nil
+	return f.preview, nil
 }
 
-func (f *fakeCreateAppStore) GetPreview(_ context.Context, previewID string) (db.Preview, error) {
-	if preview, ok := f.previews[previewID]; ok {
-		return preview, nil
-	}
-	return db.Preview{}, pgx.ErrNoRows
-}
-
-func (f *fakeCreateAppStore) ConsumePreviewWithResult(_ context.Context, previewID string, result json.RawMessage) error {
-	preview, ok := f.previews[previewID]
-	if !ok {
-		return db.ErrPreviewNotFound
-	}
+func (f *fakeStore) ConsumePreviewWithResult(_ context.Context, _ string, result json.RawMessage) error {
+	f.consumeArgs = append(f.consumeArgs, append(json.RawMessage(nil), result...))
 	now := time.Now().UTC()
-	preview.ConsumedAt = &now
-	preview.LastResult = append(json.RawMessage(nil), result...)
-	f.previews[previewID] = preview
-	f.consumeCalls = append(f.consumeCalls, previewID)
-	f.lastConsumedJSON = append(json.RawMessage(nil), result...)
+	f.preview.ConsumedAt = &now
+	f.preview.LastResult = append(json.RawMessage(nil), result...)
 	return nil
 }
 
-func (f *fakeCreateAppStore) CreateApp(_ context.Context, params db.AppCreateParams) (db.AppCreateResult, error) {
-	f.createAppCalls++
-	if f.nextAppResult.AppID != "" {
-		f.apps = append(f.apps, db.App{ID: f.nextAppResult.AppID, TeamID: params.TeamID, Slug: params.Slug})
-		return f.nextAppResult, nil
+func (f *fakeStore) CreateApp(_ context.Context, params db.AppCreateParams) (db.AppCreateResult, error) {
+	f.createCalls++
+	f.app = db.App{
+		ID:     "app-1",
+		TeamID: params.TeamID,
+		Slug:   params.Slug,
 	}
-	result := db.AppCreateResult{AppID: "app-1", AppSlug: params.Slug, DeployRunID: "deploy-1"}
-	f.apps = append(f.apps, db.App{ID: result.AppID, TeamID: params.TeamID, Slug: params.Slug})
-	return result, nil
+	return db.AppCreateResult{
+		AppID:       "app-1",
+		AppSlug:     params.Slug,
+		DeployRunID: "deploy-1",
+	}, nil
 }
 
-func (f *fakeCreateAppStore) DeleteAppByID(_ context.Context, appID string) error {
-	f.deleteAppCalls = append(f.deleteAppCalls, appID)
-	filtered := f.apps[:0]
-	for _, app := range f.apps {
-		if app.ID != appID {
-			filtered = append(filtered, app)
-		}
-	}
-	f.apps = filtered
-	return nil
+type noopK3s struct{}
+
+func (noopK3s) EnsureNamespace(context.Context, string, string, string) (string, error) {
+	return "team-free", nil
 }
 
-type fakeK3sClient struct {
-	namespaceErr error
-	quotaErr     error
-	limitErr     error
-	networkErr   error
-	psaErr       error
+type noopCF struct{}
+
+func (noopCF) RouteAppToDomain(context.Context, string, string, string) (string, error) {
+	return "nextdemo.winshare.tw", nil
 }
 
-func (f *fakeK3sClient) EnsureNamespace(_ context.Context, _, teamSlug, _ string) (string, error) {
-	if f.namespaceErr != nil {
-		return "", f.namespaceErr
-	}
-	return "team-" + teamSlug, nil
-}
-
-func (f *fakeK3sClient) EnsureResourceQuota(_ context.Context, _ string, _ string) error {
-	return f.quotaErr
-}
-
-func (f *fakeK3sClient) EnsureLimitRange(_ context.Context, _ string) error {
-	return f.limitErr
-}
-
-func (f *fakeK3sClient) EnsureNetworkPolicy(_ context.Context, _ string) error {
-	return f.networkErr
-}
-
-func (f *fakeK3sClient) PatchNamespacePSA(_ context.Context, _ string) error {
-	return f.psaErr
-}
-
-func TestPreviewCreateAppReturnsSummaryAndPreview(t *testing.T) {
-	store := &fakeCreateAppStore{
-		team: db.Team{ID: "team-1", Slug: "acme", Plan: "starter"},
-	}
-	svc := New(store, nil)
-
-	preview, summary, err := svc.PreviewCreateApp(context.Background(), "acme", "user-1", dto.AppCreateRequest{
-		Slug:    "nextdemo",
-		RepoURL: "https://github.com/example/nextdemo",
-		Ref:     "main",
-	})
-	if err != nil {
-		t.Fatalf("PreviewCreateApp() error = %v", err)
-	}
-	if summary == "" || preview.ID == "" {
-		t.Fatalf("expected summary and preview id, got summary=%q preview=%q", summary, preview.ID)
-	}
-}
-
-func TestConfirmCreateAppReplaysConsumedPreview(t *testing.T) {
+func TestConfirmReplayReturnsStoredResult(t *testing.T) {
 	now := time.Now().UTC()
-	response := dto.AppCreateResponse{
+	stored := dto.AppCreateResponse{
 		AppID:         "app-1",
 		AppSlug:       "nextdemo",
 		DeployRunID:   "deploy-1",
-		TraceID:       "preview-1",
+		TraceID:       "trace-1",
 		SubdomainURL:  "https://nextdemo.winshare.tw",
 		InitialDeploy: true,
 	}
-	payload, err := json.Marshal(response)
+	storedJSON, err := json.Marshal(stored)
 	if err != nil {
-		t.Fatalf("json.Marshal() error = %v", err)
+		t.Fatalf("marshal stored result: %v", err)
 	}
-
-	store := &fakeCreateAppStore{
-		team: db.Team{ID: "team-1", Slug: "acme", Plan: "starter"},
-		previews: map[string]db.Preview{
-			"preview-1": {
-				ID:          "preview-1",
-				TeamID:      "team-1",
-				ActorUserID: "user-1",
-				Action:      previewAction,
-				Args:        json.RawMessage(`{"slug":"nextdemo","repo_url":"https://github.com/example/nextdemo","ref":"main"}`),
-				LastResult:  payload,
-				ExpiresAt:   now.Add(1 * time.Minute),
-				ConsumedAt:  &now,
-			},
+	store := &fakeStore{
+		preview: db.Preview{
+			ID:          "preview-1",
+			TeamID:      "team-1",
+			ActorUserID: "user-1",
+			Action:      previewAction,
+			LastResult:  storedJSON,
+			ConsumedAt:  &now,
+			ExpiresAt:   now.Add(10 * time.Minute),
 		},
 	}
-	svc := New(store, nil)
 
-	out, replayed, err := svc.ConfirmCreateApp(context.Background(), "acme", "user-1", "preview-1", "trace-1")
+	svc := New(store, noopK3s{}, noopCF{}, nil, nil, nil, "")
+	result, err := svc.Confirm(context.Background(), "team-1", "user-1", "team-slug", "preview-1", "trace-ignored")
 	if err != nil {
-		t.Fatalf("ConfirmCreateApp() error = %v", err)
+		t.Fatalf("Confirm() error = %v", err)
 	}
-	if !replayed {
-		t.Fatal("expected replayed=true")
+	if !result.Replayed {
+		t.Fatal("expected replayed result")
 	}
-	if out.AppID != response.AppID || out.DeployRunID != response.DeployRunID {
-		t.Fatalf("unexpected replay response: %+v", out)
-	}
-	if store.createAppCalls != 0 {
-		t.Fatalf("create app should not be called on replay, got %d", store.createAppCalls)
+	if result.Response.AppSlug != stored.AppSlug {
+		t.Fatalf("AppSlug = %q, want %q", result.Response.AppSlug, stored.AppSlug)
 	}
 }
 
-func TestConfirmCreateAppCompensatesOnK3sFailure(t *testing.T) {
-	store := &fakeCreateAppStore{
-		team: db.Team{ID: "team-1", Slug: "acme", Plan: "starter"},
-		previews: map[string]db.Preview{
-			"preview-1": {
-				ID:          "preview-1",
-				TeamID:      "team-1",
-				ActorUserID: "user-1",
-				Action:      previewAction,
-				Args:        json.RawMessage(`{"slug":"nextdemo","repo_url":"https://github.com/example/nextdemo","ref":"main"}`),
-				ExpiresAt:   time.Now().UTC().Add(1 * time.Minute),
-			},
+func TestConfirmCreatesAppAndConsumesPreview(t *testing.T) {
+	now := time.Now().UTC()
+	store := &fakeStore{
+		preview: db.Preview{
+			ID:          "preview-1",
+			TeamID:      "team-1",
+			ActorUserID: "user-1",
+			Action:      previewAction,
+			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", RepoURL: "https://github.com/example/nextdemo", Ref: "main"}),
+			ExpiresAt:   now.Add(10 * time.Minute),
 		},
 	}
-	svc := New(store, &fakeK3sClient{namespaceErr: errors.New("boom")})
 
-	_, _, err := svc.ConfirmCreateApp(context.Background(), "acme", "user-1", "preview-1", "trace-1")
-	if err == nil {
-		t.Fatal("expected error")
+	svc := New(store, noopK3s{}, noopCF{}, nil, nil, nil, "")
+	result, err := svc.Confirm(context.Background(), "team-1", "user-1", "team-slug", "preview-1", "trace-1")
+	if err != nil {
+		t.Fatalf("Confirm() error = %v", err)
 	}
-	if len(store.deleteAppCalls) != 1 {
-		t.Fatalf("expected compensation delete, got %v", store.deleteAppCalls)
+	if result.Replayed {
+		t.Fatal("expected fresh result")
 	}
+	if result.Response.AppSlug != "nextdemo" {
+		t.Fatalf("AppSlug = %q, want nextdemo", result.Response.AppSlug)
+	}
+	if store.createCalls != 1 {
+		t.Fatalf("CreateApp calls = %d, want 1", store.createCalls)
+	}
+	if got := store.preview.LastResult; len(got) == 0 {
+		t.Fatal("expected stored last result")
+	}
+}
+
+func TestConfirmRejectsExpiredPreview(t *testing.T) {
+	store := &fakeStore{
+		preview: db.Preview{
+			ID:          "preview-1",
+			TeamID:      "team-1",
+			ActorUserID: "user-1",
+			Action:      previewAction,
+			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", RepoURL: "https://github.com/example/nextdemo", Ref: "main"}),
+			ExpiresAt:   time.Now().UTC().Add(-time.Minute),
+		},
+	}
+
+	svc := New(store, noopK3s{}, noopCF{}, nil, nil, nil, "")
+	_, err := svc.Confirm(context.Background(), "team-1", "user-1", "team-slug", "preview-1", "trace-1")
+	if !errors.Is(err, ErrPreviewExpired) {
+		t.Fatalf("err = %v, want ErrPreviewExpired", err)
+	}
+}
+
+func TestCreateAppLifecycle(t *testing.T) {
+	got := CreateAppLifecycle()
+	if len(got) != 7 {
+		t.Fatalf("len = %d, want 7", len(got))
+	}
+	if got[0] != DeployRunQueued || got[len(got)-1] != DeployRunLive {
+		t.Fatalf("unexpected lifecycle: %#v", got)
+	}
+}
+
+func mustJSON(t *testing.T, v any) json.RawMessage {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return b
 }

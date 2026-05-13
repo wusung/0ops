@@ -1,22 +1,24 @@
 package createapp
 
-type DeployRunStatus string
+// DeployRunStage represents the create_app deploy lifecycle stage.
+type DeployRunStage string
 
 const (
-	DeployRunQueued       DeployRunStatus = "queued"
-	DeployRunPreparing    DeployRunStatus = "preparing"
-	DeployRunBuilding     DeployRunStatus = "building"
-	DeployRunPushing      DeployRunStatus = "pushing"
-	DeployRunRendering    DeployRunStatus = "rendering"
-	DeployRunSyncing      DeployRunStatus = "syncing"
-	DeployRunLive         DeployRunStatus = "live"
-	DeployRunCompensating DeployRunStatus = "compensating"
-	DeployRunRolledBack   DeployRunStatus = "rolled_back"
-	DeployRunFailed       DeployRunStatus = "failed"
+	DeployRunQueued       DeployRunStage = "queued"
+	DeployRunPreparing    DeployRunStage = "preparing"
+	DeployRunBuilding     DeployRunStage = "building"
+	DeployRunPushing      DeployRunStage = "pushing"
+	DeployRunRendering    DeployRunStage = "rendering"
+	DeployRunSyncing      DeployRunStage = "syncing"
+	DeployRunLive         DeployRunStage = "live"
+	DeployRunFailed       DeployRunStage = "failed"
+	DeployRunCompensating DeployRunStage = "compensating"
+	DeployRunRolledBack   DeployRunStage = "rolled_back"
 )
 
-func CreateAppStateSequence() []DeployRunStatus {
-	return []DeployRunStatus{
+// CreateAppLifecycle returns the forward state path for a successful create_app run.
+func CreateAppLifecycle() []DeployRunStage {
+	return []DeployRunStage{
 		DeployRunQueued,
 		DeployRunPreparing,
 		DeployRunBuilding,
@@ -24,5 +26,15 @@ func CreateAppStateSequence() []DeployRunStatus {
 		DeployRunRendering,
 		DeployRunSyncing,
 		DeployRunLive,
+	}
+}
+
+// IsTerminal reports whether the stage ends the deploy_run lifecycle.
+func IsTerminal(stage DeployRunStage) bool {
+	switch stage {
+	case DeployRunLive, DeployRunFailed, DeployRunRolledBack:
+		return true
+	default:
+		return false
 	}
 }
