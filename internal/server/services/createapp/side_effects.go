@@ -103,9 +103,3 @@ func (s *Service) Precheck(ctx context.Context, args *AppCreateArgs) error {
 	return nil
 }
 
-// Execute orchestrates app creation
-func (s *Service) Execute(ctx context.Context, args *AppCreateArgs) (interface{}, error) {
-	// Placeholder for orchestration logic
-	// Will be implemented in subsequent tasks
-	return nil, nil
-}
