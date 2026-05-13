@@ -40,6 +40,7 @@ type Store interface {
 	GetPreview(ctx context.Context, previewID string) (db.Preview, error)
 	ConsumePreviewWithResult(ctx context.Context, previewID string, result json.RawMessage) error
 	CreateApp(ctx context.Context, params db.AppCreateParams) (db.AppCreateResult, error)
+	DeleteAppByID(ctx context.Context, appID string) error
 }
 
 // K3sClient captures the namespace provisioning calls used by create_app.
@@ -157,6 +158,31 @@ func (s *Service) Confirm(ctx context.Context, teamID, actorUserID, teamSlug, pr
 
 	commitSHA := payload.Ref
 	imageRef := fmt.Sprintf("ghcr.io/winshare/0ops-apps/%s/%s:%s", teamSlug, result.AppSlug, result.DeployRunID)
+	subdomain := fmt.Sprintf("%s.winshare.tw", result.AppSlug)
+
+	rollback := func(opErr error) error {
+		if deleteErr := s.store.DeleteAppByID(ctx, result.AppID); deleteErr != nil {
+			return errors.Join(opErr, fmt.Errorf("rollback app %s: %w", result.AppID, deleteErr))
+		}
+		return opErr
+	}
+
+	if s.cfClient != nil {
+		routedDomain, err := s.cfClient.RouteAppToDomain(ctx, teamID, teamSlug, result.AppSlug)
+		if err != nil {
+			return ConfirmResult{}, rollback(err)
+		}
+		if routedDomain != "" {
+			subdomain = routedDomain
+		}
+	}
+
+	if s.k3sClient != nil {
+		if _, err := s.k3sClient.EnsureNamespace(ctx, teamID, teamSlug, s.planTier); err != nil {
+			return ConfirmResult{}, rollback(err)
+		}
+	}
+
 	if s.gitops != nil {
 		gitopsResult, err := s.gitops.RenderAndPush(ctx, gitopssvc.RenderInput{
 			Action:      previewAction,
@@ -170,7 +196,7 @@ func (s *Service) Confirm(ctx context.Context, teamID, actorUserID, teamSlug, pr
 			PrimaryPort: 3000,
 		})
 		if err != nil {
-			return ConfirmResult{}, err
+			return ConfirmResult{}, rollback(err)
 		}
 		if gitopsResult.SourceCommitSHA != "" {
 			commitSHA = gitopsResult.SourceCommitSHA
@@ -180,21 +206,14 @@ func (s *Service) Confirm(ctx context.Context, teamID, actorUserID, teamSlug, pr
 		}
 	}
 
-	if s.k3sClient != nil {
-		_, _ = s.k3sClient.EnsureNamespace(ctx, teamID, teamSlug, s.planTier)
-	}
-	if s.cfClient != nil {
-		_, _ = s.cfClient.RouteAppToDomain(ctx, teamID, teamSlug, result.AppSlug)
-	}
-
 	if s.dispatcher != nil {
 		if s.tokenSigner == nil {
-			return ConfirmResult{}, errors.New("missing workflow token signer")
+			return ConfirmResult{}, rollback(errors.New("missing workflow token signer"))
 		}
 		opsToken := ""
 		opsToken, err = s.tokenSigner.Issue(result.DeployRunID, traceID, []string{"ghcr:push", "callback:write"})
 		if err != nil {
-			return ConfirmResult{}, err
+			return ConfirmResult{}, rollback(err)
 		}
 		if err := s.dispatcher.Dispatch(ctx, workflowdispatch.ClientPayload{
 			RunID:       result.DeployRunID,
@@ -207,7 +226,7 @@ func (s *Service) Confirm(ctx context.Context, teamID, actorUserID, teamSlug, pr
 			CallbackURL: fmt.Sprintf("%s/internal/deploy-runs/%s/callback", s.callbackBaseURL, result.DeployRunID),
 			TraceID:     traceID,
 		}); err != nil {
-			return ConfirmResult{}, err
+			return ConfirmResult{}, rollback(err)
 		}
 	}
 
@@ -216,7 +235,7 @@ func (s *Service) Confirm(ctx context.Context, teamID, actorUserID, teamSlug, pr
 		AppSlug:       result.AppSlug,
 		DeployRunID:   result.DeployRunID,
 		TraceID:       traceID,
-		SubdomainURL:  fmt.Sprintf("https://%s.winshare.tw", result.AppSlug),
+		SubdomainURL:  fmt.Sprintf("https://%s", subdomain),
 		InitialDeploy: true,
 	}
 	responseJSON, err := json.Marshal(response)
