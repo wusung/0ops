@@ -30,8 +30,9 @@ import (
 	"github.com/winshare/zeroops/internal/server/auth"
 	"github.com/winshare/zeroops/internal/server/db"
 	createappsvc "github.com/winshare/zeroops/internal/server/services/createapp"
-	gitopssvc "github.com/winshare/zeroops/internal/server/services/gitops"
 	"github.com/winshare/zeroops/internal/server/services/githuboauth"
+	gitopssvc "github.com/winshare/zeroops/internal/server/services/gitops"
+	k3ssvc "github.com/winshare/zeroops/internal/server/services/k3s"
 	workflowdispatch "github.com/winshare/zeroops/internal/server/services/workflowdispatch"
 	"github.com/winshare/zeroops/internal/shared/dto"
 	"github.com/winshare/zeroops/internal/shared/rbac"
@@ -121,6 +122,25 @@ type argoCDStatusProvider interface {
 type argoCDApplicationStatus struct {
 	SyncStatus   string
 	HealthStatus string
+}
+
+type k3sArgoCDClient interface {
+	GetApplicationStatus(ctx context.Context, teamSlug, appSlug string) (k3ssvc.ApplicationStatus, error)
+}
+
+type k3sArgoCDStatusProvider struct {
+	client k3sArgoCDClient
+}
+
+func (p k3sArgoCDStatusProvider) GetApplicationStatus(ctx context.Context, teamSlug, appSlug string) (argoCDApplicationStatus, error) {
+	status, err := p.client.GetApplicationStatus(ctx, teamSlug, appSlug)
+	if err != nil {
+		return argoCDApplicationStatus{}, err
+	}
+	return argoCDApplicationStatus{
+		SyncStatus:   status.SyncStatus,
+		HealthStatus: status.HealthStatus,
+	}, nil
 }
 
 // BindCreateAppMetrics wires create_app-specific metric recorders.
@@ -1211,6 +1231,12 @@ func NewRouterWithInfra(store routerStore, k3sClient infraK3sClient, cfClient in
 
 //nolint:revive // exported for public API
 func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient, k3sClient infraK3sClient, cfClient infraCloudflareClient) http.Handler {
+	if argoClient, ok := k3sClient.(k3sArgoCDClient); ok && argoClient != nil {
+		newArgoCDStatusProvider = func() argoCDStatusProvider {
+			return k3sArgoCDStatusProvider{client: argoClient}
+		}
+	}
+
 	mw := auth.NewMiddleware(store)
 
 	r := chi.NewRouter()

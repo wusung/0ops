@@ -4,8 +4,12 @@ package k3s
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 // Config holds K3s cluster connection parameters.
@@ -35,15 +39,49 @@ func NewClient(cfg *Config) (*Client, error) {
 	if cfg == nil {
 		cfg = &Config{}
 	}
+	c := &Client{config: cfg}
+	if cfg.DisableNamespaceIsolation {
+		return c, nil
+	}
 
-	// TODO: Implement actual K3s client initialization in future iteration
-	// - Add k8s.io/client-go and k8s.io/api dependencies
-	// - Load kubeconfig from KubeconfigPath or env
-	// - Or use in-cluster ServiceAccount if running inside K3s
-	// - Initialize kubernetes.Clientset from rest.Config
-	// - Test connectivity with a health check
+	restConfig, err := loadKubeConfig(cfg.KubeconfigPath, cfg.APIServerURL)
+	if err != nil {
+		return nil, fmt.Errorf("initialize k3s config: %w", err)
+	}
+	dyn, err := dynamic.NewForConfig(restConfig)
+	if err != nil {
+		return nil, fmt.Errorf("create dynamic client: %w", err)
+	}
+	c.dynamicClient = dyn
+	return c, nil
+}
 
-	return &Client{config: cfg}, nil
+func loadKubeConfig(kubeconfigPath, apiServerURL string) (*rest.Config, error) {
+	path := strings.TrimSpace(kubeconfigPath)
+	if path == "" {
+		path = strings.TrimSpace(os.Getenv("KUBECONFIG"))
+	}
+
+	var (
+		cfg *rest.Config
+		err error
+	)
+	if path != "" {
+		cfg, err = clientcmd.BuildConfigFromFlags("", path)
+		if err != nil {
+			return nil, fmt.Errorf("load kubeconfig from %q: %w", path, err)
+		}
+	} else {
+		cfg, err = rest.InClusterConfig()
+		if err != nil {
+			return nil, fmt.Errorf("load in-cluster config: %w", err)
+		}
+	}
+
+	if host := strings.TrimSpace(apiServerURL); host != "" {
+		cfg.Host = host
+	}
+	return cfg, nil
 }
 
 // EnsureNamespace creates or verifies existence of a team namespace.
