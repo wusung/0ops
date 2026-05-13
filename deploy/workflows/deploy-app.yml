@@ -1,0 +1,106 @@
+name: deploy-app
+on:
+  repository_dispatch:
+    types: [deploy-app]
+
+permissions:
+  contents: write       # checkout 0ops repo + push 0ops-gitops
+  packages: write       # GHCR push（與 ops_token 互補）
+  id-token: write       # OIDC（v1 不用，留 v1.1 evaluation）
+
+env:
+  RUN_ID:        ${{ github.event.client_payload.run_id }}
+  APP_SLUG:      ${{ github.event.client_payload.app_slug }}
+  TEAM_SLUG:     ${{ github.event.client_payload.team_slug }}
+  COMMIT_SHA:    ${{ github.event.client_payload.commit_sha }}
+  REF:           ${{ github.event.client_payload.ref }}
+  IMAGE_REF:     ${{ github.event.client_payload.image_ref }}
+  OPS_TOKEN:     ${{ github.event.client_payload.ops_token }}
+  CALLBACK_URL:  ${{ github.event.client_payload.callback_url }}
+  TRACE_ID:      ${{ github.event.client_payload.trace_id }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20            # 硬上限；超過自動 cancel → callback failure
+    steps:
+      # 1. checkout 使用者 repo（非 0ops 自身）
+      - name: Checkout target repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.client_payload.repo }}     # owner/name
+          ref: ${{ env.REF }}
+          token: ${{ secrets.GITHUB_APP_TOKEN }}                  # GitHub App installation token
+          path: target
+
+      # 2. GHCR login（用 ops_token，TTL 20 min）
+      - name: Login GHCR
+        run: |
+          echo "${OPS_TOKEN}" | docker login ghcr.io -u ops-bot --password-stdin
+
+      # 3. CNB build
+      - name: Pack build
+        working-directory: target
+        run: |
+          pack build "${IMAGE_REF}" \
+            --builder paketobuildpacks/builder-jammy-base \
+            --path . \
+            --publish \
+            --cache-image "${IMAGE_REF}-cache" \
+            --env "BP_OCI_SOURCE=${COMMIT_SHA}"
+
+      # 4. Trivy scan
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@v0
+        id: trivy
+        with:
+          image-ref: ${{ env.IMAGE_REF }}
+          severity: HIGH,CRITICAL
+          exit-code: '0'                # v1 觀察；v1.1 改 '1'
+          ignore-unfixed: 'true'
+          format: json
+          output: trivy-report.json
+
+      - name: Parse Trivy results
+        id: scan_summary
+        run: |
+          HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-report.json)
+          CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-report.json)
+          echo "high=$HIGH" >> $GITHUB_OUTPUT
+          echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
+
+      # 5. Render & push gitops
+      - name: Checkout 0ops repo (for scripts)
+        uses: actions/checkout@v4
+        with:
+          path: ops
+
+      - name: Render & commit gitops
+        run: ./ops/deploy/workflows/scripts/render-and-push-gitops.sh
+        env:
+          GITOPS_DEPLOY_KEY: ${{ secrets.GITOPS_DEPLOY_KEY }}     # SSH private key
+
+      # 6. Callback backend (always 跑，不論成敗)
+      - name: Callback backend
+        if: always()
+        env:
+          STATUS: ${{ job.status }}
+          HIGH: ${{ steps.scan_summary.outputs.high }}
+          CRITICAL: ${{ steps.scan_summary.outputs.critical }}
+        run: |
+          PAYLOAD=$(jq -nc \
+            --arg run_id "$RUN_ID" \
+            --arg status "$STATUS" \
+            --arg trace_id "$TRACE_ID" \
+            --arg image "$IMAGE_REF" \
+            --argjson high "${HIGH:-0}" \
+            --argjson critical "${CRITICAL:-0}" \
+            '{run_id:$run_id, status:$status, trace_id:$trace_id, image:$image,
+              scan_summary:{high:$high, critical:$critical}}')
+          TS=$(date +%s)
+          SIG=$(printf '%s' "${TS}.${PAYLOAD}" | openssl dgst -sha256 -hmac "$OPS_TOKEN" -hex | awk '{print $2}')
+          curl -fsS -X POST "$CALLBACK_URL" \
+            -H "Content-Type: application/json" \
+            -H "X-0ops-Timestamp: $TS" \
+            -H "X-0ops-Signature: sha256=$SIG" \
+            --data "$PAYLOAD"

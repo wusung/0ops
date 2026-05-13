@@ -8,7 +8,8 @@ LDFLAGS := -s -w -X github.com/winshare/zeroops/internal/shared.Version=$(VERSIO
 SQLC_IMAGE ?= docker.io/sqlc/sqlc:1.31.1
 
 .PHONY: help dev dev-down dev-clean dev-logs dev-shell migrate migrate-down \
-        build-images lint-compose lint-docker lint-go test contract-test build tidy sqlc
+        build-images lint-compose lint-docker lint-go test contract-test build tidy sqlc \
+        m2-2-e2e-validation m2-2-check
 
 help:
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -71,6 +72,16 @@ contract-test: ## backend/cli/mcp contract path tests
 
 tidy: ## go mod tidy
 	go mod tidy
+
+## --- M2.2 e2e validation ---
+
+.PHONY: m2-2-e2e-validation
+m2-2-e2e-validation:
+	@bash tasks/m2-2-e2e-validation.sh --dev
+
+.PHONY: m2-2-check
+m2-2-check: lint-go test
+	@echo "✓ M2.2 code checks passed"
 
 sqlc: ## 產生 sqlc 程式碼
 	podman run --rm --userns=keep-id -v $(CURDIR):/src -w /src $(SQLC_IMAGE) generate

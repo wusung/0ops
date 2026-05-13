@@ -159,7 +159,7 @@ func TestConfirmRejectsExpiredPreview(t *testing.T) {
 }
 
 func TestCreateAppLifecycle(t *testing.T) {
-	got := CreateAppLifecycle()
+	got := Lifecycle()
 	if len(got) != 7 {
 		t.Fatalf("len = %d, want 7", len(got))
 	}
