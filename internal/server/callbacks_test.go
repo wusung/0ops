@@ -106,3 +106,56 @@ func TestDeployCallbackTimestampValidationAcceptsExactBoundaryTimestamp(t *testi
 		t.Fatal("expected boundary timestamp (exactly 5 min) to be accepted")
 	}
 }
+
+func TestNormalizeDeployStatusHandlesAllValidStates(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+		valid    bool
+	}{
+		// All 10 required states
+		{"queued", "queued", true},
+		{"preparing", "preparing", true},
+		{"building", "building", true},
+		{"pushing", "pushing", true},
+		{"rendering", "rendering", true},
+		{"syncing", "syncing", true},
+		{"live", "live", true},
+		{"failed", "failed", true},
+		{"canceled", "canceled", true},
+		{"rolled_back", "rolled_back", true},
+
+		// Mixed case variations
+		{"QUEUED", "queued", true},
+		{"Preparing", "preparing", true},
+		{"BUILDING", "building", true},
+		{"Pushing", "pushing", true},
+		{"RENDERING", "rendering", true},
+		{"Syncing", "syncing", true},
+		{"LIVE", "live", true},
+		{"Failed", "failed", true},
+		{"CANCELED", "canceled", true},
+		{"Rolled_Back", "rolled_back", true},
+
+		// Whitespace handling
+		{"  queued  ", "queued", true},
+		{"\tbuilding\t", "building", true},
+		{"\n  live  \n", "live", true},
+
+		// Invalid states
+		{"invalid", "", false},
+		{"success", "", false},
+		{"failure", "", false},
+		{"cancelled", "", false},
+		{"", "", false},
+		{"   ", "", false},
+	}
+
+	for _, tt := range tests {
+		status, ok := normalizeDeployStatus(tt.input)
+		if ok != tt.valid || (ok && status != tt.expected) {
+			t.Errorf("normalizeDeployStatus(%q): got (%q, %v), want (%q, %v)",
+				tt.input, status, ok, tt.expected, tt.valid)
+		}
+	}
+}

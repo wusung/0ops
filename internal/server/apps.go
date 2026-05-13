@@ -1341,12 +1341,8 @@ func validateCallbackSignature(secret, timestamp string, body []byte, got string
 
 func normalizeDeployStatus(raw string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "success", "succeeded":
-		return "live", true
-	case "failure", "failed":
-		return "failed", true
-	case "cancelled", "canceled":
-		return "canceled", true
+	case "queued", "preparing", "building", "pushing", "rendering", "syncing", "live", "failed", "canceled", "rolled_back":
+		return strings.ToLower(strings.TrimSpace(raw)), true
 	default:
 		return "", false
 	}
