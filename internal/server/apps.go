@@ -29,6 +29,7 @@ import (
 	"github.com/winshare/zeroops/internal/server/apperror"
 	"github.com/winshare/zeroops/internal/server/auth"
 	"github.com/winshare/zeroops/internal/server/db"
+	"github.com/winshare/zeroops/internal/server/services/cloudflare"
 	createappsvc "github.com/winshare/zeroops/internal/server/services/createapp"
 	"github.com/winshare/zeroops/internal/server/services/githuboauth"
 	gitopssvc "github.com/winshare/zeroops/internal/server/services/gitops"
@@ -62,6 +63,7 @@ type appsStore interface {
 	RevokeCLITokenByID(ctx context.Context, tokenID string) error
 	RevokePATByName(ctx context.Context, teamID, name string) error
 	CreateApp(ctx context.Context, params db.AppCreateParams) (db.AppCreateResult, error)
+	DeleteAppByID(ctx context.Context, appID string) error
 	RegisterWebhookDelivery(ctx context.Context, provider, deliveryID string) (bool, error)
 	ApplyDeployCallback(ctx context.Context, params db.DeployCallbackParams) error
 }
@@ -340,6 +342,10 @@ func createAppHandler(store appsStore, k3sClient infraK3sClient, cfClient infraC
 				apperror.Write(w, "slug_taken", apperror.ClassConflict, "app slug already exists", nil)
 			case errors.Is(err, createappsvc.ErrValidationFailed):
 				apperror.Write(w, "validation_failed", apperror.ClassBadRequest, err.Error(), nil)
+			case errors.Is(err, cloudflare.ErrRouteMissing), errors.Is(err, cloudflare.ErrConfigMissing):
+				apperror.Write(w, "cloudflare_route_unavailable", apperror.ClassBadRequest, "cloudflare route unavailable", nil)
+			case errors.Is(err, cloudflare.ErrRateLimited):
+				apperror.Write(w, "cloudflare_rate_limited", apperror.ClassTooManyRequests, "cloudflare rate limited", nil)
 			default:
 				apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to create app", nil)
 			}
