@@ -20,6 +20,8 @@ const (
 	ClassNotFound Class = "not_found"
 	// ClassConflict indicates a conflict error.
 	ClassConflict Class = "conflict"
+	// ClassTooManyRequests indicates a rate-limited error.
+	ClassTooManyRequests Class = "too_many_requests"
 	// ClassInternal indicates an internal error.
 	ClassInternal Class = "internal"
 )
@@ -57,6 +59,8 @@ func Status(class Class) int {
 		return http.StatusNotFound
 	case ClassConflict:
 		return http.StatusConflict
+	case ClassTooManyRequests:
+		return http.StatusTooManyRequests
 	case ClassInternal:
 		return http.StatusInternalServerError
 	default:

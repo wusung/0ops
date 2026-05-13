@@ -2,151 +2,289 @@ package cloudflare
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+)
+
+const (
+	defaultAPIBaseURL = "https://api.cloudflare.com/client/v4"
+	wildcardHostName  = "*.winshare.tw"
+)
+
+var (
+	// ErrConfigMissing reports missing Cloudflare API configuration.
+	ErrConfigMissing = errors.New("cloudflare config missing")
+	// ErrRouteMissing reports that the wildcard Cloudflare route is not present.
+	ErrRouteMissing = errors.New("cloudflare route missing")
+	// ErrRateLimited reports that Cloudflare kept returning 429 after retries.
+	ErrRateLimited = errors.New("cloudflare rate limited")
 )
 
 // Config holds Cloudflare API credentials and tunnel configuration.
 type Config struct {
 	// TunnelID is the Cloudflare Tunnel UUID.
-	// Retrieved from CF_TUNNEL_ID env var.
 	TunnelID string
 
 	// APIToken is the Cloudflare API token with DNS + tunnel permissions.
-	// Retrieved from CF_API_TOKEN env var.
 	APIToken string
 
 	// AccountID is the Cloudflare Account ID.
-	// Retrieved from CF_ACCOUNT_ID env var.
 	AccountID string
 
 	// ZoneID is the Cloudflare Zone ID for the domain (e.g., winshare.tw).
-	// Retrieved from CF_ZONE_ID env var.
 	ZoneID string
 
 	// DisableTunnelIsolation disables all Cloudflare operations.
-	// Useful for development/testing without Cloudflare account.
 	DisableTunnelIsolation bool
 }
 
 // Client wraps Cloudflare API calls for tunnel and DNS management.
 type Client struct {
-	config *Config
+	config     *Config
+	httpClient *http.Client
+	baseURL    string
+	sleep      func(time.Duration)
+}
+
+type apiEnvelope struct {
+	Success bool        `json:"success"`
+	Errors  []apiError  `json:"errors"`
+	Result  []dnsRecord `json:"result"`
+}
+
+type apiError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+type dnsRecord struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Content string `json:"content"`
+	Proxied bool   `json:"proxied"`
+	TTL     int    `json:"ttl"`
 }
 
 // NewClient creates a new Cloudflare client.
-// If DisableTunnelIsolation is true, returns a no-op client.
-// M2 implementation: Returns no-op client; actual API setup deferred to M3+.
 func NewClient(cfg *Config) (*Client, error) {
+	return newClient(cfg, defaultAPIBaseURL, &http.Client{Timeout: 15 * time.Second}, time.Sleep)
+}
+
+func newClient(cfg *Config, baseURL string, httpClient *http.Client, sleep func(time.Duration)) (*Client, error) {
 	if cfg == nil {
 		cfg = &Config{}
 	}
-
-	// TODO: Implement actual Cloudflare client initialization in future iteration
-	// - Add github.com/cloudflare/cloudflare-go dependency
-	// - Validate APIToken, TunnelID, AccountID, ZoneID are set
-	// - Initialize NewWithAPIToken(ctx, cfg.APIToken)
-	// - Test connectivity with GetZone(ctx, cfg.ZoneID)
-	// - Verify tunnel exists with GetTunnel(ctx, cfg.TunnelID)
-
-	return &Client{config: cfg}, nil
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 15 * time.Second}
+	}
+	if sleep == nil {
+		sleep = time.Sleep
+	}
+	return &Client{
+		config:     cfg,
+		httpClient: httpClient,
+		baseURL:    strings.TrimRight(baseURL, "/"),
+		sleep:      sleep,
+	}, nil
 }
 
-// RouteAppToDomain creates a DNS CNAME record for an app subdomain.
-// Subdomain format: {app-slug}.{team-slug}.{base-domain}
-// Example: demo.team1.winshare.tw → CNAME to tunnel.winshare.tw
-//
-// M2 implementation: No-op, returns subdomain name only.
-// M3+ implementation: Create DNS CNAME via API.
-func (c *Client) RouteAppToDomain(_ context.Context, _, teamSlug, appSlug string) (string, error) {
-	if c.config.DisableTunnelIsolation {
-		return fmt.Sprintf("%s.%s.winshare.tw", appSlug, teamSlug), nil
+// RouteAppToDomain validates the shared wildcard route and returns the public hostname.
+func (c *Client) RouteAppToDomain(ctx context.Context, _, _, appSlug string) (string, error) {
+	subdomain := fmt.Sprintf("%s.winshare.tw", strings.TrimSpace(appSlug))
+	if c == nil || c.config == nil || c.config.DisableTunnelIsolation {
+		return subdomain, nil
 	}
-
-	subdomain := fmt.Sprintf("%s.%s.winshare.tw", appSlug, teamSlug)
-
-	// TODO: Implement in M3+:
-	// 1. Construct CNAME target: tunnel.winshare.tw (or dynamic based on tunnel config)
-	// 2. Call c.client.CreateDNSRecord(ctx, c.config.ZoneID, &dns.Record{
-	//      Name:    subdomain,
-	//      Type:    "CNAME",
-	//      Content: tunnelCNAME,
-	//      TTL:     1 (auto), // Cloudflare
-	//      Proxied: true,     // Orange cloud
-	//    })
-	// 3. Return (subdomain, error)
-	// 4. Handle error cases:
-	//    - Zone not found (HTTP 404): validation failure
-	//    - Rate limit (HTTP 429): retry with backoff
-	//    - Duplicate record (HTTP 400): log warning, continue
-
+	if err := c.ensureConfigured(); err != nil {
+		return "", err
+	}
+	if err := c.ensureWildcardRoute(ctx); err != nil {
+		return "", err
+	}
 	return subdomain, nil
 }
 
-// CreateTunnelRoute creates or updates an ingress route in Cloudflare Tunnel.
-// Routes map HTTP requests to backend services (e.g., K3s app service).
-//
-// M2 implementation: No-op.
-// M3+ implementation: Create route via tunnel API.
-func (c *Client) CreateTunnelRoute(_ context.Context, _, _, _ string) error {
-	if c.config.DisableTunnelIsolation {
+// CreateTunnelRoute validates the shared wildcard route.
+func (c *Client) CreateTunnelRoute(ctx context.Context, _, _, _ string) error {
+	if c == nil || c.config == nil || c.config.DisableTunnelIsolation {
 		return nil
 	}
-
-	// TODO: Implement in M3+:
-	// 1. Construct route pattern: {appSlug}.*.winshare.tw/*
-	// 2. Call c.client.CreateTunnelRoute(ctx, &tunnel.CreateRouteRequest{
-	//      Pattern:     pattern,
-	//      Service:     backendURL, // e.g., http://localhost:8080
-	//      Config:      &tunnel.RouteConfig{TTL: ...},
-	//    })
-	// 3. Handle transient failures with backoff
-	// 4. Log warning if route already exists (idempotent on retry)
-
-	return nil
+	if err := c.ensureConfigured(); err != nil {
+		return err
+	}
+	return c.ensureWildcardRoute(ctx)
 }
 
-// DeleteTunnelRoute removes an ingress route from Cloudflare Tunnel.
-// Called during app deletion or team archival.
-//
-// M2 implementation: No-op.
-// M3+ implementation: Delete route via tunnel API.
-func (c *Client) DeleteTunnelRoute(_ context.Context, _ string) error {
-	if c.config.DisableTunnelIsolation {
+// DeleteTunnelRoute validates the shared wildcard route still exists.
+func (c *Client) DeleteTunnelRoute(ctx context.Context, _ string) error {
+	if c == nil || c.config == nil || c.config.DisableTunnelIsolation {
 		return nil
 	}
-
-	// TODO: Implement in M3+:
-	// 1. Look up route by pattern in tunnel config
-	// 2. Call c.client.DeleteTunnelRoute(ctx, routeID)
-	// 3. Handle 404 gracefully (route may already be deleted)
-	// 4. Log deletion event
-
-	return nil
+	if err := c.ensureConfigured(); err != nil {
+		return err
+	}
+	return c.ensureWildcardRoute(ctx)
 }
 
-// GetDomainStatus retrieves the status of a domain routing.
-// Returns DNS record ID, CNAME target, and verification status.
-//
-// M2 implementation: Returns nil.
-// M3+ implementation: Fetch DNS record details via API.
-func (c *Client) GetDomainStatus(_ context.Context, _ string) (map[string]interface{}, error) {
-	if c.config.DisableTunnelIsolation {
+// GetDomainStatus returns the DNS status for the wildcard route.
+func (c *Client) GetDomainStatus(ctx context.Context, hostname string) (map[string]interface{}, error) {
+	if c == nil || c.config == nil || c.config.DisableTunnelIsolation {
 		return nil, nil
 	}
+	if err := c.ensureConfigured(); err != nil {
+		return nil, err
+	}
+	target := strings.TrimSpace(hostname)
+	if target == "" {
+		target = wildcardHostName
+	}
+	records, err := c.listDNSRecords(ctx, target)
+	if err != nil {
+		return nil, err
+	}
+	if len(records) == 0 {
+		return nil, ErrRouteMissing
+	}
+	record := records[0]
+	return map[string]interface{}{
+		"dns_record_id": record.ID,
+		"hostname":      record.Name,
+		"cname_target":  record.Content,
+		"proxied":       record.Proxied,
+		"ttl":           record.TTL,
+	}, nil
+}
 
-	// TODO: Implement in M3+:
-	// 1. Query DNS record by name: c.client.GetDNSRecord(ctx, c.config.ZoneID, subdomain)
-	// 2. Query tunnel route by pattern
-	// 3. Return composite status:
-	//    {
-	//      "dns_record_id": "...",
-	//      "cname_target": "...",
-	//      "proxied": true,
-	//      "ttl": 1,
-	//      "tunnel_route_id": "...",
-	//      "tunnel_service": "...",
-	//    }
-	// 4. Handle missing records gracefully
+func (c *Client) ensureConfigured() error {
+	if c.config.TunnelID == "" || c.config.APIToken == "" || c.config.AccountID == "" || c.config.ZoneID == "" {
+		return ErrConfigMissing
+	}
+	return nil
+}
 
-	return nil, nil
+func (c *Client) ensureWildcardRoute(ctx context.Context) error {
+	records, err := c.listDNSRecords(ctx, wildcardHostName)
+	if err != nil {
+		return err
+	}
+	if len(records) == 0 {
+		return ErrRouteMissing
+	}
+	for _, record := range records {
+		if record.Type != "CNAME" {
+			continue
+		}
+		if strings.Contains(strings.ToLower(record.Content), "cfargotunnel.com") {
+			return nil
+		}
+	}
+	return ErrRouteMissing
+}
+
+func (c *Client) listDNSRecords(ctx context.Context, name string) ([]dnsRecord, error) {
+	query := url.Values{}
+	query.Set("type", "CNAME")
+	query.Set("name", name)
+
+	body, err := c.request(ctx, http.MethodGet, fmt.Sprintf("/zones/%s/dns_records", c.config.ZoneID), query)
+	if err != nil {
+		return nil, err
+	}
+
+	var envelope apiEnvelope
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, fmt.Errorf("decode cloudflare response: %w", err)
+	}
+	if !envelope.Success {
+		if len(envelope.Errors) > 0 {
+			switch envelope.Errors[0].Code {
+			case 10000, 10001, 10002:
+				return nil, ErrConfigMissing
+			case 10003:
+				return nil, ErrRouteMissing
+			}
+		}
+		return nil, ErrRouteMissing
+	}
+	return envelope.Result, nil
+}
+
+func (c *Client) request(ctx context.Context, method, path string, query url.Values) ([]byte, error) {
+	const maxAttempts = 5
+
+	endpoint := c.baseURL + path
+	if query != nil && len(query) > 0 {
+		endpoint += "?" + query.Encode()
+	}
+
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, method, endpoint, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+c.config.APIToken)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("cloudflare request failed: %w", err)
+		}
+
+		body, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("read cloudflare response: %w", readErr)
+		}
+
+		switch {
+		case resp.StatusCode == http.StatusTooManyRequests:
+			lastErr = ErrRateLimited
+			if attempt == maxAttempts-1 {
+				return nil, lastErr
+			}
+			c.sleep(retryDelay(resp.Header.Get("Retry-After"), attempt))
+			continue
+		case resp.StatusCode >= 500:
+			lastErr = fmt.Errorf("cloudflare server error: %s", resp.Status)
+			if attempt == maxAttempts-1 {
+				return nil, lastErr
+			}
+			c.sleep(retryDelay(resp.Header.Get("Retry-After"), attempt))
+			continue
+		case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+			return nil, ErrConfigMissing
+		case resp.StatusCode == http.StatusNotFound:
+			return nil, ErrRouteMissing
+		case resp.StatusCode != http.StatusOK:
+			return nil, fmt.Errorf("cloudflare request failed: %s", resp.Status)
+		}
+
+		return body, nil
+	}
+
+	return nil, lastErr
+}
+
+func retryDelay(retryAfter string, attempt int) time.Duration {
+	if retryAfter != "" {
+		if seconds, err := time.ParseDuration(retryAfter + "s"); err == nil {
+			return seconds
+		}
+		if parsed, err := time.ParseDuration(retryAfter); err == nil {
+			return parsed
+		}
+	}
+
+	delay := time.Second << attempt
+	if delay > time.Minute {
+		return time.Minute
+	}
+	return delay
 }
