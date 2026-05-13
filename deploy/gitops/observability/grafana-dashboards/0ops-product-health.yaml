@@ -20,7 +20,14 @@ data:
           "type": "timeseries",
           "title": "Preview to Confirm Latency p50",
           "targets": [{"expr": "histogram_quantile(0.50, sum(rate(zeroops_preview_consume_duration_seconds_bucket[7d])) by (le))"}]
+        },
+        {
+          "type": "timeseries",
+          "title": "Preview Created vs Consumed",
+          "targets": [
+            {"expr": "sum(increase(zeroops_preview_created_total[7d])) by (action)", "legendFormat": "created {{action}}"},
+            {"expr": "sum(increase(zeroops_preview_consumed_total[7d])) by (action)", "legendFormat": "consumed {{action}}"}
+          ]
         }
       ]
     }
-

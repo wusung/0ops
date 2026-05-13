@@ -10,6 +10,19 @@ data:
       "title": "0ops Postgres",
       "schemaVersion": 39,
       "version": 1,
-      "panels": []
+      "panels": [
+        {
+          "type": "timeseries",
+          "title": "Replication Lag Seconds",
+          "targets": [{"expr": "pg_replication_lag_seconds"}]
+        },
+        {
+          "type": "timeseries",
+          "title": "Connections / Max",
+          "targets": [
+            {"expr": "pg_stat_database_numbackends", "legendFormat": "connections"},
+            {"expr": "pg_settings_max_connections", "legendFormat": "max_connections"}
+          ]
+        }
+      ]
     }
-

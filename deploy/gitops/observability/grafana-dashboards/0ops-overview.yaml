@@ -15,7 +15,19 @@ data:
           "type": "stat",
           "title": "API Availability (28d)",
           "targets": [{"expr": "1 - (sum(rate(zeroops_http_requests_total{status=~\"5..\"}[28d])) / clamp_min(sum(rate(zeroops_http_requests_total[28d])), 1))"}]
+        },
+        {
+          "type": "timeseries",
+          "title": "HTTP Request Rate by Status",
+          "targets": [{"expr": "sum(rate(zeroops_http_requests_total[5m])) by (status)"}]
+        },
+        {
+          "type": "timeseries",
+          "title": "Read vs Preview Latency P95",
+          "targets": [
+            {"expr": "histogram_quantile(0.95, sum(rate(zeroops_http_request_duration_seconds_bucket{route!~\".*:preview$\"}[5m])) by (le))", "legendFormat": "read"},
+            {"expr": "histogram_quantile(0.95, sum(rate(zeroops_http_request_duration_seconds_bucket{route=~\".*:preview$\"}[5m])) by (le))", "legendFormat": "preview"}
+          ]
         }
       ]
     }
-

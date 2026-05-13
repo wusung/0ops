@@ -17,7 +17,13 @@ data:
           "targets": [{
             "expr": "sum(rate(zeroops_deploy_run_failures_total{classification=\"unknown\"}[7d])) / clamp_min(sum(rate(zeroops_deploy_run_failures_total[7d])), 1)"
           }]
+        },
+        {
+          "type": "timeseries",
+          "title": "Failures by Classification (28d)",
+          "targets": [{
+            "expr": "sum(rate(zeroops_deploy_run_failures_total[28d])) by (classification)"
+          }]
         }
       ]
     }
-

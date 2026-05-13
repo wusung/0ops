@@ -160,7 +160,7 @@
     - `nextdemo.winshare.tw` 外部 HTTP 200
     - route 建立失敗時有明確錯誤分類與 rollback/收斂策略
 
-- [ ] **M2.6 Observability GA**
+- [x] **M2.6 Observability GA**
   - 在現有 `internal/server/observability/metrics.go` 之外補齊：
     - preview/deploy/cf 指標
     - `cluster:zeroops_preview_consumption_rate:7d`
@@ -228,7 +228,7 @@
 - [ ] GHA callback 驗章、dedup、狀態推進全通
 - [ ] `team-<slug>` namespace + ResourceQuota + LimitRange + NetworkPolicy + PSA baseline 可被驗證
 - [ ] `nextdemo.winshare.tw` 真實外部 HTTP 200
-- [ ] Prometheus metrics 含 preview/deploy/cf 指標
-- [ ] Grafana dashboard + burn-rate alert 可用
+- [x] Prometheus metrics 含 preview/deploy/cf 指標
+- [x] Grafana dashboard + burn-rate alert 可用
 - [ ] MCP `create_app_preview` / `create_app` description lint 合規
 - [ ] CLI 與 MCP 都各跑過一次端到端驗收

@@ -23,7 +23,10 @@ type Metrics struct {
 	previewConsumeDur *prometheus.HistogramVec
 	deployRunTerminal *prometheus.CounterVec
 	deployRunLeadTime prometheus.Histogram
+	deployRunFailures *prometheus.CounterVec
 	cloudflareAPICall *prometheus.CounterVec
+	domainVerify      *prometheus.CounterVec
+	reconPending      *prometheus.GaugeVec
 	createAppPreviews *prometheus.CounterVec
 	createAppConfirms *prometheus.CounterVec
 }
@@ -78,10 +81,22 @@ func NewMetrics() *Metrics {
 			Help:    "Lead time from dispatch to terminal deploy status.",
 			Buckets: prometheus.ExponentialBuckets(5, 2, 12),
 		}),
+		deployRunFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zeroops_deploy_run_failures_total",
+			Help: "Deploy failures by stage and classification.",
+		}, []string{"stage", "classification"}),
 		cloudflareAPICall: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "zeroops_cloudflare_api_calls_total",
 			Help: "Cloudflare API calls by operation and outcome.",
 		}, []string{"op", "outcome"}),
+		domainVerify: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zeroops_domain_verify_attempts_total",
+			Help: "Domain verify attempts by outcome.",
+		}, []string{"outcome"}),
+		reconPending: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "zeroops_reconciliation_jobs_pending",
+			Help: "Pending reconciliation jobs grouped by kind.",
+		}, []string{"kind"}),
 		createAppPreviews: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "zeroops",
 			Name:      "create_app_previews_total",
@@ -102,7 +117,10 @@ func NewMetrics() *Metrics {
 		m.previewConsumeDur,
 		m.deployRunTerminal,
 		m.deployRunLeadTime,
+		m.deployRunFailures,
 		m.cloudflareAPICall,
+		m.domainVerify,
+		m.reconPending,
 		m.createAppPreviews,
 		m.createAppConfirms,
 	)
@@ -199,6 +217,17 @@ func (m *Metrics) ObserveDeployRunLeadTime(latency time.Duration) {
 	m.deployRunLeadTime.Observe(latency.Seconds())
 }
 
+// ObserveDeployRunFailure records deploy failures by stage and classification.
+func (m *Metrics) ObserveDeployRunFailure(stage, classification string) {
+	if stage == "" {
+		stage = "unknown"
+	}
+	if classification == "" {
+		classification = "unknown"
+	}
+	m.deployRunFailures.WithLabelValues(stage, classification).Inc()
+}
+
 // ObserveCloudflareAPICall records a Cloudflare API operation outcome.
 func (m *Metrics) ObserveCloudflareAPICall(op, outcome string) {
 	if op == "" {
@@ -208,6 +237,25 @@ func (m *Metrics) ObserveCloudflareAPICall(op, outcome string) {
 		outcome = "error"
 	}
 	m.cloudflareAPICall.WithLabelValues(op, outcome).Inc()
+}
+
+// ObserveDomainVerifyAttempt records domain verification attempts by outcome.
+func (m *Metrics) ObserveDomainVerifyAttempt(outcome string) {
+	if outcome == "" {
+		outcome = "failed"
+	}
+	m.domainVerify.WithLabelValues(outcome).Inc()
+}
+
+// SetReconciliationJobsPending sets pending reconciliation jobs count by kind.
+func (m *Metrics) SetReconciliationJobsPending(kind string, count float64) {
+	if kind == "" {
+		kind = "unknown"
+	}
+	if count < 0 {
+		count = 0
+	}
+	m.reconPending.WithLabelValues(kind).Set(count)
 }
 
 func teamBucketForRequest(r *http.Request) string {

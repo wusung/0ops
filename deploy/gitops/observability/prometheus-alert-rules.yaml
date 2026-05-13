@@ -49,4 +49,12 @@ data:
             annotations:
               summary: Cloudflare API throttling ratio above 0.5%
               runbook_url: https://0ops.tw/runbooks/cloudflare-throttled
-
+          - alert: UnknownFailureClassificationHigh
+            expr: cluster:zeroops_unknown_failure_ratio:7d > 0.05
+            for: 14d
+            labels:
+              severity: warning
+              service: 0ops-backend
+            annotations:
+              summary: Unknown failure classification ratio above 5%
+              runbook_url: https://0ops.tw/runbooks/failure-classification

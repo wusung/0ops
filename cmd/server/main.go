@@ -44,6 +44,7 @@ func main() {
 		metrics.ObservePreviewConsumed,
 		metrics.ObserveDeployRunTerminal,
 		metrics.ObserveDeployRunLeadTime,
+		metrics.ObserveDeployRunFailure,
 	)
 	cloudflare.BindMetrics(metrics.ObserveCloudflareAPICall)
 

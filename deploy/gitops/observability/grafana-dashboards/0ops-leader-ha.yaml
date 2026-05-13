@@ -10,6 +10,16 @@ data:
       "title": "0ops Leader / HA",
       "schemaVersion": 39,
       "version": 1,
-      "panels": []
+      "panels": [
+        {
+          "type": "timeseries",
+          "title": "Leader Status by Pod",
+          "targets": [{"expr": "zeroops_leader_status"}]
+        },
+        {
+          "type": "timeseries",
+          "title": "Leader Handover Rate (1h)",
+          "targets": [{"expr": "sum(rate(zeroops_leader_handover_total[1h]))"}]
+        }
+      ]
     }
-

@@ -118,6 +118,7 @@ var (
 	recordPreviewConsumedMetric  = func(string, string, time.Duration) {}
 	recordDeployTerminalMetric   = func(string) {}
 	recordDeployLeadTimeMetric   = func(time.Duration) {}
+	recordDeployFailureMetric    = func(string, string) {}
 	newArgoCDStatusProvider      = func() argoCDStatusProvider { return nil }
 )
 
@@ -172,6 +173,7 @@ func BindPlatformMetrics(
 	previewConsumedRecorder func(action, outcome string, latency time.Duration),
 	deployTerminalRecorder func(outcome string),
 	deployLeadTimeRecorder func(latency time.Duration),
+	deployFailureRecorder func(stage, classification string),
 ) {
 	if previewCreatedRecorder == nil {
 		recordPreviewCreatedMetric = func(string) {}
@@ -192,6 +194,11 @@ func BindPlatformMetrics(
 		recordDeployLeadTimeMetric = func(time.Duration) {}
 	} else {
 		recordDeployLeadTimeMetric = deployLeadTimeRecorder
+	}
+	if deployFailureRecorder == nil {
+		recordDeployFailureMetric = func(string, string) {}
+	} else {
+		recordDeployFailureMetric = deployFailureRecorder
 	}
 }
 
@@ -494,6 +501,9 @@ func deployRunCallbackHandler(store appsStore) http.HandlerFunc {
 			recordDeployTerminalMetric(outcome)
 			if req.BuildMinutes != nil && *req.BuildMinutes > 0 {
 				recordDeployLeadTimeMetric(time.Duration(*req.BuildMinutes * float64(time.Minute)))
+			}
+			if outcome == "failed" && failureClassification != nil {
+				recordDeployFailureMetric("callback", *failureClassification)
 			}
 		}
 

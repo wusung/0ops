@@ -64,8 +64,12 @@ func TestM2_6ObservabilitySeriesExpose(t *testing.T) {
 	metrics.ObserveDeployRunTerminal("success")
 	metrics.ObserveDeployRunTerminal("failed")
 	metrics.ObserveDeployRunLeadTime(5 * time.Minute)
+	metrics.ObserveDeployRunFailure("render", "gitops_push_conflict")
 	metrics.ObserveCloudflareAPICall("dns_create", "success")
 	metrics.ObserveCloudflareAPICall("hostname_create", "throttled")
+	metrics.ObserveDomainVerifyAttempt("success")
+	metrics.ObserveDomainVerifyAttempt("failed")
+	metrics.SetReconciliationJobsPending("stuck_deploy", 2)
 
 	metricsRec := httptest.NewRecorder()
 	metrics.Handler().ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
@@ -97,5 +101,17 @@ func TestM2_6ObservabilitySeriesExpose(t *testing.T) {
 	}
 	if !strings.Contains(body, `zeroops_cloudflare_api_calls_total{op="hostname_create",outcome="throttled"} 1`) {
 		t.Fatalf("metrics output missing cloudflare_api_calls_total throttled: %s", body)
+	}
+	if !strings.Contains(body, `zeroops_deploy_run_failures_total{classification="gitops_push_conflict",stage="render"} 1`) {
+		t.Fatalf("metrics output missing deploy_run_failures_total: %s", body)
+	}
+	if !strings.Contains(body, `zeroops_domain_verify_attempts_total{outcome="success"} 1`) {
+		t.Fatalf("metrics output missing domain_verify_attempts_total success: %s", body)
+	}
+	if !strings.Contains(body, `zeroops_domain_verify_attempts_total{outcome="failed"} 1`) {
+		t.Fatalf("metrics output missing domain_verify_attempts_total failed: %s", body)
+	}
+	if !strings.Contains(body, `zeroops_reconciliation_jobs_pending{kind="stuck_deploy"} 2`) {
+		t.Fatalf("metrics output missing reconciliation_jobs_pending gauge: %s", body)
 	}
 }
