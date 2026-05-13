@@ -4,7 +4,12 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -159,3 +164,73 @@ func TestNormalizeDeployStatusHandlesAllValidStates(t *testing.T) {
 		}
 	}
 }
+
+func TestDeployCallbackDedupPreventsDuplicateDelivery(t *testing.T) {
+	t.Setenv("OPS_CALLBACK_SECRET", "test-webhook-secret")
+	store, _ := newFakeStore()
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	body := `{"run_id":"deploy-1","status":"live","trace_id":"trace-abc-123"}`
+	ts := strconv.FormatInt(time.Now().UTC().Unix(), 10)
+	mac := hmac.New(sha256.New, []byte("test-webhook-secret"))
+	_, _ = mac.Write([]byte(ts + "." + body))
+	sig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+	deliveryID := "delivery-abc-123"
+
+	// First callback delivery should succeed
+	req1, err := http.NewRequest(http.MethodPost, srv.URL+"/internal/deploy-runs/deploy-1/callback", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	req1.Header.Set("Content-Type", "application/json")
+	req1.Header.Set("X-0ops-Timestamp", ts)
+	req1.Header.Set("X-0ops-Signature", sig)
+	req1.Header.Set("X-0ops-Delivery-ID", deliveryID)
+
+	resp1, err := http.DefaultClient.Do(req1)
+	if err != nil {
+		t.Fatalf("first callback request error = %v", err)
+	}
+	defer func() { _ = resp1.Body.Close() }()
+	if resp1.StatusCode != http.StatusOK {
+		bodyText, _ := io.ReadAll(resp1.Body)
+		t.Fatalf("first callback status = %d, body = %s", resp1.StatusCode, string(bodyText))
+	}
+
+	// Parse first response to confirm successful delivery
+	var firstResp map[string]any
+	if err := json.NewDecoder(resp1.Body).Decode(&firstResp); err != nil {
+		t.Fatalf("decode first response error = %v", err)
+	}
+	if status, ok := firstResp["status"]; !ok || status != "ok" {
+		t.Fatalf("first callback response status = %v, want ok", status)
+	}
+
+	// Second identical callback delivery should be flagged as duplicate
+	req2, err := http.NewRequest(http.MethodPost, srv.URL+"/internal/deploy-runs/deploy-1/callback", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("http.NewRequest() duplicate error = %v", err)
+	}
+	req2.Header = req1.Header.Clone()
+
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatalf("duplicate callback request error = %v", err)
+	}
+	defer func() { _ = resp2.Body.Close() }()
+	if resp2.StatusCode != http.StatusOK {
+		bodyText, _ := io.ReadAll(resp2.Body)
+		t.Fatalf("duplicate callback status = %d, body = %s", resp2.StatusCode, string(bodyText))
+	}
+
+	// Parse second response to confirm duplicate detection
+	var secondResp map[string]any
+	if err := json.NewDecoder(resp2.Body).Decode(&secondResp); err != nil {
+		t.Fatalf("decode second response error = %v", err)
+	}
+	if status, ok := secondResp["status"]; !ok || status != "duplicate" {
+		t.Fatalf("second callback response status = %v, want duplicate", status)
+	}
+}
+
