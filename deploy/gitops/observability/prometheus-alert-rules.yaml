@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zeroops-prometheus-alert-rules
+  labels:
+    app.kubernetes.io/name: zeroops-observability
+data:
+  rules.yaml: |
+    groups:
+      - name: zeroops-burn-rate
+        rules:
+          - alert: APIErrorBudgetBurnFast
+            expr: cluster:zeroops_http_error_rate:1h > (13.44 * 0.001)
+            for: 5m
+            labels:
+              severity: critical
+              service: 0ops-backend
+              slo: api_availability
+              burn_rate_window: 1h
+            annotations:
+              summary: API availability burning too fast in 1h window
+              runbook_url: https://0ops.tw/runbooks/burn-rate-fast
+          - alert: APIErrorBudgetBurnSlow
+            expr: cluster:zeroops_http_error_rate:6h > (5.6 * 0.001)
+            for: 30m
+            labels:
+              severity: warning
+              service: 0ops-backend
+              slo: api_availability
+              burn_rate_window: 6h
+            annotations:
+              summary: API availability burning too fast in 6h window
+              runbook_url: https://0ops.tw/runbooks/burn-rate-slow
+          - alert: PreviewConsumptionRateLow
+            expr: cluster:zeroops_preview_consumption_rate:7d < 0.8
+            for: 15m
+            labels:
+              severity: warning
+              service: 0ops-backend
+            annotations:
+              summary: Preview consumption rate below 80%
+              runbook_url: https://0ops.tw/runbooks/preview-consumption
+          - alert: CloudflareAPIThrottled
+            expr: cluster:zeroops_cloudflare_api_throttled_rate:15m > 0.005
+            for: 15m
+            labels:
+              severity: warning
+              service: 0ops-backend
+            annotations:
+              summary: Cloudflare API throttling ratio above 0.5%
+              runbook_url: https://0ops.tw/runbooks/cloudflare-throttled
+

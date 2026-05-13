@@ -18,6 +18,12 @@ type Metrics struct {
 	httpTotal         *prometheus.CounterVec
 	httpDuration      *prometheus.HistogramVec
 	httpInflight      prometheus.Gauge
+	previewCreated    *prometheus.CounterVec
+	previewConsumed   *prometheus.CounterVec
+	previewConsumeDur *prometheus.HistogramVec
+	deployRunTerminal *prometheus.CounterVec
+	deployRunLeadTime prometheus.Histogram
+	cloudflareAPICall *prometheus.CounterVec
 	createAppPreviews *prometheus.CounterVec
 	createAppConfirms *prometheus.CounterVec
 }
@@ -50,6 +56,32 @@ func NewMetrics() *Metrics {
 			Name:      "requests_in_flight",
 			Help:      "Current number of HTTP requests being served.",
 		}),
+		previewCreated: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zeroops_preview_created_total",
+			Help: "Number of previews created by action type.",
+		}, []string{"action"}),
+		previewConsumed: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zeroops_preview_consumed_total",
+			Help: "Number of consumed previews by action and outcome.",
+		}, []string{"action", "outcome"}),
+		previewConsumeDur: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "zeroops_preview_consume_duration_seconds",
+			Help:    "Duration between preview creation and consume.",
+			Buckets: prometheus.ExponentialBuckets(0.5, 2, 10),
+		}, []string{"action", "outcome"}),
+		deployRunTerminal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zeroops_deploy_run_terminal_total",
+			Help: "Number of deploy runs reaching terminal outcomes.",
+		}, []string{"outcome"}),
+		deployRunLeadTime: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "zeroops_deploy_run_lead_time_seconds",
+			Help:    "Lead time from dispatch to terminal deploy status.",
+			Buckets: prometheus.ExponentialBuckets(5, 2, 12),
+		}),
+		cloudflareAPICall: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zeroops_cloudflare_api_calls_total",
+			Help: "Cloudflare API calls by operation and outcome.",
+		}, []string{"op", "outcome"}),
 		createAppPreviews: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "zeroops",
 			Name:      "create_app_previews_total",
@@ -65,6 +97,12 @@ func NewMetrics() *Metrics {
 		m.httpTotal,
 		m.httpDuration,
 		m.httpInflight,
+		m.previewCreated,
+		m.previewConsumed,
+		m.previewConsumeDur,
+		m.deployRunTerminal,
+		m.deployRunLeadTime,
+		m.cloudflareAPICall,
 		m.createAppPreviews,
 		m.createAppConfirms,
 	)
@@ -105,6 +143,9 @@ func (m *Metrics) ObserveCreateAppPreview(outcome string) {
 		outcome = "error"
 	}
 	m.createAppPreviews.WithLabelValues(outcome).Inc()
+	if outcome == "success" {
+		m.ObservePreviewCreated("create_app")
+	}
 }
 
 // ObserveCreateAppConfirm records create_app confirm outcome.
@@ -117,6 +158,56 @@ func (m *Metrics) ObserveCreateAppConfirm(outcome string, idempotentReplay bool)
 		replay = "true"
 	}
 	m.createAppConfirms.WithLabelValues(outcome, replay).Inc()
+}
+
+// ObservePreviewCreated records preview creation by action.
+func (m *Metrics) ObservePreviewCreated(action string) {
+	if action == "" {
+		action = "unknown"
+	}
+	m.previewCreated.WithLabelValues(action).Inc()
+}
+
+// ObservePreviewConsumed records preview consumption and consume latency.
+func (m *Metrics) ObservePreviewConsumed(action, outcome string, latency time.Duration) {
+	if action == "" {
+		action = "unknown"
+	}
+	if outcome == "" {
+		outcome = "failed"
+	}
+	if latency < 0 {
+		latency = 0
+	}
+	m.previewConsumed.WithLabelValues(action, outcome).Inc()
+	m.previewConsumeDur.WithLabelValues(action, outcome).Observe(latency.Seconds())
+}
+
+// ObserveDeployRunTerminal records a terminal deploy outcome.
+func (m *Metrics) ObserveDeployRunTerminal(outcome string) {
+	if outcome == "" {
+		outcome = "unknown"
+	}
+	m.deployRunTerminal.WithLabelValues(outcome).Inc()
+}
+
+// ObserveDeployRunLeadTime records deploy lead time in seconds.
+func (m *Metrics) ObserveDeployRunLeadTime(latency time.Duration) {
+	if latency < 0 {
+		latency = 0
+	}
+	m.deployRunLeadTime.Observe(latency.Seconds())
+}
+
+// ObserveCloudflareAPICall records a Cloudflare API operation outcome.
+func (m *Metrics) ObserveCloudflareAPICall(op, outcome string) {
+	if op == "" {
+		op = "unknown"
+	}
+	if outcome == "" {
+		outcome = "error"
+	}
+	m.cloudflareAPICall.WithLabelValues(op, outcome).Inc()
 }
 
 func teamBucketForRequest(r *http.Request) string {

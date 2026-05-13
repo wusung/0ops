@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zeroops-prometheus-recording-rules
+  labels:
+    app.kubernetes.io/name: zeroops-observability
+data:
+  rules.yaml: |
+    groups:
+      - name: zeroops-recording
+        interval: 30s
+        rules:
+          - record: cluster:zeroops_http_error_rate:1h
+            expr: |
+              sum(rate(zeroops_http_requests_total{status=~"5.."}[1h]))
+              / clamp_min(sum(rate(zeroops_http_requests_total[1h])), 1)
+          - record: cluster:zeroops_http_error_rate:6h
+            expr: |
+              sum(rate(zeroops_http_requests_total{status=~"5.."}[6h]))
+              / clamp_min(sum(rate(zeroops_http_requests_total[6h])), 1)
+          - record: cluster:zeroops_deploy_terminal_success_rate:28d
+            expr: |
+              sum(rate(zeroops_deploy_run_terminal_total{outcome="success"}[28d]))
+              / clamp_min(sum(rate(zeroops_deploy_run_terminal_total[28d])), 1)
+          - record: cluster:zeroops_preview_consumption_rate:7d
+            expr: |
+              sum(increase(zeroops_preview_consumed_total{outcome=~"success|idempotent_replay"}[7d]))
+              / clamp_min(sum(increase(zeroops_preview_created_total[7d])), 1)
+          - record: cluster:zeroops_cloudflare_api_throttled_rate:15m
+            expr: |
+              sum(rate(zeroops_cloudflare_api_calls_total{outcome="throttled"}[15m]))
+              / clamp_min(sum(rate(zeroops_cloudflare_api_calls_total[15m])), 1)
+

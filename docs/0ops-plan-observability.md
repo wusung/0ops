@@ -26,17 +26,17 @@
 `team_bucket` 為 `team_id` 的 hash mod N（v1 N=64），避免高 cardinality 爆炸。
 
 ```
-0ops_http_requests_total{route,method,status,team_bucket}
-0ops_http_request_duration_seconds_bucket{route,method,le}
-0ops_preview_created_total{action}
-0ops_preview_consumed_total{action,outcome}        # outcome=success|failed|expired
-0ops_preview_expired_total{action}
-0ops_deploy_run_duration_seconds_bucket{stage,outcome}    # stage=build|push|render|sync
-0ops_deploy_run_failures_total{stage,classification}
-0ops_domain_verify_attempts_total{outcome}
-0ops_cloudflare_api_calls_total{op,outcome}
-0ops_github_api_rate_remaining{install_id_bucket}
-0ops_reconciliation_jobs_pending{kind}
+zeroops_http_requests_total{route,method,status,team_bucket}
+zeroops_http_request_duration_seconds_bucket{route,method,le}
+zeroops_preview_created_total{action}
+zeroops_preview_consumed_total{action,outcome}        # outcome=success|failed|expired
+zeroops_preview_expired_total{action}
+zeroops_deploy_run_duration_seconds_bucket{stage,outcome}    # stage=build|push|render|sync
+zeroops_deploy_run_failures_total{stage,classification}
+zeroops_domain_verify_attempts_total{outcome}
+zeroops_cloudflare_api_calls_total{op,outcome}
+zeroops_github_api_rate_remaining{install_id_bucket}
+zeroops_reconciliation_jobs_pending{kind}
 ```
 
 ### Trace propagation
@@ -93,4 +93,3 @@ CFR（Change Failure Rate）= 「`failed` 中 classification ∈ {build_compile_
 - 對 `deploy_run.status='applying'` 滯留 > 15min 主動拉 GHA workflow_run / ArgoCD app status 收斂
 - 對 `domain_binding.verified=false AND expires_at > now()` 跑 DNS 查詢
 - 失敗 retry 走指數退避 `min(60s × 2^attempts, 30min)`，> 8 次轉 `last_error`（`reconciliation_job.status='failed_permanently'`）並寫 audit_log 觸發 owner 通知（v1 為 stdout/log；v1.1 為 webhook / email）
-
