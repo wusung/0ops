@@ -298,6 +298,33 @@ func (f *fakeStore) CreateApp(_ context.Context, params db.AppCreateParams) (db.
 	}, nil
 }
 
+func (f *fakeStore) DeleteAppByID(_ context.Context, appID string) error {
+	filteredApps := f.apps[:0]
+	for _, app := range f.apps {
+		if app.ID != appID {
+			filteredApps = append(filteredApps, app)
+		}
+	}
+	f.apps = filteredApps
+
+	filteredDomains := f.domains[:0]
+	for _, domain := range f.domains {
+		if domain.AppID != appID {
+			filteredDomains = append(filteredDomains, domain)
+		}
+	}
+	f.domains = filteredDomains
+
+	filteredDeploys := f.deploys[:0]
+	for _, deploy := range f.deploys {
+		if deploy.AppID != appID {
+			filteredDeploys = append(filteredDeploys, deploy)
+		}
+	}
+	f.deploys = filteredDeploys
+	return nil
+}
+
 func (f *fakeStore) RegisterWebhookDelivery(_ context.Context, provider, deliveryID string) (bool, error) {
 	key := provider + "::" + deliveryID
 	if _, ok := f.deliveries[key]; ok {

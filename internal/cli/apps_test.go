@@ -189,6 +189,17 @@ func (f *cliFakeStore) CreateApp(_ context.Context, params db.AppCreateParams) (
 	}, nil
 }
 
+func (f *cliFakeStore) DeleteAppByID(_ context.Context, appID string) error {
+	filteredApps := f.apps[:0]
+	for _, app := range f.apps {
+		if app.ID != appID {
+			filteredApps = append(filteredApps, app)
+		}
+	}
+	f.apps = filteredApps
+	return nil
+}
+
 func (f *cliFakeStore) RegisterWebhookDelivery(_ context.Context, _, _ string) (bool, error) {
 	return true, nil
 }

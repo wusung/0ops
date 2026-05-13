@@ -194,6 +194,8 @@ flowchart TB
 | 移除 GitHub App | **delete** | owner | `members:manage` | `DELETE …/github/install:preview` → `DELETE …/github/install` | `uninstall_github_app_preview` + `uninstall_github_app` | `0ops teams github uninstall` |
 | 查 audit log | read | admin | `audit:read` | `GET …/audit?since=&until=&action=&actor=` | `query_audit_log` | `0ops audit list [--since=24h] [--action=create_app]` |
 
+`create_app` 的 preview / confirm orchestration 已抽入 `internal/server/services/createapp/`；handler 現在只負責 HTTP/DTO 轉接與授權檢查。
+
 PlanPreview 物件結構（所有 `*:preview` 回傳一致）：
 ```json
 {

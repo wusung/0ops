@@ -323,6 +323,16 @@ RETURNING id
 	}, nil
 }
 
+// DeleteAppByID removes an app and its cascaded resources by id.
+func (r *Repository) DeleteAppByID(ctx context.Context, appID string) error {
+	parsedAppID, err := parseUUID(appID)
+	if err != nil {
+		return fmt.Errorf("parse app id: %w", err)
+	}
+	_, err = r.pool.Exec(ctx, `DELETE FROM app WHERE id = $1`, parsedAppID)
+	return err
+}
+
 // RegisterWebhookDelivery inserts webhook delivery id for dedup. Returns false on duplicate.
 func (r *Repository) RegisterWebhookDelivery(ctx context.Context, provider, deliveryID string) (bool, error) {
 	tag, err := r.pool.Exec(ctx, `
