@@ -53,6 +53,7 @@ type DeployCallbackParams struct {
 	TraceID               *string
 	ErrorSummary          *string
 	FailureClassification *string
+	Event                 json.RawMessage
 }
 
 // CliToken describes an auth token record.
@@ -347,12 +348,16 @@ SET status = $2,
     trace_id = COALESCE($3, trace_id),
     error_summary = $4,
     failure_classification = $5,
+    events = CASE
+      WHEN $6::jsonb IS NULL THEN events
+      ELSE events || $6::jsonb
+    END,
     finished_at = CASE
-      WHEN $2 IN ('succeeded', 'failed', 'canceled') THEN now()
+      WHEN $2 IN ('live', 'failed', 'canceled', 'rolled_back') THEN now()
       ELSE finished_at
     END
 WHERE id = $1
-`, parsedRunID, params.Status, textFromPtr(params.TraceID), textFromPtr(params.ErrorSummary), textFromPtr(params.FailureClassification))
+`, parsedRunID, params.Status, textFromPtr(params.TraceID), textFromPtr(params.ErrorSummary), textFromPtr(params.FailureClassification), params.Event)
 	if err != nil {
 		return err
 	}

@@ -20,28 +20,34 @@ import (
 	"github.com/winshare/zeroops/internal/server/auth"
 	"github.com/winshare/zeroops/internal/server/db"
 	"github.com/winshare/zeroops/internal/server/services/githuboauth"
+	workflowdispatch "github.com/winshare/zeroops/internal/server/services/workflowdispatch"
 	"github.com/winshare/zeroops/internal/shared/backendclient"
 	"github.com/winshare/zeroops/internal/shared/dto"
 )
 
 type fakeStore struct {
-	token      db.CliToken
-	tokens     map[string]db.CliToken
-	team       db.Team
-	role       string
-	apps       []db.App
-	domains    []db.DomainBinding
-	deploys    []db.DeployRun
-	memberRows []db.Member
-	members    bool
-	hasOwner   bool
-	previews   map[string]db.Preview
-	deliveries map[string]struct{}
+	token             db.CliToken
+	tokens            map[string]db.CliToken
+	team              db.Team
+	role              string
+	apps              []db.App
+	domains           []db.DomainBinding
+	deploys           []db.DeployRun
+	memberRows        []db.Member
+	members           bool
+	hasOwner          bool
+	previews          map[string]db.Preview
+	deliveries        map[string]struct{}
+	lastCallbackEvent json.RawMessage
 }
 
 type mockGitHubOAuthClient struct {
 	challenge githuboauth.DeviceAuthorization
 	user      githuboauth.UserProfile
+}
+
+type fakeArgoCDStatusProvider struct {
+	status argoCDApplicationStatus
 }
 
 func (m mockGitHubOAuthClient) StartDeviceAuthorization(context.Context) (githuboauth.DeviceAuthorization, error) {
@@ -54,6 +60,10 @@ func (m mockGitHubOAuthClient) ExchangeDeviceCode(context.Context, string) (gith
 
 func (m mockGitHubOAuthClient) FetchUser(context.Context, string) (githuboauth.UserProfile, error) {
 	return m.user, nil
+}
+
+func (f fakeArgoCDStatusProvider) GetApplicationStatus(context.Context, string, string) (argoCDApplicationStatus, error) {
+	return f.status, nil
 }
 
 func (f *fakeStore) FindCliTokenByID(_ context.Context, tokenID string) (db.CliToken, error) {
@@ -305,6 +315,9 @@ func (f *fakeStore) ApplyDeployCallback(_ context.Context, params db.DeployCallb
 		f.deploys[idx].Status = params.Status
 		f.deploys[idx].TraceID = params.TraceID
 		f.deploys[idx].ErrorSummary = params.ErrorSummary
+		if len(params.Event) > 0 {
+			f.lastCallbackEvent = append(json.RawMessage(nil), params.Event...)
+		}
 		return nil
 	}
 	return pgx.ErrNoRows
@@ -460,6 +473,30 @@ func TestNewRouterGetDeployStatus(t *testing.T) {
 	}
 	if out.Status != "succeeded" {
 		t.Fatalf("Status = %q, want succeeded", out.Status)
+	}
+}
+
+func TestNewRouterGetDeployStatusUsesArgoCDProvider(t *testing.T) {
+	store, token := newFakeStore()
+	store.deploys[0].Status = "queued"
+	prev := newArgoCDStatusProvider
+	newArgoCDStatusProvider = func() argoCDStatusProvider {
+		return fakeArgoCDStatusProvider{status: argoCDApplicationStatus{
+			SyncStatus:   "Synced",
+			HealthStatus: "Progressing",
+		}}
+	}
+	t.Cleanup(func() { newArgoCDStatusProvider = prev })
+
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	out, err := backendclient.New(srv.URL, token).GetDeployStatus(context.Background(), store.team.Slug, "alpha")
+	if err != nil {
+		t.Fatalf("GetDeployStatus() error = %v", err)
+	}
+	if out.Status != "syncing" {
+		t.Fatalf("Status = %q, want syncing", out.Status)
 	}
 }
 
@@ -970,6 +1007,52 @@ func TestDeployRunCallbackFailedStatusRequiresFailureClassification(t *testing.T
 	if resp.StatusCode != http.StatusBadRequest {
 		bodyText, _ := io.ReadAll(resp.Body)
 		t.Fatalf("callback status = %d, body = %s", resp.StatusCode, string(bodyText))
+	}
+}
+
+func TestDeployRunCallbackWithOpsToken(t *testing.T) {
+	t.Setenv("OPS_TOKEN_SIGNING_SECRET", "ops-signing-secret")
+	store, _ := newFakeStore()
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	signer, err := workflowdispatch.NewOpsTokenSignerFromEnv()
+	if err != nil {
+		t.Fatalf("NewOpsTokenSignerFromEnv() error = %v", err)
+	}
+	opsToken, err := signer.Issue("deploy-1", "trace-ops", []string{"callback:write"})
+	if err != nil {
+		t.Fatalf("Issue() error = %v", err)
+	}
+	body := `{"run_id":"deploy-1","status":"success","trace_id":"trace-ops","ops_token":"` + opsToken + `","image":"ghcr.io/example/app:abc123","build_minutes":4.2,"image_size_bytes":123456,"scan_summary":{"high":0,"critical":0,"exit_code":0},"gitops_commit_sha":"def456"}`
+	ts := strconv.FormatInt(time.Now().UTC().Unix(), 10)
+	mac := hmac.New(sha256.New, []byte(opsToken))
+	_, _ = mac.Write([]byte(ts + "." + body))
+	sig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/internal/deploy-runs/deploy-1/callback", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-0ops-Timestamp", ts)
+	req.Header.Set("X-0ops-Signature", sig)
+	req.Header.Set("X-0ops-Delivery-ID", "delivery-ops-1")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("callback request error = %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		bodyText, _ := io.ReadAll(resp.Body)
+		t.Fatalf("callback status = %d, body = %s", resp.StatusCode, string(bodyText))
+	}
+	if got := store.deploys[0].Status; got != "live" {
+		t.Fatalf("store.deploys[0].Status = %q, want live", got)
+	}
+	if len(store.lastCallbackEvent) == 0 {
+		t.Fatal("expected callback event to be recorded")
 	}
 }
 

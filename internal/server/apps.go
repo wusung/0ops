@@ -29,7 +29,10 @@ import (
 	"github.com/winshare/zeroops/internal/server/apperror"
 	"github.com/winshare/zeroops/internal/server/auth"
 	"github.com/winshare/zeroops/internal/server/db"
+	createappsvc "github.com/winshare/zeroops/internal/server/services/createapp"
+	gitopssvc "github.com/winshare/zeroops/internal/server/services/gitops"
 	"github.com/winshare/zeroops/internal/server/services/githuboauth"
+	workflowdispatch "github.com/winshare/zeroops/internal/server/services/workflowdispatch"
 	"github.com/winshare/zeroops/internal/shared/dto"
 	"github.com/winshare/zeroops/internal/shared/rbac"
 )
@@ -108,7 +111,17 @@ var appSlugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$`)
 var (
 	recordCreateAppPreviewMetric = func(string) {}
 	recordCreateAppConfirmMetric = func(string, bool) {}
+	newArgoCDStatusProvider      = func() argoCDStatusProvider { return nil }
 )
+
+type argoCDStatusProvider interface {
+	GetApplicationStatus(ctx context.Context, teamSlug, appSlug string) (argoCDApplicationStatus, error)
+}
+
+type argoCDApplicationStatus struct {
+	SyncStatus   string
+	HealthStatus string
+}
 
 // BindCreateAppMetrics wires create_app-specific metric recorders.
 func BindCreateAppMetrics(
@@ -147,11 +160,21 @@ type githubOAuthClient interface {
 }
 
 type deployCallbackRequest struct {
-	RunID                 string  `json:"run_id"`
-	Status                string  `json:"status"`
-	TraceID               *string `json:"trace_id,omitempty"`
-	ErrorSummary          *string `json:"error_summary,omitempty"`
-	FailureClassification *string `json:"failure_classification,omitempty"`
+	RunID                 string   `json:"run_id"`
+	Status                string   `json:"status"`
+	TraceID               *string  `json:"trace_id,omitempty"`
+	ErrorSummary          *string  `json:"error_summary,omitempty"`
+	FailureClassification *string  `json:"failure_classification,omitempty"`
+	OpsToken              *string  `json:"ops_token,omitempty"`
+	Image                 *string  `json:"image,omitempty"`
+	BuildMinutes          *float64 `json:"build_minutes,omitempty"`
+	ImageSizeBytes        *int64   `json:"image_size_bytes,omitempty"`
+	GitopsCommitSHA       *string  `json:"gitops_commit_sha,omitempty"`
+	ScanSummary           *struct {
+		High     *int `json:"high,omitempty"`
+		Critical *int `json:"critical,omitempty"`
+		ExitCode *int `json:"exit_code,omitempty"`
+	} `json:"scan_summary,omitempty"`
 }
 
 func listAppsHandler(store appsStore) http.HandlerFunc {
@@ -276,110 +299,53 @@ func createAppHandler(store appsStore, k3sClient infraK3sClient, cfClient infraC
 		if !decodeJSON(w, r, &req) {
 			return
 		}
-		preview, ok, replayed := validateCreateAppPreview(w, r, store, req.PreviewID)
-		if replayed {
-			outcome = "success"
-			idempotentReplay = true
-			return
-		}
-		if !ok {
-			return
-		}
-
-		var payload dto.AppCreateRequest
-		if err := json.Unmarshal(preview.Args, &payload); err != nil {
-			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "invalid preview args", nil)
-			return
-		}
-		if !validateAppCreateRequest(w, payload) {
-			return
-		}
-
-		if _, err := store.GetTeamAppBySlug(r.Context(), auth.TeamID(r.Context()), payload.Slug); err == nil {
-			apperror.Write(w, "slug_taken", apperror.ClassConflict, "app slug already exists", map[string]any{"slug": payload.Slug})
-			return
-		} else if !errors.Is(err, pgx.ErrNoRows) {
-			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to check app slug", nil)
-			return
-		}
-
-		traceID := strings.TrimSpace(middleware.GetReqID(r.Context()))
-		if traceID == "" {
-			traceID = preview.ID
-		}
-		result, err := store.CreateApp(r.Context(), db.AppCreateParams{
-			TeamID:      auth.TeamID(r.Context()),
-			ActorUserID: auth.ActorUserID(r.Context()),
-			Slug:        payload.Slug,
-			RepoURL:     payload.RepoURL,
-			Ref:         payload.Ref,
-			Builder:     payload.Builder,
-			TraceID:     traceID,
-		})
+		service := createappsvc.New(store, k3sClient, cfClient, newGitOpsService(), newWorkflowDispatchClient(), newWorkflowDispatchTokenSigner(), callbackBaseURL())
+		confirmResult, err := service.Confirm(
+			r.Context(),
+			auth.TeamID(r.Context()),
+			auth.ActorUserID(r.Context()),
+			auth.TeamSlug(r.Context()),
+			req.PreviewID,
+			strings.TrimSpace(middleware.GetReqID(r.Context())),
+		)
 		if err != nil {
-			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to create app", nil)
-			return
-		}
-
-		// Initialize infrastructure for the app (K3s namespace + Cloudflare tunnel)
-		teamID := auth.TeamID(r.Context())
-		teamSlug := auth.TeamSlug(r.Context())
-
-		if k3sClient != nil {
-			// Pass empty string for plan since it's not available in context
-			// The plan can be fetched from store if needed in production implementation
-			_, _ = k3sClient.EnsureNamespace(r.Context(), teamID, teamSlug, "free")
-		}
-		if cfClient != nil {
-			_, _ = cfClient.RouteAppToDomain(r.Context(), teamID, teamSlug, result.AppSlug)
-		}
-
-		response := dto.AppCreateResponse{
-			AppID:         result.AppID,
-			AppSlug:       result.AppSlug,
-			DeployRunID:   result.DeployRunID,
-			TraceID:       traceID,
-			SubdomainURL:  fmt.Sprintf("https://%s.winshare.tw", result.AppSlug),
-			InitialDeploy: true,
-		}
-		responseJSON, err := json.Marshal(response)
-		if err != nil {
-			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to encode create_app result", nil)
-			return
-		}
-		if err := store.ConsumePreviewWithResult(r.Context(), preview.ID, responseJSON); err != nil {
-			apperror.Write(w, "preview_consumed", apperror.ClassConflict, "preview already consumed", nil)
+			switch {
+			case errors.Is(err, createappsvc.ErrPreviewNotFound):
+				apperror.Write(w, "preview_not_found", apperror.ClassNotFound, "preview not found", nil)
+			case errors.Is(err, createappsvc.ErrPreviewConsumed):
+				apperror.Write(w, "preview_consumed", apperror.ClassConflict, "preview already consumed", nil)
+			case errors.Is(err, createappsvc.ErrPreviewExpired):
+				apperror.Write(w, "preview_expired", apperror.ClassConflict, "preview expired", nil)
+			case errors.Is(err, createappsvc.ErrSlugTaken):
+				apperror.Write(w, "slug_taken", apperror.ClassConflict, "app slug already exists", nil)
+			case errors.Is(err, createappsvc.ErrValidationFailed):
+				apperror.Write(w, "validation_failed", apperror.ClassBadRequest, err.Error(), nil)
+			default:
+				apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to create app", nil)
+			}
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(confirmResult.Response)
 		outcome = "success"
+		idempotentReplay = confirmResult.Replayed
 	}
+}
+
+func newGitOpsService() gitopssvc.Service {
+	svc, err := gitopssvc.NewServiceFromEnv()
+	if err != nil {
+		return nil
+	}
+	return svc
 }
 
 func deployRunCallbackHandler(store appsStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		secret := strings.TrimSpace(getCallbackSecret())
-		if secret == "" {
-			apperror.Write(w, "internal_error", apperror.ClassInternal, "callback secret not configured", nil)
-			return
-		}
-
-		timestamp := strings.TrimSpace(r.Header.Get("X-0ops-Timestamp"))
-		signature := strings.TrimSpace(r.Header.Get("X-0ops-Signature"))
-		if !validateCallbackTimestamp(timestamp, time.Now().UTC(), 5*time.Minute) {
-			apperror.Write(w, "stale_timestamp", apperror.ClassBadRequest, "stale callback timestamp", nil)
-			return
-		}
-
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "invalid payload", nil)
-			return
-		}
-		if !validateCallbackSignature(secret, timestamp, body, signature) {
-			apperror.Write(w, "invalid_signature", apperror.ClassUnauthorized, "invalid callback signature", nil)
 			return
 		}
 
@@ -392,6 +358,16 @@ func deployRunCallbackHandler(store appsStore) http.HandlerFunc {
 		var req deployCallbackRequest
 		if err := json.Unmarshal(body, &req); err != nil {
 			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "invalid json payload", nil)
+			return
+		}
+		timestamp := strings.TrimSpace(r.Header.Get("X-0ops-Timestamp"))
+		signature := strings.TrimSpace(r.Header.Get("X-0ops-Signature"))
+		if !validateCallbackTimestamp(timestamp, time.Now().UTC(), 5*time.Minute) {
+			apperror.Write(w, "stale_timestamp", apperror.ClassBadRequest, "stale callback timestamp", nil)
+			return
+		}
+		if !validateDeployCallbackSignature(timestamp, body, signature, req.OpsToken) {
+			apperror.Write(w, "invalid_signature", apperror.ClassUnauthorized, "invalid callback signature", nil)
 			return
 		}
 		if strings.TrimSpace(req.RunID) != runID {
@@ -435,6 +411,7 @@ func deployRunCallbackHandler(store appsStore) http.HandlerFunc {
 			TraceID:               traceID,
 			ErrorSummary:          trimStringPtr(req.ErrorSummary),
 			FailureClassification: failureClassification,
+			Event:                 buildDeployCallbackEvent(req, status),
 		})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -489,6 +466,13 @@ func getDeployStatusHandler(store appsStore) http.HandlerFunc {
 			}
 			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to get deploy status", nil)
 			return
+		}
+		if provider := newArgoCDStatusProvider(); provider != nil {
+			if argoStatus, err := provider.GetApplicationStatus(r.Context(), auth.TeamSlug(r.Context()), appSlug); err == nil {
+				if mapped, ok := mapArgoCDDeployStatus(argoStatus.SyncStatus, argoStatus.HealthStatus); ok {
+					row.Status = mapped
+				}
+			}
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -1358,7 +1342,7 @@ func validateCallbackSignature(secret, timestamp string, body []byte, got string
 func normalizeDeployStatus(raw string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "success", "succeeded":
-		return "succeeded", true
+		return "live", true
 	case "failure", "failed":
 		return "failed", true
 	case "cancelled", "canceled":
@@ -1366,6 +1350,71 @@ func normalizeDeployStatus(raw string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+func mapArgoCDDeployStatus(syncStatus, healthStatus string) (string, bool) {
+	switch {
+	case strings.EqualFold(syncStatus, "synced") && strings.EqualFold(healthStatus, "healthy"):
+		return "live", true
+	case strings.EqualFold(syncStatus, "synced") && strings.EqualFold(healthStatus, "progressing"):
+		return "syncing", true
+	case strings.EqualFold(syncStatus, "outofsync") && strings.EqualFold(healthStatus, "progressing"):
+		return "syncing", true
+	case strings.EqualFold(syncStatus, "synced") && strings.EqualFold(healthStatus, "degraded"):
+		return "failed", true
+	case strings.EqualFold(syncStatus, "unknown") || strings.EqualFold(healthStatus, "unknown"):
+		return "syncing", true
+	default:
+		return "", false
+	}
+}
+
+func validateDeployCallbackSignature(timestamp string, body []byte, signature string, opsToken *string) bool {
+	if opsToken != nil && strings.TrimSpace(*opsToken) != "" {
+		tokenSecret := strings.TrimSpace(os.Getenv("OPS_TOKEN_SIGNING_SECRET"))
+		if tokenSecret != "" {
+			if payload, err := workflowdispatch.ParseOpsToken(strings.TrimSpace(*opsToken), []byte(tokenSecret)); err == nil && payload != nil {
+				if validateCallbackSignature(strings.TrimSpace(*opsToken), timestamp, body, signature) {
+					return true
+				}
+			}
+		}
+	}
+
+	secret := strings.TrimSpace(getCallbackSecret())
+	if secret == "" {
+		return false
+	}
+	return validateCallbackSignature(secret, timestamp, body, signature)
+}
+
+func buildDeployCallbackEvent(req deployCallbackRequest, status string) json.RawMessage {
+	event := map[string]any{
+		"status": status,
+	}
+	if req.Image != nil {
+		event["image"] = strings.TrimSpace(*req.Image)
+	}
+	if req.BuildMinutes != nil {
+		event["build_minutes"] = *req.BuildMinutes
+	}
+	if req.ImageSizeBytes != nil {
+		event["image_size_bytes"] = *req.ImageSizeBytes
+	}
+	if req.GitopsCommitSHA != nil {
+		event["gitops_commit_sha"] = strings.TrimSpace(*req.GitopsCommitSHA)
+	}
+	if req.ScanSummary != nil {
+		event["scan_summary"] = req.ScanSummary
+	}
+	if req.OpsToken != nil {
+		event["ops_token"] = strings.TrimSpace(*req.OpsToken)
+	}
+	data, err := json.Marshal(event)
+	if err != nil {
+		return nil
+	}
+	return data
 }
 
 func trimStringPtr(v *string) *string {
@@ -1401,6 +1450,33 @@ func newGitHubOAuthClient() githubOAuthClient {
 		return disabledGitHubOAuthClient{err: err}
 	}
 	return client
+}
+
+func newWorkflowDispatchClient() createappsvc.Dispatcher {
+	client, err := workflowdispatch.NewClientFromEnv(http.DefaultClient)
+	if err != nil {
+		return nil
+	}
+	return client
+}
+
+func newWorkflowDispatchTokenSigner() createappsvc.OpsTokenSigner {
+	signer, err := workflowdispatch.NewOpsTokenSignerFromEnv()
+	if err != nil {
+		return nil
+	}
+	return signer
+}
+
+func callbackBaseURL() string {
+	base := strings.TrimSpace(os.Getenv("OPS_PUBLIC_BASE_URL"))
+	if base == "" {
+		base = strings.TrimSpace(os.Getenv("OPS_SERVER_PUBLIC_BASE_URL"))
+	}
+	if base == "" {
+		base = "http://localhost:8080"
+	}
+	return strings.TrimRight(base, "/")
 }
 
 func newRandomToken() (string, error) {
