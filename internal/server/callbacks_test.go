@@ -4,7 +4,9 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"strconv"
 	"testing"
+	"time"
 )
 
 func TestDeployCallbackSignatureValidationRejectsInvalidSignature(t *testing.T) {
@@ -49,5 +51,31 @@ func TestDeployCallbackSignatureValidationAcceptsValidSignature(t *testing.T) {
 	result := validateCallbackSignature(secret, timestamp, body, correctSig)
 	if !result {
 		t.Fatalf("expected signature validation to pass for correct signature, got false")
+	}
+}
+
+func TestDeployCallbackTimestampValidationRejectsStaleTimestamp(t *testing.T) {
+	// 時間戳超過 5 分鐘
+	oldTimestamp := time.Now().UTC().Add(-6 * time.Minute)
+	result := validateCallbackTimestamp(
+		strconv.FormatInt(oldTimestamp.Unix(), 10),
+		time.Now().UTC(),
+		5*time.Minute,
+	)
+	if result {
+		t.Fatal("expected stale timestamp to be rejected")
+	}
+}
+
+func TestDeployCallbackTimestampValidationAcceptsRecentTimestamp(t *testing.T) {
+	// 時間戳在窗口內
+	recentTimestamp := time.Now().UTC().Add(-2 * time.Minute)
+	result := validateCallbackTimestamp(
+		strconv.FormatInt(recentTimestamp.Unix(), 10),
+		time.Now().UTC(),
+		5*time.Minute,
+	)
+	if !result {
+		t.Fatal("expected recent timestamp to be accepted")
 	}
 }
