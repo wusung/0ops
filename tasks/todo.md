@@ -151,6 +151,10 @@
 
 - [ ] **M2.5 winshare 子網域真實路由**
   - 補 Cloudflare / tunnel route 整合，不可只回傳字串 URL
+  - 進度（2026-05-14）：
+    - `create_app` confirm 流程已在 `RouteAppToDomain` 後接續呼叫 `CreateTunnelRoute`
+    - tunnel route 建立失敗時會中止流程並 rollback（刪除已建立 app row）
+    - 新增 service 測試覆蓋 route 建立呼叫與失敗 rollback
   - 對齊 `docs/features/winshare-subdomain-and-tunnel/spec.md`
   - 驗收證據：
     - `nextdemo.winshare.tw` 外部 HTTP 200
