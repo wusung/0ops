@@ -4,6 +4,8 @@ package k3s
 import (
 	"context"
 	"fmt"
+
+	"k8s.io/client-go/dynamic"
 )
 
 // Config holds K3s cluster connection parameters.
@@ -23,7 +25,8 @@ type Config struct {
 
 // Client wraps K3s cluster connection and namespace operations.
 type Client struct {
-	config *Config
+	config        *Config
+	dynamicClient dynamic.Interface
 }
 
 // NewClient creates a new K3s client from kubeconfig or in-cluster config.
