@@ -778,3 +778,47 @@ func textPtr(v pgtype.Text) *string {
 	s := v.String
 	return &s
 }
+
+// UpdateDeployRunState transitions a deploy_run to a new state
+func (r *Repository) UpdateDeployRunState(ctx context.Context, deployRunID, targetState string) error {
+parsedRunID, err := parseUUID(deployRunID)
+if err != nil {
+return fmt.Errorf("parse run id: %w", err)
+}
+
+tag, err := r.pool.Exec(ctx, `
+UPDATE deploy_run
+SET status = $2, updated_at = now()
+WHERE id = $1
+`, parsedRunID, targetState)
+
+if err != nil {
+return err
+}
+if tag.RowsAffected() == 0 {
+return fmt.Errorf("deploy_run not found: %s", deployRunID)
+}
+return nil
+}
+
+// SignOpsToken creates and signs an ops_token for an app
+func (r *Repository) SignOpsToken(ctx context.Context, appID string) (string, error) {
+// Placeholder for ops_token signing logic
+// Per spec § ADR-0007: ops_token lifecycle
+// In real implementation would call crypto signing service
+parsedAppID, err := parseUUID(appID)
+if err != nil {
+return "", fmt.Errorf("parse app id: %w", err)
+}
+
+// For now, return a dummy token
+_ = parsedAppID
+return fmt.Sprintf("ops_%s", appID[:8]), nil
+}
+
+// GetDeployRunLastResult retrieves the last successful result for idempotent replay
+func (r *Repository) GetDeployRunLastResult(ctx context.Context, appID string) (interface{}, error) {
+// Placeholder for retrieving cached result for idempotent replay
+// Per spec § ADR-0002: preview.Confirmer contract
+return nil, nil
+}
