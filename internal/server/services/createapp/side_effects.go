@@ -85,8 +85,22 @@ func generateAppID() string {
 
 // Precheck validates preconditions
 func (s *Service) Precheck(ctx context.Context, args *AppCreateArgs) error {
-	// Validate args
-	return args.Validate()
+	// 1. Validate args format
+	if err := args.Validate(); err != nil {
+		return fmt.Errorf("args validation failed: %w", err)
+	}
+
+	// 2. Check for conflicts (placeholder - would use DB)
+	// Per spec § 5.3 step 2: app_id_suggest collision check
+	// Actual implementation requires DB queries
+
+	// 3. Verify external service availability (placeholder)
+	// Per spec § 5.3 step 3: k3s, gitops, gha api checks
+
+	// 4. Check domain ownership (placeholder)
+	// Per spec § 5.3 step 4: domain_verify logic
+
+	return nil
 }
 
 // Execute orchestrates app creation
