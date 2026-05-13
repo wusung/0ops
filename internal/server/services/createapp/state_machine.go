@@ -16,8 +16,8 @@ const (
 	DeployRunRolledBack   DeployRunStage = "rolled_back"
 )
 
-// CreateAppLifecycle returns the forward state path for a successful create_app run.
-func CreateAppLifecycle() []DeployRunStage {
+// Lifecycle returns the forward state path for a successful create_app run.
+func Lifecycle() []DeployRunStage {
 	return []DeployRunStage{
 		DeployRunQueued,
 		DeployRunPreparing,
