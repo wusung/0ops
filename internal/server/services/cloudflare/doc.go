@@ -14,29 +14,19 @@
 //   - DeleteApp flow: Cleans up DNS records (deferred to M3+)
 //   - Deploy flow: Updates tunnel routes after deploy (deferred to M3+)
 //
-// # M2 Implementation Strategy
+// # Runtime behavior
 //
-// M2 introduces the following no-op stubs:
-//   - RouteAppToDomain: DNS CNAME record creation (skeleton)
-//   - CreateTunnelRoute: Tunnel config update (skeleton)
-//   - DeleteTunnelRoute: Tunnel route deletion (skeleton)
-//   - GetDomainStatus: Domain verification (skeleton)
+// The client validates the shared `*.winshare.tw` DNS route through Cloudflare's
+// REST API and returns the public hostname used by create_app.
 //
-// All methods return nil when DisableTunnelIsolation=true (for dev/test).
-// Full implementation (Cloudflare Go SDK, API calls, retries) deferred to M3+.
+// DisableTunnelIsolation keeps the client in no-op mode for local development
+// and tests.
 //
-// # M3+ Implementation Plan
+// # Error handling
 //
-// - Add github.com/cloudflare/cloudflare-go dependency
-// - Load TUNNEL_ID from CF_TUNNEL_ID env var
-// - Load API token from CF_API_TOKEN env var
-// - Implement REST API calls:
-//   - POST /accounts/{account_id}/cfd_tunnel/{tunnel_id}/routes
-//   - DELETE /accounts/{account_id}/cfd_tunnel/{tunnel_id}/routes/{route_id}
-//   - PATCH /accounts/{account_id}/dns_records/{zone_id}/{record_id}
-//
-// - Add circuit breaker + exponential backoff for API transients
-// - Add integration test with Cloudflare sandbox (if available)
+// - 401 / 403: configuration missing or invalid
+// - 404 or empty wildcard record set: route missing
+// - 429: retry with exponential backoff, then return ErrRateLimited
 //
 // # Configuration
 //

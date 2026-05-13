@@ -14,10 +14,12 @@ import (
 )
 
 type fakeStore struct {
-	preview     db.Preview
-	app         db.App
-	createCalls int
-	consumeArgs []json.RawMessage
+	preview      db.Preview
+	app          db.App
+	createCalls  int
+	deleteCalls  int
+	deletedAppID string
+	consumeArgs  []json.RawMessage
 }
 
 func (f *fakeStore) GetTeamAppBySlug(context.Context, string, string) (db.App, error) {
@@ -56,6 +58,12 @@ func (f *fakeStore) CreateApp(_ context.Context, params db.AppCreateParams) (db.
 	}, nil
 }
 
+func (f *fakeStore) DeleteAppByID(_ context.Context, appID string) error {
+	f.deleteCalls++
+	f.deletedAppID = appID
+	return nil
+}
+
 type noopK3s struct{}
 
 func (noopK3s) EnsureNamespace(context.Context, string, string, string) (string, error) {
@@ -66,6 +74,14 @@ type noopCF struct{}
 
 func (noopCF) RouteAppToDomain(context.Context, string, string, string) (string, error) {
 	return "nextdemo.winshare.tw", nil
+}
+
+type failingCF struct {
+	err error
+}
+
+func (f failingCF) RouteAppToDomain(context.Context, string, string, string) (string, error) {
+	return "", f.err
 }
 
 func TestConfirmReplayReturnsStoredResult(t *testing.T) {
@@ -105,6 +121,9 @@ func TestConfirmReplayReturnsStoredResult(t *testing.T) {
 	if result.Response.AppSlug != stored.AppSlug {
 		t.Fatalf("AppSlug = %q, want %q", result.Response.AppSlug, stored.AppSlug)
 	}
+	if result.Response.SubdomainURL != "https://nextdemo.winshare.tw" {
+		t.Fatalf("SubdomainURL = %q, want https://nextdemo.winshare.tw", result.Response.SubdomainURL)
+	}
 }
 
 func TestConfirmCreatesAppAndConsumesPreview(t *testing.T) {
@@ -137,6 +156,9 @@ func TestConfirmCreatesAppAndConsumesPreview(t *testing.T) {
 	if got := store.preview.LastResult; len(got) == 0 {
 		t.Fatal("expected stored last result")
 	}
+	if store.deleteCalls != 0 {
+		t.Fatalf("DeleteAppByID calls = %d, want 0", store.deleteCalls)
+	}
 }
 
 func TestConfirmRejectsExpiredPreview(t *testing.T) {
@@ -155,6 +177,38 @@ func TestConfirmRejectsExpiredPreview(t *testing.T) {
 	_, err := svc.Confirm(context.Background(), "team-1", "user-1", "team-slug", "preview-1", "trace-1")
 	if !errors.Is(err, ErrPreviewExpired) {
 		t.Fatalf("err = %v, want ErrPreviewExpired", err)
+	}
+}
+
+func TestConfirmRollsBackAppOnCloudflareFailure(t *testing.T) {
+	now := time.Now().UTC()
+	store := &fakeStore{
+		preview: db.Preview{
+			ID:          "preview-1",
+			TeamID:      "team-1",
+			ActorUserID: "user-1",
+			Action:      previewAction,
+			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", RepoURL: "https://github.com/example/nextdemo", Ref: "main"}),
+			ExpiresAt:   now.Add(10 * time.Minute),
+		},
+	}
+
+	svc := New(store, noopK3s{}, failingCF{err: errors.New("cloudflare route missing")}, nil, nil, nil, "")
+	_, err := svc.Confirm(context.Background(), "team-1", "user-1", "team-slug", "preview-1", "trace-1")
+	if err == nil {
+		t.Fatal("Confirm() error = nil, want route failure")
+	}
+	if store.createCalls != 1 {
+		t.Fatalf("CreateApp calls = %d, want 1", store.createCalls)
+	}
+	if store.deleteCalls != 1 {
+		t.Fatalf("DeleteAppByID calls = %d, want 1", store.deleteCalls)
+	}
+	if store.deletedAppID != "app-1" {
+		t.Fatalf("DeletedAppID = %q, want app-1", store.deletedAppID)
+	}
+	if store.preview.ConsumedAt != nil {
+		t.Fatal("preview should not be consumed on route failure")
 	}
 }
 
