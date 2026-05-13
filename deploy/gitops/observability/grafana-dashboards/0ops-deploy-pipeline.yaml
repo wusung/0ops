@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zeroops-dashboard-deploy-pipeline
+  labels:
+    grafana_dashboard: "1"
+data:
+  deploy-pipeline.json: |
+    {
+      "title": "0ops Deploy Pipeline",
+      "schemaVersion": 39,
+      "version": 1,
+      "panels": [
+        {
+          "type": "stat",
+          "title": "Build Success Rate (28d)",
+          "targets": [{"expr": "cluster:zeroops_deploy_terminal_success_rate:28d"}]
+        },
+        {
+          "type": "timeseries",
+          "title": "Deploy Lead Time",
+          "targets": [{"expr": "histogram_quantile(0.50, sum(rate(zeroops_deploy_run_lead_time_seconds_bucket[28d])) by (le))"}]
+        }
+      ]
+    }
+

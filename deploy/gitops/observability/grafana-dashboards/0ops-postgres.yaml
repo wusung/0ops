@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zeroops-dashboard-postgres
+  labels:
+    grafana_dashboard: "1"
+data:
+  postgres.json: |
+    {
+      "title": "0ops Postgres",
+      "schemaVersion": 39,
+      "version": 1,
+      "panels": []
+    }
+

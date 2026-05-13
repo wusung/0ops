@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zeroops-dashboard-product-health
+  labels:
+    grafana_dashboard: "1"
+data:
+  product-health.json: |
+    {
+      "title": "0ops Product Health",
+      "schemaVersion": 39,
+      "version": 1,
+      "panels": [
+        {
+          "type": "timeseries",
+          "title": "Preview Consumption Rate (7d)",
+          "targets": [{"expr": "cluster:zeroops_preview_consumption_rate:7d"}]
+        },
+        {
+          "type": "timeseries",
+          "title": "Preview to Confirm Latency p50",
+          "targets": [{"expr": "histogram_quantile(0.50, sum(rate(zeroops_preview_consume_duration_seconds_bucket[7d])) by (le))"}]
+        }
+      ]
+    }
+

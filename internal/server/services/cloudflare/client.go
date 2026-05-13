@@ -33,6 +33,17 @@ type Client struct {
 	config *Config
 }
 
+var recordCloudflareMetric = func(string, string) {}
+
+// BindMetrics wires cloudflare operation metrics recorder.
+func BindMetrics(recorder func(op, outcome string)) {
+	if recorder == nil {
+		recordCloudflareMetric = func(string, string) {}
+		return
+	}
+	recordCloudflareMetric = recorder
+}
+
 // NewClient creates a new Cloudflare client.
 // If DisableTunnelIsolation is true, returns a no-op client.
 // M2 implementation: Returns no-op client; actual API setup deferred to M3+.
@@ -59,6 +70,7 @@ func NewClient(cfg *Config) (*Client, error) {
 // M3+ implementation: Create DNS CNAME via API.
 func (c *Client) RouteAppToDomain(_ context.Context, _, teamSlug, appSlug string) (string, error) {
 	if c.config.DisableTunnelIsolation {
+		recordCloudflareMetric("dns_create", "success")
 		return fmt.Sprintf("%s.%s.winshare.tw", appSlug, teamSlug), nil
 	}
 
@@ -79,6 +91,7 @@ func (c *Client) RouteAppToDomain(_ context.Context, _, teamSlug, appSlug string
 	//    - Rate limit (HTTP 429): retry with backoff
 	//    - Duplicate record (HTTP 400): log warning, continue
 
+	recordCloudflareMetric("dns_create", "success")
 	return subdomain, nil
 }
 
@@ -89,6 +102,7 @@ func (c *Client) RouteAppToDomain(_ context.Context, _, teamSlug, appSlug string
 // M3+ implementation: Create route via tunnel API.
 func (c *Client) CreateTunnelRoute(_ context.Context, _, _, _ string) error {
 	if c.config.DisableTunnelIsolation {
+		recordCloudflareMetric("tunnel_route_create", "success")
 		return nil
 	}
 
@@ -102,6 +116,7 @@ func (c *Client) CreateTunnelRoute(_ context.Context, _, _, _ string) error {
 	// 3. Handle transient failures with backoff
 	// 4. Log warning if route already exists (idempotent on retry)
 
+	recordCloudflareMetric("tunnel_route_create", "success")
 	return nil
 }
 
@@ -112,6 +127,7 @@ func (c *Client) CreateTunnelRoute(_ context.Context, _, _, _ string) error {
 // M3+ implementation: Delete route via tunnel API.
 func (c *Client) DeleteTunnelRoute(_ context.Context, _ string) error {
 	if c.config.DisableTunnelIsolation {
+		recordCloudflareMetric("tunnel_route_delete", "success")
 		return nil
 	}
 
@@ -121,6 +137,7 @@ func (c *Client) DeleteTunnelRoute(_ context.Context, _ string) error {
 	// 3. Handle 404 gracefully (route may already be deleted)
 	// 4. Log deletion event
 
+	recordCloudflareMetric("tunnel_route_delete", "success")
 	return nil
 }
 
@@ -131,6 +148,7 @@ func (c *Client) DeleteTunnelRoute(_ context.Context, _ string) error {
 // M3+ implementation: Fetch DNS record details via API.
 func (c *Client) GetDomainStatus(_ context.Context, _ string) (map[string]interface{}, error) {
 	if c.config.DisableTunnelIsolation {
+		recordCloudflareMetric("domain_status", "success")
 		return nil, nil
 	}
 
@@ -148,5 +166,6 @@ func (c *Client) GetDomainStatus(_ context.Context, _ string) (map[string]interf
 	//    }
 	// 4. Handle missing records gracefully
 
+	recordCloudflareMetric("domain_status", "success")
 	return nil, nil
 }
