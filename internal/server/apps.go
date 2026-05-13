@@ -29,6 +29,7 @@ import (
 	"github.com/winshare/zeroops/internal/server/apperror"
 	"github.com/winshare/zeroops/internal/server/auth"
 	"github.com/winshare/zeroops/internal/server/db"
+	"github.com/winshare/zeroops/internal/server/services/createapp"
 	"github.com/winshare/zeroops/internal/server/services/githuboauth"
 	"github.com/winshare/zeroops/internal/shared/dto"
 	"github.com/winshare/zeroops/internal/shared/rbac"
@@ -49,6 +50,7 @@ type appsStore interface {
 	GetPreview(ctx context.Context, previewID string) (db.Preview, error)
 	ConsumePreview(ctx context.Context, previewID string) error
 	ConsumePreviewWithResult(ctx context.Context, previewID string, result json.RawMessage) error
+	DeleteAppByID(ctx context.Context, appID string) error
 	InviteMember(ctx context.Context, params db.InviteMemberParams) (db.Member, error)
 	RemoveMember(ctx context.Context, teamID, actorUserID, targetUserID string) error
 	ResolveUserDefaultTeamByGithubLogin(ctx context.Context, githubLogin string) (userID string, teamID string, teamSlug string, err error)
@@ -221,7 +223,7 @@ func getAppHandler(store appsStore) http.HandlerFunc {
 	}
 }
 
-func previewCreateAppHandler(store appsStore) http.HandlerFunc {
+func previewCreateAppHandler(svc *createapp.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		outcome := "error"
 		defer func() { recordCreateAppPreviewMetric(outcome) }()
@@ -230,35 +232,9 @@ func previewCreateAppHandler(store appsStore) http.HandlerFunc {
 		if !decodeJSON(w, r, &req) {
 			return
 		}
-		if !validateAppCreateRequest(w, req) {
-			return
-		}
-
-		if _, err := store.GetTeamAppBySlug(r.Context(), auth.TeamID(r.Context()), req.Slug); err == nil {
-			apperror.Write(w, "slug_taken", apperror.ClassConflict, "app slug already exists", map[string]any{"slug": req.Slug})
-			return
-		} else if !errors.Is(err, pgx.ErrNoRows) {
-			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to check app slug", nil)
-			return
-		}
-
-		args, err := json.Marshal(req)
+		out, summary, err := svc.PreviewCreateApp(r.Context(), auth.TeamSlug(r.Context()), auth.ActorUserID(r.Context()), req)
 		if err != nil {
-			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to encode preview args", nil)
-			return
-		}
-
-		summary := fmt.Sprintf("Create app %q from %s", req.Slug, req.RepoURL)
-		out, err := store.CreatePreview(
-			r.Context(),
-			auth.TeamID(r.Context()),
-			auth.ActorUserID(r.Context()),
-			previewActionCreate,
-			args,
-			summary,
-		)
-		if err != nil {
-			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to create preview", nil)
+			writeServiceError(w, err)
 			return
 		}
 		writePreviewResponse(w, out, summary)
@@ -266,7 +242,7 @@ func previewCreateAppHandler(store appsStore) http.HandlerFunc {
 	}
 }
 
-func createAppHandler(store appsStore, k3sClient infraK3sClient, cfClient infraCloudflareClient) http.HandlerFunc {
+func createAppHandler(svc *createapp.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		outcome := "error"
 		idempotentReplay := false
@@ -276,85 +252,16 @@ func createAppHandler(store appsStore, k3sClient infraK3sClient, cfClient infraC
 		if !decodeJSON(w, r, &req) {
 			return
 		}
-		preview, ok, replayed := validateCreateAppPreview(w, r, store, req.PreviewID)
-		if replayed {
-			outcome = "success"
-			idempotentReplay = true
-			return
-		}
-		if !ok {
-			return
-		}
-
-		var payload dto.AppCreateRequest
-		if err := json.Unmarshal(preview.Args, &payload); err != nil {
-			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "invalid preview args", nil)
-			return
-		}
-		if !validateAppCreateRequest(w, payload) {
-			return
-		}
-
-		if _, err := store.GetTeamAppBySlug(r.Context(), auth.TeamID(r.Context()), payload.Slug); err == nil {
-			apperror.Write(w, "slug_taken", apperror.ClassConflict, "app slug already exists", map[string]any{"slug": payload.Slug})
-			return
-		} else if !errors.Is(err, pgx.ErrNoRows) {
-			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to check app slug", nil)
-			return
-		}
-
 		traceID := strings.TrimSpace(middleware.GetReqID(r.Context()))
-		if traceID == "" {
-			traceID = preview.ID
-		}
-		result, err := store.CreateApp(r.Context(), db.AppCreateParams{
-			TeamID:      auth.TeamID(r.Context()),
-			ActorUserID: auth.ActorUserID(r.Context()),
-			Slug:        payload.Slug,
-			RepoURL:     payload.RepoURL,
-			Ref:         payload.Ref,
-			Builder:     payload.Builder,
-			TraceID:     traceID,
-		})
+		out, replayed, err := svc.ConfirmCreateApp(r.Context(), auth.TeamSlug(r.Context()), auth.ActorUserID(r.Context()), req.PreviewID, traceID)
 		if err != nil {
-			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to create app", nil)
+			writeServiceError(w, err)
 			return
 		}
-
-		// Initialize infrastructure for the app (K3s namespace + Cloudflare tunnel)
-		teamID := auth.TeamID(r.Context())
-		teamSlug := auth.TeamSlug(r.Context())
-
-		if k3sClient != nil {
-			// Pass empty string for plan since it's not available in context
-			// The plan can be fetched from store if needed in production implementation
-			_, _ = k3sClient.EnsureNamespace(r.Context(), teamID, teamSlug, "free")
-		}
-		if cfClient != nil {
-			_, _ = cfClient.RouteAppToDomain(r.Context(), teamID, teamSlug, result.AppSlug)
-		}
-
-		response := dto.AppCreateResponse{
-			AppID:         result.AppID,
-			AppSlug:       result.AppSlug,
-			DeployRunID:   result.DeployRunID,
-			TraceID:       traceID,
-			SubdomainURL:  fmt.Sprintf("https://%s.winshare.tw", result.AppSlug),
-			InitialDeploy: true,
-		}
-		responseJSON, err := json.Marshal(response)
-		if err != nil {
-			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to encode create_app result", nil)
-			return
-		}
-		if err := store.ConsumePreviewWithResult(r.Context(), preview.ID, responseJSON); err != nil {
-			apperror.Write(w, "preview_consumed", apperror.ClassConflict, "preview already consumed", nil)
-			return
-		}
-
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(out)
 		outcome = "success"
+		idempotentReplay = replayed
 	}
 }
 
@@ -1224,6 +1131,7 @@ func NewRouterWithInfra(store routerStore, k3sClient infraK3sClient, cfClient in
 //nolint:revive // exported for public API
 func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient, k3sClient infraK3sClient, cfClient infraCloudflareClient) http.Handler {
 	mw := auth.NewMiddleware(store)
+	createAppSvc := createapp.New(store, k3sClient)
 
 	r := chi.NewRouter()
 	r.Post("/v1/admin/bootstrap-owner", bootstrapOwnerHandler(store))
@@ -1260,10 +1168,10 @@ func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient,
 		}).Get("/apps/{app_slug}", getAppHandler(store))
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionCreateApp, next)
-		}).Post("/apps:preview", previewCreateAppHandler(store))
+		}).Post("/apps:preview", previewCreateAppHandler(createAppSvc))
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionCreateApp, next)
-		}).Post("/apps", createAppHandler(store, k3sClient, cfClient))
+		}).Post("/apps", createAppHandler(createAppSvc))
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionListApps, next)
 		}).Get("/repos/{app_slug}:inspect", inspectRepoHandler(store))
@@ -1568,4 +1476,12 @@ func writePreviewResponse(w http.ResponseWriter, preview db.Preview, summary str
 		Summary:   summary,
 		ExpiresAt: preview.ExpiresAt,
 	})
+}
+
+func writeServiceError(w http.ResponseWriter, err error) {
+	if appErr, ok := err.(*apperror.Error); ok {
+		apperror.Write(w, appErr.Code, appErr.Class, appErr.Message, appErr.Details)
+		return
+	}
+	apperror.Write(w, "internal_error", apperror.ClassInternal, "internal error", nil)
 }

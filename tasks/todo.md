@@ -104,7 +104,7 @@
 
 ## P0 — milestone blocker（未完成前不得宣稱 M2 done）
 
-- [ ] **M2.1 create_app orchestration 落地**
+- [x] **M2.1 create_app orchestration 落地**
   - 補 `internal/server/services/createapp/`，把目前 handler 內的簡化流程抽成 spec 定義的 `SideEffects / Precheck / Execute / Compensate / state_machine`
   - 對齊 `docs/features/create-app-flow/spec.md` §1, §5, §6, §7
   - `deploy_run` 狀態至少補齊：`queued → preparing → building → pushing → rendering → syncing → live`

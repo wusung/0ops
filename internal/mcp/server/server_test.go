@@ -303,6 +303,17 @@ func (f *mcpFakeStore) CreateApp(_ context.Context, params db.AppCreateParams) (
 	}, nil
 }
 
+func (f *mcpFakeStore) DeleteAppByID(_ context.Context, appID string) error {
+	filteredApps := f.apps[:0]
+	for _, app := range f.apps {
+		if app.ID != appID {
+			filteredApps = append(filteredApps, app)
+		}
+	}
+	f.apps = filteredApps
+	return nil
+}
+
 func (f *mcpFakeStore) RegisterWebhookDelivery(_ context.Context, _, _ string) (bool, error) {
 	return true, nil
 }

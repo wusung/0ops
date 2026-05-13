@@ -458,7 +458,7 @@ LLM 自行呈現給 user 並提示「可以追蹤 deploy_run_id」。
 - 「team 首次 create_app」之偵測：v1 採「count(app WHERE team_id) == 0」判；race 場景兩個並發首 app 可能各自 ensure namespace（K8s `kubectl apply` 為 idempotent，安全）
 - inspect_repo 之 5 分鐘快取在 user 短時間內推 commit 之 stale：v1 不主動 invalidate；user 須等 5 分鐘或重新 inspect
 - preview 階段之 `inspect_repo` 是否計入 preview latency SLO（800ms p95）：本 spec 採「計入」；inspect_repo cache miss 可能撞 1500ms p95，需 dashboard 區分 hit/miss
-- 「render → push」之失敗（v1 reversible R3）vs「callback 後 rendering」之失敗（callback 觸發）：兩者皆使用 gitops 但失敗階段分類不同；本 spec 第 9 章已分；plan.md 應補
+- 「render → push」之失敗（v1 reversible R3）vs「callback 後 rendering」之失敗（callback 觸發）：兩者皆使用 gitops 但失敗階段分類不同；本 spec 第 9 章已分；plan.md 已同步
 - GHA workflow 對「使用者已合併但尚未推上 GHCR」的 retry：v1 GHA 預設不 retry；reconciler polling 偵測後決定 retry（屬 `reconciler-and-incident`）
 - `personal-{login}` team 首次 create_app 與 GitHub App install：personal team 預設無 install；user 須先跑 `0ops teams github install`，本 spec preview 即提示
 - 5 個 side_effects 在 preview 顯示順序：本 spec § 5.2 之 1..5 為展示順序（與執行順序一致）
