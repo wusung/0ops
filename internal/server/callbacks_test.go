@@ -14,6 +14,51 @@ import (
 	"time"
 )
 
+func TestDeployCallbackRecordsFailureClassificationMetric(t *testing.T) {
+	t.Setenv("OPS_CALLBACK_SECRET", "test-webhook-secret")
+	store, _ := newFakeStore()
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	var gotStage, gotClassification string
+	prevRecorder := recordDeployFailureMetric
+	recordDeployFailureMetric = func(stage, classification string) {
+		gotStage = stage
+		gotClassification = classification
+	}
+	t.Cleanup(func() {
+		recordDeployFailureMetric = prevRecorder
+	})
+
+	body := `{"run_id":"deploy-1","status":"failed","trace_id":"trace-abc-123","failure_classification":"gitops_push_conflict"}`
+	ts := strconv.FormatInt(time.Now().UTC().Unix(), 10)
+	mac := hmac.New(sha256.New, []byte("test-webhook-secret"))
+	_, _ = mac.Write([]byte(ts + "." + body))
+	sig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/internal/deploy-runs/deploy-1/callback", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-0ops-Timestamp", ts)
+	req.Header.Set("X-0ops-Signature", sig)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("callback request error = %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		bodyText, _ := io.ReadAll(resp.Body)
+		t.Fatalf("callback status = %d, body = %s", resp.StatusCode, string(bodyText))
+	}
+
+	if gotStage != "callback" || gotClassification != "gitops_push_conflict" {
+		t.Fatalf("failure metric not recorded as expected, got stage=%q classification=%q", gotStage, gotClassification)
+	}
+}
+
 func TestDeployCallbackSignatureValidationRejectsInvalidSignature(t *testing.T) {
 	// Test case 1: Invalid signature format (not sha256= prefixed)
 	result := validateCallbackSignature("test-secret", "1234567890", []byte(`{"status":"success"}`), "invalid")
@@ -252,4 +297,3 @@ func TestValidFailureClassification(t *testing.T) {
 		t.Fatal("isValidFailureClassification(\"invalid\") = true, want false")
 	}
 }
-

@@ -20,7 +20,11 @@ data:
           "type": "timeseries",
           "title": "Deploy Lead Time",
           "targets": [{"expr": "histogram_quantile(0.50, sum(rate(zeroops_deploy_run_lead_time_seconds_bucket[28d])) by (le))"}]
+        },
+        {
+          "type": "timeseries",
+          "title": "Deploy Terminal Outcomes",
+          "targets": [{"expr": "sum(rate(zeroops_deploy_run_terminal_total[5m])) by (outcome)"}]
         }
       ]
     }
-
