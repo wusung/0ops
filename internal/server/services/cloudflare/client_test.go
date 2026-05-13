@@ -130,4 +130,3 @@ func TestClientRecordsOperationMetrics(t *testing.T) {
 		t.Fatalf("call[2] = %q, want tunnel_route_delete:success", calls[2])
 	}
 }
-
