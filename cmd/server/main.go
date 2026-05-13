@@ -39,6 +39,13 @@ func main() {
 
 	repo := db.NewRepository(pool)
 	appserver.BindCreateAppMetrics(metrics.ObserveCreateAppPreview, metrics.ObserveCreateAppConfirm)
+	appserver.BindPlatformMetrics(
+		metrics.ObservePreviewCreated,
+		metrics.ObservePreviewConsumed,
+		metrics.ObserveDeployRunTerminal,
+		metrics.ObserveDeployRunLeadTime,
+	)
+	cloudflare.BindMetrics(metrics.ObserveCloudflareAPICall)
 
 	// Initialize K3s and Cloudflare infrastructure clients
 	k3sCfg := &k3s.Config{

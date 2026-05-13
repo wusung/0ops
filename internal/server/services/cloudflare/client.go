@@ -72,6 +72,17 @@ type dnsRecord struct {
 	TTL     int    `json:"ttl"`
 }
 
+var recordCloudflareMetric = func(string, string) {}
+
+// BindMetrics wires cloudflare operation metrics recorder.
+func BindMetrics(recorder func(op, outcome string)) {
+	if recorder == nil {
+		recordCloudflareMetric = func(string, string) {}
+		return
+	}
+	recordCloudflareMetric = recorder
+}
+
 // NewClient creates a new Cloudflare client.
 func NewClient(cfg *Config) (*Client, error) {
 	return newClient(cfg, defaultAPIBaseURL, &http.Client{Timeout: 15 * time.Second}, time.Sleep)
@@ -99,45 +110,65 @@ func newClient(cfg *Config, baseURL string, httpClient *http.Client, sleep func(
 func (c *Client) RouteAppToDomain(ctx context.Context, _, _, appSlug string) (string, error) {
 	subdomain := fmt.Sprintf("%s.winshare.tw", strings.TrimSpace(appSlug))
 	if c == nil || c.config == nil || c.config.DisableTunnelIsolation {
+		recordCloudflareMetric("dns_create", "success")
 		return subdomain, nil
 	}
 	if err := c.ensureConfigured(); err != nil {
+		recordCloudflareMetric("dns_create", metricOutcomeForError(err))
 		return "", err
 	}
 	if err := c.ensureWildcardRoute(ctx); err != nil {
+		recordCloudflareMetric("dns_create", metricOutcomeForError(err))
 		return "", err
 	}
+	recordCloudflareMetric("dns_create", "success")
 	return subdomain, nil
 }
 
 // CreateTunnelRoute validates the shared wildcard route.
 func (c *Client) CreateTunnelRoute(ctx context.Context, _, _, _ string) error {
 	if c == nil || c.config == nil || c.config.DisableTunnelIsolation {
+		recordCloudflareMetric("tunnel_route_create", "success")
 		return nil
 	}
 	if err := c.ensureConfigured(); err != nil {
+		recordCloudflareMetric("tunnel_route_create", metricOutcomeForError(err))
 		return err
 	}
-	return c.ensureWildcardRoute(ctx)
+	if err := c.ensureWildcardRoute(ctx); err != nil {
+		recordCloudflareMetric("tunnel_route_create", metricOutcomeForError(err))
+		return err
+	}
+	recordCloudflareMetric("tunnel_route_create", "success")
+	return nil
 }
 
 // DeleteTunnelRoute validates the shared wildcard route still exists.
 func (c *Client) DeleteTunnelRoute(ctx context.Context, _ string) error {
 	if c == nil || c.config == nil || c.config.DisableTunnelIsolation {
+		recordCloudflareMetric("tunnel_route_delete", "success")
 		return nil
 	}
 	if err := c.ensureConfigured(); err != nil {
+		recordCloudflareMetric("tunnel_route_delete", metricOutcomeForError(err))
 		return err
 	}
-	return c.ensureWildcardRoute(ctx)
+	if err := c.ensureWildcardRoute(ctx); err != nil {
+		recordCloudflareMetric("tunnel_route_delete", metricOutcomeForError(err))
+		return err
+	}
+	recordCloudflareMetric("tunnel_route_delete", "success")
+	return nil
 }
 
 // GetDomainStatus returns the DNS status for the wildcard route.
 func (c *Client) GetDomainStatus(ctx context.Context, hostname string) (map[string]interface{}, error) {
 	if c == nil || c.config == nil || c.config.DisableTunnelIsolation {
+		recordCloudflareMetric("domain_status", "success")
 		return nil, nil
 	}
 	if err := c.ensureConfigured(); err != nil {
+		recordCloudflareMetric("domain_status", metricOutcomeForError(err))
 		return nil, err
 	}
 	target := strings.TrimSpace(hostname)
@@ -146,12 +177,15 @@ func (c *Client) GetDomainStatus(ctx context.Context, hostname string) (map[stri
 	}
 	records, err := c.listDNSRecords(ctx, target)
 	if err != nil {
+		recordCloudflareMetric("domain_status", metricOutcomeForError(err))
 		return nil, err
 	}
 	if len(records) == 0 {
+		recordCloudflareMetric("domain_status", metricOutcomeForError(ErrRouteMissing))
 		return nil, ErrRouteMissing
 	}
 	record := records[0]
+	recordCloudflareMetric("domain_status", "success")
 	return map[string]interface{}{
 		"dns_record_id": record.ID,
 		"hostname":      record.Name,
@@ -287,4 +321,15 @@ func retryDelay(retryAfter string, attempt int) time.Duration {
 		return time.Minute
 	}
 	return delay
+}
+
+func metricOutcomeForError(err error) string {
+	switch {
+	case errors.Is(err, ErrRateLimited):
+		return "throttled"
+	case err == nil:
+		return "success"
+	default:
+		return "error"
+	}
 }

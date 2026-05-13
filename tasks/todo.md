@@ -159,9 +159,9 @@
 - [ ] **M2.6 Observability GA**
   - 在現有 `internal/server/observability/metrics.go` 之外補齊：
     - preview/deploy/cf 指標
-    - `preview_consumption_rate`
-    - `preview_to_confirm_latency`
-    - `0ops_cloudflare_api_calls_total`
+    - `cluster:zeroops_preview_consumption_rate:7d`
+    - `histogram_quantile(... zeroops_preview_consume_duration_seconds_bucket ... )`
+    - `zeroops_cloudflare_api_calls_total`
     - deploy success/failure / lead time 所需 metrics
   - 補 dashboard / alert 規則資產，對齊 `docs/features/slo-and-alerting/spec.md`
   - 驗收證據：

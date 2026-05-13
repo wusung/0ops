@@ -114,6 +114,10 @@ var appSlugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$`)
 var (
 	recordCreateAppPreviewMetric = func(string) {}
 	recordCreateAppConfirmMetric = func(string, bool) {}
+	recordPreviewCreatedMetric   = func(string) {}
+	recordPreviewConsumedMetric  = func(string, string, time.Duration) {}
+	recordDeployTerminalMetric   = func(string) {}
+	recordDeployLeadTimeMetric   = func(time.Duration) {}
 	newArgoCDStatusProvider      = func() argoCDStatusProvider { return nil }
 )
 
@@ -159,6 +163,35 @@ func BindCreateAppMetrics(
 		recordCreateAppConfirmMetric = func(string, bool) {}
 	} else {
 		recordCreateAppConfirmMetric = confirmRecorder
+	}
+}
+
+// BindPlatformMetrics wires cross-feature observability recorders.
+func BindPlatformMetrics(
+	previewCreatedRecorder func(action string),
+	previewConsumedRecorder func(action, outcome string, latency time.Duration),
+	deployTerminalRecorder func(outcome string),
+	deployLeadTimeRecorder func(latency time.Duration),
+) {
+	if previewCreatedRecorder == nil {
+		recordPreviewCreatedMetric = func(string) {}
+	} else {
+		recordPreviewCreatedMetric = previewCreatedRecorder
+	}
+	if previewConsumedRecorder == nil {
+		recordPreviewConsumedMetric = func(string, string, time.Duration) {}
+	} else {
+		recordPreviewConsumedMetric = previewConsumedRecorder
+	}
+	if deployTerminalRecorder == nil {
+		recordDeployTerminalMetric = func(string) {}
+	} else {
+		recordDeployTerminalMetric = deployTerminalRecorder
+	}
+	if deployLeadTimeRecorder == nil {
+		recordDeployLeadTimeMetric = func(time.Duration) {}
+	} else {
+		recordDeployLeadTimeMetric = deployLeadTimeRecorder
 	}
 }
 
@@ -307,6 +340,7 @@ func previewCreateAppHandler(store appsStore) http.HandlerFunc {
 			return
 		}
 		writePreviewResponse(w, out, summary)
+		recordPreviewCreatedMetric(previewActionCreate)
 		outcome = "success"
 	}
 }
@@ -356,6 +390,11 @@ func createAppHandler(store appsStore, k3sClient infraK3sClient, cfClient infraC
 		_ = json.NewEncoder(w).Encode(confirmResult.Response)
 		outcome = "success"
 		idempotentReplay = confirmResult.Replayed
+		consumeOutcome := "success"
+		if confirmResult.Replayed {
+			consumeOutcome = "idempotent_replay"
+		}
+		recordPreviewConsumedMetric(previewActionCreate, consumeOutcome, previewConsumeLatency(confirmResult.PreviewCreatedAt))
 	}
 }
 
@@ -450,6 +489,12 @@ func deployRunCallbackHandler(store appsStore) http.HandlerFunc {
 			}
 			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to apply deploy callback", nil)
 			return
+		}
+		if outcome, ok := deployTerminalOutcome(status); ok {
+			recordDeployTerminalMetric(outcome)
+			if req.BuildMinutes != nil && *req.BuildMinutes > 0 {
+				recordDeployLeadTimeMetric(time.Duration(*req.BuildMinutes * float64(time.Minute)))
+			}
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -721,6 +766,7 @@ func previewInviteHandler(store appsStore) http.HandlerFunc {
 			return
 		}
 		writePreviewResponse(w, out, "Invite team member")
+		recordPreviewCreatedMetric(previewActionInvite)
 	}
 }
 
@@ -755,6 +801,7 @@ func inviteHandler(store appsStore) http.HandlerFunc {
 			apperror.Write(w, "preview_consumed", apperror.ClassConflict, "preview already consumed", nil)
 			return
 		}
+		recordPreviewConsumedMetric(previewActionInvite, "success", previewConsumeLatency(preview.CreatedAt))
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(dto.InviteMemberResponse{
@@ -791,6 +838,7 @@ func previewRemoveHandler(store appsStore) http.HandlerFunc {
 			return
 		}
 		writePreviewResponse(w, out, "Remove team member")
+		recordPreviewCreatedMetric(previewActionRemove)
 	}
 }
 
@@ -827,6 +875,7 @@ func removeHandler(store appsStore) http.HandlerFunc {
 			apperror.Write(w, "preview_consumed", apperror.ClassConflict, "preview already consumed", nil)
 			return
 		}
+		recordPreviewConsumedMetric(previewActionRemove, "success", previewConsumeLatency(preview.CreatedAt))
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "removed"})
@@ -1700,4 +1749,30 @@ func writePreviewResponse(w http.ResponseWriter, preview db.Preview, summary str
 		Summary:   summary,
 		ExpiresAt: preview.ExpiresAt,
 	})
+}
+
+func previewConsumeLatency(createdAt time.Time) time.Duration {
+	if createdAt.IsZero() {
+		return 0
+	}
+	now := time.Now().UTC()
+	if now.Before(createdAt) {
+		return 0
+	}
+	return now.Sub(createdAt)
+}
+
+func deployTerminalOutcome(status string) (string, bool) {
+	switch status {
+	case "live":
+		return "success", true
+	case "failed":
+		return "failed", true
+	case "canceled":
+		return "canceled", true
+	case "rolled_back":
+		return "rolled_back", true
+	default:
+		return "", false
+	}
 }

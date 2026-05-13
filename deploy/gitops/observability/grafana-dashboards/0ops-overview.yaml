@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zeroops-dashboard-overview
+  labels:
+    grafana_dashboard: "1"
+data:
+  overview.json: |
+    {
+      "title": "0ops Overview",
+      "schemaVersion": 39,
+      "version": 1,
+      "panels": [
+        {
+          "type": "stat",
+          "title": "API Availability (28d)",
+          "targets": [{"expr": "1 - (sum(rate(zeroops_http_requests_total{status=~\"5..\"}[28d])) / clamp_min(sum(rate(zeroops_http_requests_total[28d])), 1))"}]
+        }
+      ]
+    }
+
