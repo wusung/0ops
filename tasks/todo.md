@@ -125,10 +125,10 @@
     - 一次 callback success
     - 一次 callback duplicate no-op
 
-- [ ] **M2.3 GitOps render/push + ArgoCD sync 鏈路**
-  - 補 render service 與 git push 執行路徑
-  - 定義 `0ops-gitops` repo 目錄責任與最小 manifest 模板
-  - 補 ArgoCD sync 觸發或狀態查詢介面
+- [x] **M2.3 GitOps render/push + ArgoCD sync 鏈路**
+  - 已補 render service 與 git push 執行路徑
+  - 已定義 `0ops-gitops` repo 目錄責任與最小 manifest 模板
+  - 已補 ArgoCD sync 狀態查詢介面，`deploys/status` 可 overlay syncing/live
   - 對齊 `docs/features/gitops-render-and-argocd/spec.md`
   - 測試：
     - render output contract test
