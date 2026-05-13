@@ -79,3 +79,30 @@ func TestDeployCallbackTimestampValidationAcceptsRecentTimestamp(t *testing.T) {
 		t.Fatal("expected recent timestamp to be accepted")
 	}
 }
+
+func TestDeployCallbackTimestampValidationRejectsFutureTimestamp(t *testing.T) {
+	// 時間戳超過 5 分鐘在未來
+	futureTimestamp := time.Now().UTC().Add(6 * time.Minute)
+	result := validateCallbackTimestamp(
+		strconv.FormatInt(futureTimestamp.Unix(), 10),
+		time.Now().UTC(),
+		5*time.Minute,
+	)
+	if result {
+		t.Fatal("expected future timestamp to be rejected")
+	}
+}
+
+func TestDeployCallbackTimestampValidationAcceptsExactBoundaryTimestamp(t *testing.T) {
+	// 時間戳正好 5 分鐘（邊界應接受）
+	now := time.Now().UTC().Truncate(time.Second)
+	boundaryTimestamp := now.Add(-5 * time.Minute)
+	result := validateCallbackTimestamp(
+		strconv.FormatInt(boundaryTimestamp.Unix(), 10),
+		now,
+		5*time.Minute,
+	)
+	if !result {
+		t.Fatal("expected boundary timestamp (exactly 5 min) to be accepted")
+	}
+}
