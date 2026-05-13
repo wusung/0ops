@@ -18,6 +18,7 @@ import (
 )
 
 const previewAction = "create_app"
+const tunnelBackendURL = "http://traefik.kube-system.svc.cluster.local:80"
 
 var slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$`)
 
@@ -51,6 +52,7 @@ type K3sClient interface {
 // CloudflareClient captures the route provisioning calls used by create_app.
 type CloudflareClient interface {
 	RouteAppToDomain(ctx context.Context, teamID, teamSlug, appSlug string) (string, error)
+	CreateTunnelRoute(ctx context.Context, teamID, appSlug, backendURL string) error
 }
 
 // Dispatcher triggers the GitHub build workflow.
@@ -175,6 +177,9 @@ func (s *Service) Confirm(ctx context.Context, teamID, actorUserID, teamSlug, pr
 		}
 		if routedDomain != "" {
 			subdomain = routedDomain
+		}
+		if err := s.cfClient.CreateTunnelRoute(ctx, teamID, result.AppSlug, tunnelBackendURL); err != nil {
+			return ConfirmResult{}, rollback(err)
 		}
 	}
 
