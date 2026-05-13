@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zeroops-dashboard-failure-classification
+  labels:
+    grafana_dashboard: "1"
+data:
+  failure-classification.json: |
+    {
+      "title": "0ops Failure Classification",
+      "schemaVersion": 39,
+      "version": 1,
+      "panels": [
+        {
+          "type": "stat",
+          "title": "Unknown Failure Ratio (7d)",
+          "targets": [{
+            "expr": "sum(rate(zeroops_deploy_run_failures_total{classification=\"unknown\"}[7d])) / clamp_min(sum(rate(zeroops_deploy_run_failures_total[7d])), 1)"
+          }]
+        }
+      ]
+    }
+

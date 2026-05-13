@@ -106,6 +106,77 @@ flowchart TD
     D --> F
 ```
 
+## Phase 功能實作流程
+
+當需要實作某個 phase 的功能時，遵循以下流程：
+
+### 1. 功能拆解（Function Decomposition）
+
+首先將 phase 目標拆解為**獨立功能清單**，每個功能應滿足：
+
+- 功能邊界清晰，可獨立 code review
+- 有明確的前置條件（前期需完成的功能）
+- 測試邊界可獨立驗證
+- 提交可單獨 merge
+
+拆解時參考：
+
+- `docs/0ops-plan.md` 中該 phase 的描述與約束
+- `docs/features/{FEATURE}/*.md` 的功能規格
+- 相關 ADR 的 Consequences 中的依賴關係
+
+### 2. 功能優先序與依賴
+
+將拆解的功能依需入 SQL `todos` 與 `todo_deps` 表，記錄：
+
+- 功能 ID、標題、詳細描述
+- 功能間依賴（哪些功能必須先完成）
+- 初始狀態設為 `pending`
+
+### 3. 按功能逐個執行 Agent Loop
+
+對每個 `pending` 功能，執行**標準 Agent Loop**：
+
+```
+功能視為一次「明確指定的目標」
+  ↓
+[Mandatory Agent Loop]
+  using-superpowers
+  → using-git-worktrees（或跳過）
+  → brainstorming
+  → writing-plans OR executing-plans
+  → test-driven-development
+  → requesting-code-review → receiving-code-review
+  → verification-before-completion
+  → finishing-a-development-branch
+  ↓
+Merge 至主分支，更新 SQL 狀態為 'done'
+  ↓
+下一功能（如有依賴則等依賴完成）
+```
+
+### 4. 跨功能邊界的檢驗
+
+完成單一功能後：
+
+- 檢查是否有後續功能的前置依賴已滿足
+- 如後續功能有新的先決條件發現，更新 `todo_deps`
+- 若跨功能發現架構問題，評估是否需新增 ADR 而非工作區間修正
+
+### 示例
+
+假設實作 phase：「Team API 權限矩陣」，功能拆解可能為：
+
+| 功能 ID | 功能名稱 | 依賴 | 描述 |
+|---------|---------|------|------|
+| `team-scope-model` | Team Scope 資料模型 | 無 | 定義 scope 與權限等級，含 migration |
+| `team-scope-queries` | Team Scope 查詢層 | `team-scope-model` | 實作 GetTeamScopes、ListTeamMembers |
+| `api-scope-middleware` | API Scope 檢驗中間件 | `team-scope-queries` | 在 HTTP handler 層驗證 scope |
+| `mcp-scope-contract` | MCP Tool Scope 規格 | `api-scope-middleware` | 定義並驗證 MCP tool schema |
+| `scope-rbac-tests` | RBAC 全整合測試 | `mcp-scope-contract` | 跨 API、MCP、DB 層級的權限矩陣測試 |
+
+各功能優先依序執行 Agent Loop，完成後更新 todo 狀態。
+
 ## Testing
 
 任何行為變更都必須補對應測試。最低要求：

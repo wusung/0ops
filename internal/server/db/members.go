@@ -54,6 +54,7 @@ type Preview struct {
 	Action      string
 	Args        json.RawMessage
 	LastResult  json.RawMessage
+	CreatedAt   time.Time
 	ExpiresAt   time.Time
 	ConsumedAt  *time.Time
 }
@@ -206,13 +207,14 @@ func (r *Repository) CreatePreview(ctx context.Context, teamID, actorUserID, act
 
 	var (
 		id        pgtype.UUID
+		createdAt pgtype.Timestamptz
 		expiresAt pgtype.Timestamptz
 	)
 	if err := r.pool.QueryRow(ctx, `
 INSERT INTO preview (team_id, actor_user_id, action, args, action_summary, side_effects, idempotency_key, expires_at)
 VALUES ($1, $2, $3, $4::jsonb, $5, '[]'::jsonb, $6, now() + interval '10 minute')
-RETURNING id, expires_at
-`, parsedTeamID, parsedActorID, action, []byte(args), actionSummary, key).Scan(&id, &expiresAt); err != nil {
+RETURNING id, created_at, expires_at
+`, parsedTeamID, parsedActorID, action, []byte(args), actionSummary, key).Scan(&id, &createdAt, &expiresAt); err != nil {
 		return Preview{}, err
 	}
 
@@ -222,6 +224,7 @@ RETURNING id, expires_at
 		ActorUserID: actorUserID,
 		Action:      action,
 		Args:        args,
+		CreatedAt:   createdAt.Time,
 		ExpiresAt:   expiresAt.Time,
 	}, nil
 }
@@ -240,15 +243,16 @@ func (r *Repository) GetPreview(ctx context.Context, previewID string) (Preview,
 		action      string
 		args        []byte
 		lastResult  []byte
+		createdAt   pgtype.Timestamptz
 		expiresAt   pgtype.Timestamptz
 		consumedAt  pgtype.Timestamptz
 	)
 
 	if err := r.pool.QueryRow(ctx, `
-SELECT id, team_id, actor_user_id, action, args, last_result, expires_at, consumed_at
+SELECT id, team_id, actor_user_id, action, args, last_result, created_at, expires_at, consumed_at
 FROM preview
 WHERE id = $1
-`, parsedPreviewID).Scan(&id, &teamID, &actorUserID, &action, &args, &lastResult, &expiresAt, &consumedAt); err != nil {
+`, parsedPreviewID).Scan(&id, &teamID, &actorUserID, &action, &args, &lastResult, &createdAt, &expiresAt, &consumedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Preview{}, ErrPreviewNotFound
 		}
@@ -262,6 +266,7 @@ WHERE id = $1
 		Action:      action,
 		Args:        json.RawMessage(args),
 		LastResult:  json.RawMessage(lastResult),
+		CreatedAt:   createdAt.Time,
 		ExpiresAt:   expiresAt.Time,
 		ConsumedAt:  timestamptzPtr(consumedAt),
 	}, nil

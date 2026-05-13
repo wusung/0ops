@@ -78,8 +78,9 @@ type Service struct {
 
 // ConfirmResult is the durable create_app response plus replay metadata.
 type ConfirmResult struct {
-	Response dto.AppCreateResponse
-	Replayed bool
+	Response         dto.AppCreateResponse
+	Replayed         bool
+	PreviewCreatedAt time.Time
 }
 
 // New returns a create_app orchestration service.
@@ -118,7 +119,7 @@ func (s *Service) Confirm(ctx context.Context, teamID, actorUserID, teamSlug, pr
 		if err := json.Unmarshal(preview.LastResult, &response); err != nil {
 			return ConfirmResult{}, fmt.Errorf("decode replay result: %w", err)
 		}
-		return ConfirmResult{Response: response, Replayed: true}, nil
+		return ConfirmResult{Response: response, Replayed: true, PreviewCreatedAt: preview.CreatedAt}, nil
 	}
 	if preview.ExpiresAt.Before(s.now().UTC()) {
 		return ConfirmResult{}, ErrPreviewExpired
@@ -249,7 +250,7 @@ func (s *Service) Confirm(ctx context.Context, teamID, actorUserID, teamSlug, pr
 		return ConfirmResult{}, err
 	}
 
-	return ConfirmResult{Response: response}, nil
+	return ConfirmResult{Response: response, PreviewCreatedAt: preview.CreatedAt}, nil
 }
 
 func validateRequest(req dto.AppCreateRequest) error {
