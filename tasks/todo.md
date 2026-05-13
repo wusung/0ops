@@ -114,16 +114,16 @@
     - idempotent replay contract test
     - failed reversible step → compensate test
 
-- [ ] **M2.2 GitHub Actions dispatch + callback 全鏈路**
-  - 補 backend 到 GHA `workflow_dispatch` 觸發 client
-  - 補 ephemeral `ops_token` 簽發與 callback payload 對應欄位
-  - 對齊 `docs/features/build-pipeline-and-callback/spec.md`
-  - 補 `deploy_run` callback 後續轉態：`building/pushing/rendering/syncing/live/failed`
-  - 補 dedup、timestamp window、signature failure 測試
-  - 驗收證據：
-    - 一次 dispatch 成功
-    - 一次 callback success
-    - 一次 callback duplicate no-op
+- [x] **M2.2 GitHub Actions dispatch + callback 全鏈路**
+  - ✅ 補 backend 到 GHA `workflow_dispatch` 觸發 client（Client.Dispatch in workflowdispatch/client.go）
+  - ✅ 補 ephemeral `ops_token` 簽發與 callback payload 對應欄位（OpsTokenSigner in workflowdispatch/opstoken.go）
+  - ✅ 對齊 `docs/features/build-pipeline-and-callback/spec.md`（deploy/workflows/deploy-app.yml）
+  - ✅ 補 `deploy_run` callback 後續轉態：normalizeDeployStatus 支援全 10 狀態（queued/preparing/building/pushing/rendering/syncing/live/failed/canceled/rolled_back）
+  - ✅ 補 dedup、timestamp window、signature failure 測試
+  - ✅ 驗收證據：
+    - 一次 dispatch 成功 → TestClientDispatchPostsRepositoryDispatch
+    - 一次 callback success → TestDeployRunCallbackHMACAndDedup
+    - 一次 callback duplicate no-op → TestDeployCallbackDedupPreventsDuplicateDelivery
 
 - [x] **M2.3 GitOps render/push + ArgoCD sync 鏈路**
   - 已補 render service 與 git push 執行路徑

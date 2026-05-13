@@ -20,6 +20,7 @@ import (
 	"github.com/winshare/zeroops/internal/server/auth"
 	"github.com/winshare/zeroops/internal/server/db"
 	"github.com/winshare/zeroops/internal/server/services/githuboauth"
+	k3ssvc "github.com/winshare/zeroops/internal/server/services/k3s"
 	workflowdispatch "github.com/winshare/zeroops/internal/server/services/workflowdispatch"
 	"github.com/winshare/zeroops/internal/shared/backendclient"
 	"github.com/winshare/zeroops/internal/shared/dto"
@@ -50,6 +51,13 @@ type fakeArgoCDStatusProvider struct {
 	status argoCDApplicationStatus
 }
 
+type fakeInfraK3sArgoClient struct {
+	status   k3ssvc.ApplicationStatus
+	called   bool
+	teamSlug string
+	appSlug  string
+}
+
 func (m mockGitHubOAuthClient) StartDeviceAuthorization(context.Context) (githuboauth.DeviceAuthorization, error) {
 	return m.challenge, nil
 }
@@ -63,6 +71,33 @@ func (m mockGitHubOAuthClient) FetchUser(context.Context, string) (githuboauth.U
 }
 
 func (f fakeArgoCDStatusProvider) GetApplicationStatus(context.Context, string, string) (argoCDApplicationStatus, error) {
+	return f.status, nil
+}
+
+func (f *fakeInfraK3sArgoClient) EnsureNamespace(_ context.Context, _, _, _ string) (string, error) {
+	return "team-test", nil
+}
+
+func (f *fakeInfraK3sArgoClient) EnsureResourceQuota(_ context.Context, _, _ string) error {
+	return nil
+}
+
+func (f *fakeInfraK3sArgoClient) EnsureLimitRange(_ context.Context, _ string) error {
+	return nil
+}
+
+func (f *fakeInfraK3sArgoClient) EnsureNetworkPolicy(_ context.Context, _ string) error {
+	return nil
+}
+
+func (f *fakeInfraK3sArgoClient) PatchNamespacePSA(_ context.Context, _ string) error {
+	return nil
+}
+
+func (f *fakeInfraK3sArgoClient) GetApplicationStatus(_ context.Context, teamSlug, appSlug string) (k3ssvc.ApplicationStatus, error) {
+	f.called = true
+	f.teamSlug = teamSlug
+	f.appSlug = appSlug
 	return f.status, nil
 }
 
@@ -524,6 +559,37 @@ func TestNewRouterGetDeployStatusUsesArgoCDProvider(t *testing.T) {
 	}
 	if out.Status != "syncing" {
 		t.Fatalf("Status = %q, want syncing", out.Status)
+	}
+}
+
+func TestNewRouterWithInfraGetDeployStatusUsesK3sArgoProvider(t *testing.T) {
+	store, token := newFakeStore()
+	store.deploys[0].Status = "queued"
+	prev := newArgoCDStatusProvider
+	t.Cleanup(func() { newArgoCDStatusProvider = prev })
+
+	k3sClient := &fakeInfraK3sArgoClient{
+		status: k3ssvc.ApplicationStatus{
+			SyncStatus:   "Synced",
+			HealthStatus: "Healthy",
+		},
+	}
+
+	srv := httptest.NewServer(NewRouterWithInfra(store, k3sClient, nil))
+	t.Cleanup(srv.Close)
+
+	out, err := backendclient.New(srv.URL, token).GetDeployStatus(context.Background(), store.team.Slug, "alpha")
+	if err != nil {
+		t.Fatalf("GetDeployStatus() error = %v", err)
+	}
+	if !k3sClient.called {
+		t.Fatal("expected k3s ArgoCD status provider to be called")
+	}
+	if k3sClient.teamSlug != store.team.Slug || k3sClient.appSlug != "alpha" {
+		t.Fatalf("provider called with team=%q app=%q, want team=%q app=%q", k3sClient.teamSlug, k3sClient.appSlug, store.team.Slug, "alpha")
+	}
+	if out.Status != "live" {
+		t.Fatalf("Status = %q, want live", out.Status)
 	}
 }
 
