@@ -1340,12 +1340,25 @@ func validateCallbackSignature(secret, timestamp string, body []byte, got string
 }
 
 func normalizeDeployStatus(raw string) (string, bool) {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
+	normalized := strings.ToLower(strings.TrimSpace(raw))
+
+	// New canonical states (ADR-0002 state machine)
+	switch normalized {
 	case "queued", "preparing", "building", "pushing", "rendering", "syncing", "live", "failed", "canceled", "rolled_back":
-		return strings.ToLower(strings.TrimSpace(raw)), true
-	default:
-		return "", false
+		return normalized, true
 	}
+
+	// Legacy status mappings (backward compatibility)
+	switch normalized {
+	case "success":
+		return "live", true
+	case "failure":
+		return "failed", true
+	case "cancelled":
+		return "canceled", true
+	}
+
+	return "", false
 }
 
 func mapArgoCDDeployStatus(syncStatus, healthStatus string) (string, bool) {

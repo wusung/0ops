@@ -147,11 +147,13 @@ func TestNormalizeDeployStatusHandlesAllValidStates(t *testing.T) {
 		{"\tbuilding\t", "building", true},
 		{"\n  live  \n", "live", true},
 
+		// Legacy status mappings (backward compatibility)
+		{"success", "live", true},
+		{"failure", "failed", true},
+		{"cancelled", "canceled", true},
+
 		// Invalid states
 		{"invalid", "", false},
-		{"success", "", false},
-		{"failure", "", false},
-		{"cancelled", "", false},
 		{"", "", false},
 		{"   ", "", false},
 	}
