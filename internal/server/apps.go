@@ -389,6 +389,10 @@ func deployRunCallbackHandler(store appsStore) http.HandlerFunc {
 			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "failure_classification is required for failed status", map[string]any{"field": "failure_classification"})
 			return
 		}
+		if failureClassification != nil && !isValidFailureClassification(*failureClassification) {
+			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "invalid failure_classification", map[string]any{"field": "failure_classification"})
+			return
+		}
 
 		deliveryID := strings.TrimSpace(r.Header.Get("X-0ops-Delivery-ID"))
 		if deliveryID == "" {
@@ -1435,6 +1439,17 @@ func trimStringPtr(v *string) *string {
 		return nil
 	}
 	return &trimmed
+}
+
+func isValidFailureClassification(raw string) bool {
+	switch strings.TrimSpace(raw) {
+	case "repo_checkout_failed", "registry_auth_failed", "buildpack_detect_failed",
+		"build_compile_error", "build_timeout", "registry_push_failed",
+		"image_scan_blocked", "gitops_push_conflict", "unknown":
+		return true
+	default:
+		return false
+	}
 }
 
 type disabledGitHubOAuthClient struct {

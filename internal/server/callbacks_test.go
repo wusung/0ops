@@ -236,3 +236,20 @@ func TestDeployCallbackDedupPreventsDuplicateDelivery(t *testing.T) {
 	}
 }
 
+func TestValidFailureClassification(t *testing.T) {
+	tests := []string{
+		"repo_checkout_failed",
+		"build_timeout",
+		"gitops_push_conflict",
+		"unknown",
+	}
+	for _, v := range tests {
+		if !isValidFailureClassification(v) {
+			t.Errorf("isValidFailureClassification(%q) = false, want true", v)
+		}
+	}
+	if isValidFailureClassification("invalid") {
+		t.Fatal("isValidFailureClassification(\"invalid\") = true, want false")
+	}
+}
+
