@@ -120,3 +120,56 @@ task_is_executable() {
   done < <(task_dependencies "$task_id")
   return 0
 }
+
+# --- agent + command builders ---
+
+# Print the argv (one per line) for the agent CLI.
+# Precedence: TASK_AGENT_BIN env > `claude` on PATH > die.
+agent_runner() {
+  if [[ -n "${TASK_AGENT_BIN:-}" ]]; then
+    printf '%s\n' "$TASK_AGENT_BIN"
+    return 0
+  fi
+  if command -v claude >/dev/null 2>&1; then
+    printf 'claude\n'
+    return 0
+  fi
+  die "no agent CLI found (set TASK_AGENT_BIN or install 'claude')"
+}
+
+# Build full agent invocation (NUL-separated argv).
+# Default flavour is `claude -p <prompt> --dangerously-skip-permissions`.
+# When TASK_AGENT_BIN is set the runner just appends the prompt as the last arg
+# (caller is responsible for any non-default flags via the wrapper script).
+build_agent_command() {
+  local prompt_text="$1"
+  mapfile -t base < <(agent_runner)
+  if [[ -n "${TASK_AGENT_BIN:-}" ]]; then
+    printf '%s\0' "${base[@]}" "$prompt_text"
+  else
+    printf '%s\0' "${base[@]}" "-p" "$prompt_text" "--dangerously-skip-permissions"
+  fi
+}
+
+build_commit_command() {
+  local task_id="$1" task_title_value="$2"
+  local msg
+  msg=$(printf 'task(%s): %s' "$task_id" "$task_title_value")
+  printf '%s\0' "git" "commit" "-m" "$msg"
+}
+
+build_pr_command() {
+  local task_id="$1" task_title_value="$2" body="$3"
+  local title
+  title=$(printf 'task(%s): %s' "$task_id" "$task_title_value")
+  printf '%s\0' "gh" "pr" "create" \
+    "--base" "main" \
+    "--head" "$(task_branch_name "$task_id")" \
+    "--title" "$title" \
+    "--body" "$body"
+}
+
+build_merge_command() {
+  local pr_number="$1"
+  printf '%s\0' "gh" "pr" "merge" "$pr_number" "--merge" "--delete-branch"
+}
