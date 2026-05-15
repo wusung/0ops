@@ -29,8 +29,9 @@ type Metrics struct {
 	tunnelConnectors  prometheus.Gauge
 	domainVerify      *prometheus.CounterVec
 	reconPending      *prometheus.GaugeVec
-	createAppPreviews *prometheus.CounterVec
-	createAppConfirms *prometheus.CounterVec
+	createAppPreviews  *prometheus.CounterVec
+	createAppConfirms  *prometheus.CounterVec
+	rateLimitTriggered *prometheus.CounterVec
 }
 
 // NewMetrics creates the default HTTP metrics registry.
@@ -118,6 +119,10 @@ func NewMetrics() *Metrics {
 			Name:      "create_app_confirms_total",
 			Help:      "Number of create_app confirm requests by outcome and replay flag.",
 		}, []string{"outcome", "idempotent_replay"}),
+		rateLimitTriggered: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zeroops_rate_limit_triggered_total",
+			Help: "Number of rate-limited (HTTP 429) responses, labelled by scope, category, and plan tier.",
+		}, []string{"scope", "category", "plan"}),
 	}
 	reg.MustRegister(
 		m.httpTotal,
@@ -136,6 +141,7 @@ func NewMetrics() *Metrics {
 		m.reconPending,
 		m.createAppPreviews,
 		m.createAppConfirms,
+		m.rateLimitTriggered,
 	)
 	return m
 }
@@ -278,6 +284,22 @@ func (m *Metrics) ObserveDomainVerifyAttempt(outcome string) {
 		outcome = "failed"
 	}
 	m.domainVerify.WithLabelValues(outcome).Inc()
+}
+
+// ObserveRateLimitTriggered increments the rate-limit trigger counter for one
+// 429 emission. Labels are unconstrained strings so the caller controls the
+// allowed values (callers must use a fixed enumeration; see
+// internal/server/middleware/ratelimit.Plan / Scope / Category for the
+// canonical 4 × 2 × 3 set, hard-rule §14 #8).
+func (m *Metrics) ObserveRateLimitTriggered(scope, category, plan string) {
+	m.rateLimitTriggered.WithLabelValues(scope, category, plan).Inc()
+}
+
+// RateLimitObserver returns a function-shape observer hook over the
+// rate-limit counter; downstream packages can wrap it without depending on
+// observability internals.
+func (m *Metrics) RateLimitObserver() func(scope, category, plan string) {
+	return m.ObserveRateLimitTriggered
 }
 
 // SetReconciliationJobsPending sets pending reconciliation jobs count by kind.

@@ -7,8 +7,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"math/rand"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,15 +24,34 @@ type Client struct {
 	BaseURL     string
 	BearerToken string
 	HTTP        *http.Client
+
+	// RetryMax bounds the number of retry attempts when the server returns
+	// 429 Too Many Requests. <= 0 means no retry. Default 5 (set in New).
+	RetryMax int
+	// RetryBaseDelay is the floor delay used when the server omits
+	// Retry-After (and as the seed for exponential backoff). Default 1s
+	// (set in New).
+	RetryBaseDelay time.Duration
+	// NoRetry, when true, disables retry behavior even on 429. Set by
+	// CLI `--no-retry` flag or env var `OPS_NO_RETRY=1` (spec § 7.1).
+	NoRetry bool
 }
 
 // New returns a client with sensible defaults.
 func New(baseURL, bearerToken string) *Client {
 	return &Client{
-		BaseURL:     strings.TrimRight(baseURL, "/"),
-		BearerToken: bearerToken,
-		HTTP:        &http.Client{Timeout: 15 * time.Second},
+		BaseURL:        strings.TrimRight(baseURL, "/"),
+		BearerToken:    bearerToken,
+		HTTP:           &http.Client{Timeout: 15 * time.Second},
+		RetryMax:       5,
+		RetryBaseDelay: time.Second,
+		NoRetry:        envFlag("OPS_NO_RETRY"),
 	}
+}
+
+func envFlag(key string) bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	return v == "1" || v == "true" || v == "yes"
 }
 
 // ListApps fetches a team-scoped apps page.
@@ -56,7 +79,7 @@ func (c *Client) ListApps(ctx context.Context, teamSlug string, pageSize int, cu
 		req.Header.Set("Authorization", "Bearer "+c.BearerToken)
 	}
 
-	res, err := c.httpClient().Do(req)
+	res, err := c.do(req)
 	if err != nil {
 		return dto.ListAppsResponse{}, err
 	}
@@ -84,7 +107,7 @@ func (c *Client) GetApp(ctx context.Context, teamSlug, appSlug string) (dto.AppR
 		req.Header.Set("Authorization", "Bearer "+c.BearerToken)
 	}
 
-	res, err := c.httpClient().Do(req)
+	res, err := c.do(req)
 	if err != nil {
 		return dto.AppRef{}, err
 	}
@@ -220,7 +243,7 @@ func (c *Client) TailLogsFollow(ctx context.Context, teamSlug, appSlug string, l
 		req.Header.Set("Last-Event-ID", strings.TrimSpace(lastEventID))
 	}
 
-	res, err := c.httpClient().Do(req)
+	res, err := c.do(req)
 	if err != nil {
 		return dto.TailLogsResponse{}, err
 	}
@@ -307,7 +330,7 @@ func (c *Client) PollDeviceLogin(ctx context.Context, reqBody dto.DevicePollRequ
 		req.Header.Set("Authorization", "Bearer "+c.BearerToken)
 	}
 
-	res, err := c.httpClient().Do(req)
+	res, err := c.do(req)
 	if err != nil {
 		return dto.DevicePollResponse{}, err
 	}
@@ -381,7 +404,7 @@ func (c *Client) ListTeams(ctx context.Context) (dto.ListTeamsResponse, error) {
 		req.Header.Set("Authorization", "Bearer "+c.BearerToken)
 	}
 
-	res, err := c.httpClient().Do(req)
+	res, err := c.do(req)
 	if err != nil {
 		return dto.ListTeamsResponse{}, err
 	}
@@ -518,6 +541,81 @@ func (c *Client) httpClient() *http.Client {
 	return &http.Client{Timeout: 15 * time.Second}
 }
 
+// do performs req honoring the client's 429 retry policy. On 429 the body
+// is drained + closed, and req.Body (if any) is replayed from the
+// snapshotted bytes — callers must construct req with a re-readable body
+// (the existing code paths use bytes.Reader, which is replay-safe).
+//
+// Retry schedule: sleep = max(Retry-After header, RetryBaseDelay)
+// + jitter (uniform [0, base/5]); RetryBaseDelay doubles between attempts.
+// Bounded by RetryMax. Honors req.Context() cancellation between sleeps.
+func (c *Client) do(req *http.Request) (*http.Response, error) {
+	maxAttempts := c.RetryMax
+	if c.NoRetry || maxAttempts < 0 {
+		maxAttempts = 0
+	}
+	bodySnapshot, err := snapshotBody(req)
+	if err != nil {
+		return nil, err
+	}
+	base := c.RetryBaseDelay
+	if base <= 0 {
+		base = time.Second
+	}
+
+	for attempt := 0; ; attempt++ {
+		if attempt > 0 && bodySnapshot != nil {
+			req.Body = io.NopCloser(bytes.NewReader(bodySnapshot))
+		}
+		res, err := c.httpClient().Do(req)
+		if err != nil {
+			return nil, err
+		}
+		if res.StatusCode != http.StatusTooManyRequests || attempt >= maxAttempts {
+			return res, nil
+		}
+
+		retryAfter := parseRetryAfter(res.Header.Get("Retry-After"), base)
+		_, _ = io.Copy(io.Discard, res.Body)
+		_ = res.Body.Close()
+
+		// jitter ±20% (0..base/5)
+		jitterCeil := int64(retryAfter / 5)
+		if jitterCeil < 1 {
+			jitterCeil = 1
+		}
+		jitter := time.Duration(rand.Int63n(jitterCeil))
+		sleep := retryAfter + jitter
+		base *= 2
+
+		select {
+		case <-req.Context().Done():
+			return nil, req.Context().Err()
+		case <-time.After(sleep):
+		}
+	}
+}
+
+func snapshotBody(req *http.Request) ([]byte, error) {
+	if req.Body == nil {
+		return nil, nil
+	}
+	b, err := io.ReadAll(req.Body)
+	_ = req.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	req.Body = io.NopCloser(bytes.NewReader(b))
+	return b, nil
+}
+
+func parseRetryAfter(raw string, fallback time.Duration) time.Duration {
+	if s, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil && s > 0 {
+		return time.Duration(s) * time.Second
+	}
+	return fallback
+}
+
 func (c *Client) doJSON(ctx context.Context, method, endpoint string, in any, out any) error {
 	var bodyReader *bytes.Reader
 	if in != nil {
@@ -541,7 +639,7 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, in any, ou
 		req.Header.Set("Authorization", "Bearer "+c.BearerToken)
 	}
 
-	res, err := c.httpClient().Do(req)
+	res, err := c.do(req)
 	if err != nil {
 		return err
 	}

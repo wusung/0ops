@@ -29,6 +29,7 @@ import (
 	"github.com/winshare/zeroops/internal/server/apperror"
 	"github.com/winshare/zeroops/internal/server/auth"
 	"github.com/winshare/zeroops/internal/server/db"
+	ratelimit "github.com/winshare/zeroops/internal/server/middleware/ratelimit"
 	"github.com/winshare/zeroops/internal/server/services/cloudflare"
 	createappsvc "github.com/winshare/zeroops/internal/server/services/createapp"
 	"github.com/winshare/zeroops/internal/server/services/githuboauth"
@@ -1196,17 +1197,37 @@ func logoutHandler(store appsStore) http.HandlerFunc {
 // NewRouter returns the HTTP router for the server.
 func NewRouter(store routerStore) http.Handler {
 	githubClient := newGitHubOAuthClient()
-	return NewRouterWithGitHubOAuth(store, githubClient, nil, nil)
+	return newRouterFull(store, githubClient, nil, nil, nil, nil)
 }
 
 // NewRouterWithInfra creates a router with infrastructure clients.
 func NewRouterWithInfra(store routerStore, k3sClient infraK3sClient, cfClient infraCloudflareClient) http.Handler {
 	githubClient := newGitHubOAuthClient()
-	return NewRouterWithGitHubOAuth(store, githubClient, k3sClient, cfClient)
+	return newRouterFull(store, githubClient, k3sClient, cfClient, nil, nil)
+}
+
+// NewRouterWithRateLimit creates a router with infrastructure clients and a
+// per-token / per-team rate-limit middleware (M4.2 — spec § 14 hard rule #2:
+// the limiter MUST sit after auth.Bearer + auth.ResolveTeam).
+//
+//nolint:revive // exported for public API
+func NewRouterWithRateLimit(store routerStore, k3sClient infraK3sClient, cfClient infraCloudflareClient, limiter *ratelimit.Limiter, observerFn func(scope, category, plan string)) http.Handler {
+	githubClient := newGitHubOAuthClient()
+	var observer ratelimit.Observer
+	if observerFn != nil {
+		observer = ratelimit.ObserverFunc(func(scope ratelimit.Scope, cat ratelimit.Category, plan ratelimit.Plan) {
+			observerFn(string(scope), string(cat), string(plan))
+		})
+	}
+	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer)
 }
 
 //nolint:revive // exported for public API
 func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient, k3sClient infraK3sClient, cfClient infraCloudflareClient) http.Handler {
+	return newRouterFull(store, githubClient, k3sClient, cfClient, nil, nil)
+}
+
+func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient infraK3sClient, cfClient infraCloudflareClient, limiter *ratelimit.Limiter, observer ratelimit.Observer) http.Handler {
 	if argoClient, ok := k3sClient.(k3sArgoCDClient); ok && argoClient != nil {
 		newArgoCDStatusProvider = func() argoCDStatusProvider {
 			return k3sArgoCDStatusProvider{client: argoClient}
@@ -1215,6 +1236,11 @@ func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient,
 
 	mw := auth.NewMiddleware(store)
 	githubSvc, githubWebhookVer := githubServiceFactoryFn(store)
+
+	var rateLimitFn func(http.Handler) http.Handler
+	if limiter != nil {
+		rateLimitFn = ratelimit.NewMiddleware(limiter, observer).Handler
+	}
 
 	r := chi.NewRouter()
 	r.Post("/v1/admin/bootstrap-owner", bootstrapOwnerHandler(store))
@@ -1233,6 +1259,9 @@ func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient,
 
 	r.Route("/v1/me", func(sr chi.Router) {
 		sr.Use(mw.Bearer)
+		if rateLimitFn != nil {
+			sr.Use(rateLimitFn)
+		}
 		sr.Use(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionListTeams, next)
 		})
@@ -1244,6 +1273,9 @@ func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient,
 		sr.Use(mw.Bearer)
 		sr.Use(mw.ResolveTeam)
 		sr.Use(mw.CheckMembership)
+		if rateLimitFn != nil {
+			sr.Use(rateLimitFn)
+		}
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionListApps, next)
 		}).Get("/apps", listAppsHandler(store))

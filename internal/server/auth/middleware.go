@@ -93,6 +93,7 @@ func (m *Middleware) ResolveTeam(next http.Handler) http.Handler {
 		}
 
 		ctx := withTeam(r.Context(), team.ID, team.Slug)
+		ctx = withTeamPlan(ctx, team.Plan)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

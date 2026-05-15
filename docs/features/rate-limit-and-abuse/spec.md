@@ -1,9 +1,14 @@
 # Feature Spec：rate-limit-and-abuse
 
-> **狀態**：draft
-> **來源**：`docs/0ops-plan.md`「Rate limit & abuse 偵測」段；ADR-0006（preview consumption rate 紅旗指標）；本 spec 依賴 `auth-and-rbac`、`error-model`、`observability-skeleton`
+> **狀態**：partial（M4.2 已落地 per-token / per-team；build limit + abuse detector 待後續 task）
+> **來源**：`docs/0ops-plan.md`「Rate limit & abuse 偵測」段；ADR-0006（preview consumption rate 紅旗指標）；ADR-0011（plan tier 配額）；本 spec 依賴 `auth-and-rbac`、`error-model`、`observability-skeleton`
 > **適用範圍**：per-token / per-team rate limit、429 回應、abuse 偵測規則；不含 GitHub / Cloudflare 對外 rate limit（屬 `winshare-subdomain-and-tunnel` 與 `github-app-install-flow` spec）
 > **對應 Milestone**：M4
+
+> **Implementation note (M4.2, 2026-05-16)**：
+> 已落地：§ 4.1 per-token + per-team token-bucket（read / write / preview-create）、§ 5 429 envelope + `Retry-After`、§ 7.1 CLI 自動退避、§ 7.2 MCP 不 retry、§ 8 metric `zeroops_rate_limit_triggered_total`（命名以專案 prefix `zeroops_` 對齊既有 metric；spec § 8 原寫 `0ops_*` 為前期草案，Prometheus exposition 不接受 leading digit）。
+> 落地路徑為 **目錄** `internal/server/middleware/ratelimit/`（含 `plan.go` / `limiter.go` / `middleware.go` / `metrics.go` 與測試），與 § 3 草案的單檔 `internal/server/middleware/ratelimit.go` 不同；以實作為準。`internal/server/services/ratelimit/` 暫不引入（middleware + limiter 緊耦合；待 abuse detector / build limit 拆包再評估）。
+> 未落地（明確 deferred，獨立 task）：§ 4.1 per-team build-per-hour（屬 redeploy / create_app saga 之 hourly bucket，需注入 `redeploy.Service` + `createapp.Service`）、§ 6 abuse detector（依賴 `access_log_aggregate` 表，v1 不存在）、§ 13 plan 5 分鐘快取。
 
 ## 1. 結論（先讀本段）
 
