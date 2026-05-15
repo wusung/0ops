@@ -6,6 +6,8 @@
 
 | ID    | Title                                       | Status   | Completed Date |
 |-------|---------------------------------------------|----------|----------------|
+| M1    | Read-only API + CLI + MCP + RBAC            | Done     | 2026-05-12     |
+| M1.5  | Identity bootstrap + team member provisioning | Done   | 2026-05-11     |
 | M2.1  | create_app orchestration 落地              | Done     | 2026-05-13     |
 | M2.2  | GitHub Actions dispatch + callback 全鏈路   | Done     | 2026-05-13     |
 | M2.3  | GitOps render/push + ArgoCD sync 鏈路       | Done     | 2026-05-13     |
@@ -14,3 +16,13 @@
 | M2.6  | Observability GA                            | Pending  | -              |
 | M2.7  | MCP preview/confirm description lint 契約   | Pending  | -              |
 | M2.8  | 端到端驗收腳本                              | Pending  | -              |
+| M3.1  | 客戶自有域名 DNS verify (24h TTL + extend)  | Pending  | -              |
+| M3.2  | GitHub App install/uninstall 流程           | Pending  | -              |
+| M4.1  | Webhook auto/manual redeploy + replay protection | Pending | -           |
+| M4.2  | Rate limit (per-token / per-team) + 429     | Pending  | -              |
+| M5.1  | delete_app 安全刪除 + 資源清理              | Pending  | -              |
+| M5.2  | audit_log + audit CLI/MCP                   | Pending  | -              |
+| M5.3  | reconciler GA + incident classification     | Pending  | -              |
+| M5.4  | Postgres HA + WAL archive + PITR 演練       | Pending  | -              |
+| M5.5  | Backend 2 replica + Leader election         | Pending  | -              |
+| M6    | Web UI (post-v1)                            | Pending  | -              |
