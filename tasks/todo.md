@@ -267,6 +267,43 @@
 
 ## M3 — install / domain verify backlog
 
+### M4.1 — Webhook auto/manual redeploy + replay protection（2026-05-16）
+
+> 對應 spec：`docs/features/webhook-and-redeploy/spec.md`
+> 對應 task：`tasks/task-list.md` row M4.1
+> 對應 paths：`internal/server/services/githubwebhook/**`、`internal/server/services/redeploy/**`
+
+- [x] `POST /v1/webhooks/github` 重構為單一 dispatcher：HMAC verify + 5MB payload cap + event whitelist + delivery_id dedup（push 路徑）；installation* 維持原 githubapp.Service 路由（既有 dedup 不動，避免雙重 insert）
+- [x] `internal/server/services/githubwebhook/`：verify.go (5MB bound) / parse.go (event whitelist + branch/ref/repo normalization) / dispatcher.go / push_handler.go / metrics.go / doc.go
+- [x] `internal/server/services/redeploy/`：trigger.go（共用 INSERT + workflow_dispatch；source/actor/delivery 屬性鍵）+ action.go（user-initiated preview-confirm；in-flight/paused/expired 守備）+ doc.go
+- [x] CLI：`0ops deploys redeploy <slug>` 支援 `--ref` / `--commit-sha` / `--yes` / `--dry-run`
+- [x] MCP：`redeploy_preview` + `redeploy` tools；R1 (`ALWAYS call this BEFORE`) / R2 (`NEVER call this tool without`) / R3 (`team_slug` required) 三規則皆通過 lint
+- [x] Backend client：`PreviewRedeploy` / `Redeploy`
+- [x] DTO：`internal/shared/dto/deploys.go`（`RedeployRequest` / `ConfirmRedeployRequest` / `RedeployResponse`）
+- [x] DB schema：migration `00005_deploy_run_redeploy.sql` 新增 `deploy_run.source` (`user`/`webhook`/`reconciler` CHECK constraint) + `webhook_delivery_id` + `actor_user_id` (FK)；補 `(app_id, status)` partial index 與 `webhook_delivery_id` partial index
+- [x] DB methods (`internal/server/db/redeploy.go`)：`InsertRedeployRun` / `HasInFlightDeployRun` / `FindLiveAppsByRepoAndBranch` (repo_url 正規化處理 `/` 與 `.git`) / `AppendWebhookAudit`
+- [x] RBAC：新增 `ActionRedeploy` (member + `apps:write`)
+- [x] 高風險區覆蓋（AGENTS.md「Testing」段）：
+  - preview/confirm：preview row 建立、paused 拒絕、cross-actor/cross-team isolation、idempotent replay、preview expired、in-flight (`ErrAppBusy`) (`internal/server/services/redeploy/action_test.go`)
+  - idempotent retry：webhook dedup via `webhook_dedup` 24h、preview last_result 回放、webhook handler in-flight skip (`internal/server/redeploy_test.go::TestWebhookPushReplayIsDeduped`、`TestRedeployHTTPIdempotentReplay`)
+  - team isolation：preview cross-team 回 `ErrPreviewNotFound`（同 ADR-0001 enumeration 防範）
+  - role/scope 權限矩陣：`ActionRedeploy` 走 `mw.CheckTokenScope` 與 `apps:write`
+  - webhook 簽章驗證：HMAC valid/invalid/payload-too-large/missing-delivery-id 全經 dispatcher 前置守備，驗章前不寫 DB (`TestWebhookBadSignatureRejected`、`TestWebhookPayloadTooLargeRejected`)
+  - deploy 狀態轉移：`InsertRedeployRun` 落入 `queued`；後續轉態走既有 callback 鏈
+  - reconciler 收斂：source/delivery_id/actor_user_id 都已落 DB，給 M5.3 reconciler 用
+- [x] HTTP 整合測試：preview happy path / paused rejection / confirm idempotent replay / webhook push triggers redeploy for live app / webhook installation event 仍走原路徑 (`internal/server/redeploy_test.go`)
+- [x] Webhook dispatcher 單元測試：signature failure / ping / unsupported event ack / push routing & dedup / payload too large / installation delegated / missing delivery_id (`internal/server/services/githubwebhook/dispatcher_test.go`)
+- [x] Push handler 單元測試：live app trigger / paused skip / in-flight skip / branch-deleted ignore / tag push ignore / multi-app fan-out / installation 未綁定 team (`internal/server/services/githubwebhook/push_handler_test.go`)
+- [x] Verify / parse 單元測試：branch ref normalize / repo url normalize / event whitelist / payload decode / 5MB bound (`internal/server/services/githubwebhook/{verify,parse}_test.go`)
+- [x] MCP lint：`redeploy_preview` + `redeploy` 已存在於 `internal/mcp/lint/rules.go::writeActions`；lint test 自動覆蓋
+- [x] `make test` 全綠（27 packages）
+- [x] `make lint-compose` 通過
+- [x] dev DB smoke：00001 + 00005 up/down roundtrip 對 postgres-17 真實庫驗證 schema + index + check + FK 全部建立 / 移除（手動 psql 套用因 M3.2 留下的 `migrations/00003_*.sql` duplicate version 在 worktree 內仍阻擋 `make migrate` image-rebuild path）
+
+**Out of scope / 風險回報**：M4.1 不修 `migrations/00003_*.sql` duplicate version panic（屬 M2 → M3.2 既知遺留問題）；M4.1 migration 編號 `00005` 不衝突且已通過真實 psql roundtrip 驗證。後續另起任務 rename `00003_tool_grants_and_auth_status.sql` → `00004_*.sql`，現有 `00004_team_github_install_index.sql` 與本任務 `00005_deploy_run_redeploy.sql` 順延一格。
+
+## M3 — install / domain verify backlog
+
 ### M3.2 — GitHub App install/uninstall 流程（2026-05-15）
 
 > 對應 spec：`docs/features/github-app-install-flow/spec.md`

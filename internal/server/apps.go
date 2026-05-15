@@ -70,6 +70,12 @@ type appsStore interface {
 	FindTeamByGitHubInstallID(ctx context.Context, installID int64) (db.Team, error)
 	SetTeamGitHubInstall(ctx context.Context, teamID, actorUserID string, installID *int64, action string, args map[string]any, result map[string]any) error
 	PauseTeamApps(ctx context.Context, teamID string) (int64, error)
+
+	// M4.1 webhook-and-redeploy
+	FindLiveAppsByRepoAndBranch(ctx context.Context, teamID, repoURL, branch string) ([]db.App, error)
+	HasInFlightDeployRun(ctx context.Context, appID string) (bool, error)
+	InsertRedeployRun(ctx context.Context, params db.InsertRedeployRunParams) (db.InsertRedeployRunResult, error)
+	AppendWebhookAudit(ctx context.Context, teamID, action string, args map[string]any, result map[string]any) error
 }
 
 // infraK3sClient provides K3s namespace management operations.
@@ -1220,7 +1226,7 @@ func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient,
 		sr.Get("/github/install-callback", githubInstallCallbackV2Handler(githubSvc))
 		sr.With(mw.Bearer).Post("/logout", logoutHandler(store))
 	})
-	r.Post("/v1/webhooks/github", githubInstallationWebhookHandler(githubSvc, githubWebhookVer))
+	r.Post("/v1/webhooks/github", githubWebhookDispatchHandler(store, githubSvc, githubWebhookVer, newRedeployTriggerFromEnv))
 
 	// Tool authorization endpoint (requires temporary token)
 	r.Post("/v1/teams/{team_slug}/auth:grant-tools", authorizeToolsHandler(store))
@@ -1253,6 +1259,12 @@ func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient,
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionListApps, next)
 		}).Get("/repos/{app_slug}:inspect", inspectRepoHandler(store))
+		sr.With(func(next http.Handler) http.Handler {
+			return mw.CheckTokenScope(rbac.ActionRedeploy, next)
+		}).Post("/apps/{app_slug}/redeploys:preview", previewRedeployHandler(store, newRedeployTriggerFromEnv))
+		sr.With(func(next http.Handler) http.Handler {
+			return mw.CheckTokenScope(rbac.ActionRedeploy, next)
+		}).Post("/redeploys", confirmRedeployHandler(store, newRedeployTriggerFromEnv))
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionListApps, next)
 		}).Get("/deploys/status", getDeployStatusHandler(store))

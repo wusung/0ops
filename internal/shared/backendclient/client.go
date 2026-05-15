@@ -121,6 +121,30 @@ func (c *Client) CreateApp(ctx context.Context, teamSlug string, reqBody dto.Con
 	return out, nil
 }
 
+// PreviewRedeploy opens a redeploy preview for the given app.
+//
+//nolint:revive // exported for public API
+func (c *Client) PreviewRedeploy(ctx context.Context, teamSlug, appSlug string, reqBody dto.RedeployRequest) (dto.PreviewResponse, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/apps/" + url.PathEscape(appSlug) + "/redeploys:preview"
+	var out dto.PreviewResponse
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, reqBody, &out); err != nil {
+		return dto.PreviewResponse{}, err
+	}
+	return out, nil
+}
+
+// Redeploy consumes a redeploy preview and triggers the GHA workflow.
+//
+//nolint:revive // exported for public API
+func (c *Client) Redeploy(ctx context.Context, teamSlug string, reqBody dto.ConfirmRedeployRequest) (dto.RedeployResponse, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/redeploys"
+	var out dto.RedeployResponse
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, reqBody, &out); err != nil {
+		return dto.RedeployResponse{}, err
+	}
+	return out, nil
+}
+
 //nolint:revive // exported for public API
 func (c *Client) InspectRepo(ctx context.Context, teamSlug, appSlug string) (dto.RepoInspectResponse, error) {
 	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/repos/" + url.PathEscape(appSlug) + ":inspect"

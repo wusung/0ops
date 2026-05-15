@@ -219,6 +219,18 @@ func (f *cliFakeStore) SetTeamGitHubInstall(_ context.Context, _, _ string, _ *i
 func (f *cliFakeStore) PauseTeamApps(_ context.Context, _ string) (int64, error) {
 	return 0, nil
 }
+func (f *cliFakeStore) FindLiveAppsByRepoAndBranch(_ context.Context, _, _, _ string) ([]db.App, error) {
+	return nil, nil
+}
+func (f *cliFakeStore) HasInFlightDeployRun(_ context.Context, _ string) (bool, error) {
+	return false, nil
+}
+func (f *cliFakeStore) InsertRedeployRun(_ context.Context, _ db.InsertRedeployRunParams) (db.InsertRedeployRunResult, error) {
+	return db.InsertRedeployRunResult{}, nil
+}
+func (f *cliFakeStore) AppendWebhookAudit(_ context.Context, _, _ string, _, _ map[string]any) error {
+	return nil
+}
 func (f cliFakeStore) IsToolGranted(_ context.Context, _ string, _ string, _ string) (bool, error) {
 	return true, nil
 }

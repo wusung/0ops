@@ -18,7 +18,7 @@
 | M2.8  | 端到端驗收腳本                              | Done     | 2026-05-15     |
 | M3.1  | 客戶自有域名 DNS verify (24h TTL + extend)  | Done     | 2026-05-16     |
 | M3.2  | GitHub App install/uninstall 流程           | Done     | 2026-05-15     |
-| M4.1  | Webhook auto/manual redeploy + replay protection | Pending | -           |
+| M4.1  | Webhook auto/manual redeploy + replay protection | Done     | 2026-05-16     |
 | M4.2  | Rate limit (per-token / per-team) + 429     | Pending  | -              |
 | M5.1  | delete_app 安全刪除 + 資源清理              | Pending  | -              |
 | M5.2  | audit_log + audit CLI/MCP                   | Pending  | -              |
