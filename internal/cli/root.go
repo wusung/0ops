@@ -2,6 +2,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -56,6 +57,9 @@ func newAppsCommand() *cobra.Command {
 		createBuilder string
 		createYes     bool
 		createDryRun  bool
+	)
+	var (
+		deleteYes bool
 	)
 
 	cmd := &cobra.Command{
@@ -194,6 +198,79 @@ func newAppsCommand() *cobra.Command {
 	createCmd.Flags().BoolVar(&createYes, "yes", false, "skip confirmation")
 	createCmd.Flags().BoolVar(&createDryRun, "dry-run", false, "preview only, do not confirm")
 	cmd.AddCommand(createCmd)
+
+	deleteCmd := &cobra.Command{
+		Use:   "delete <slug>",
+		Short: "Delete an app (irreversible, preview/confirm with typed-slug guard)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctxInfo, err := resolveAppsContext(teamSlug, baseURL, token)
+			if err != nil {
+				return err
+			}
+			appSlug := strings.TrimSpace(args[0])
+			if appSlug == "" {
+				return fmt.Errorf("app slug is required")
+			}
+
+			out := cmd.OutOrStdout()
+			fmt.Fprintf(out, "Warning: deleting app %q is irreversible.\n", appSlug)
+			fmt.Fprintln(out, "This operation will:")
+			fmt.Fprintln(out, "  - cancel any in-flight builds for this app")
+			fmt.Fprintln(out, "  - unbind every custom hostname from Cloudflare")
+			fmt.Fprintln(out, "  - remove the app manifest from 0ops-gitops")
+			fmt.Fprintln(out, "  - ArgoCD will prune Kubernetes resources (including PersistentVolumes)")
+			fmt.Fprintln(out)
+			// Use one bufio.Reader for both prompts; constructing a new
+			// reader inside confirmAction would silently drop bytes the
+			// first reader already buffered ahead from stdin.
+			reader := bufio.NewReader(cmd.InOrStdin())
+			fmt.Fprintf(out, "Type the app slug to confirm: ")
+			line, readErr := reader.ReadString('\n')
+			typed := strings.TrimSpace(line)
+			if typed != appSlug {
+				_ = readErr
+				return fmt.Errorf("slug mismatch: aborted")
+			}
+
+			client := backendclient.New(ctxInfo.Host, ctxInfo.BearerToken)
+			ctx := commandContext(cmd)
+			preview, err := client.PreviewDeleteApp(ctx, ctxInfo.TeamSlug, appSlug, dto.AppDeleteRequest{Confirm: appSlug})
+			if err != nil {
+				return err
+			}
+
+			fmt.Fprintln(out)
+			fmt.Fprintf(out, "Plan: %s\n", preview.Summary)
+			fmt.Fprintln(out, "Side effects:")
+			for i, se := range preview.SideEffects {
+				irrev := ""
+				if !se.Reversible {
+					irrev = " (irreversible)"
+				}
+				fmt.Fprintf(out, "  %d. %s%s\n", i+1, se.Description, irrev)
+			}
+			fmt.Fprintln(out)
+
+			if !deleteYes {
+				fmt.Fprintf(out, "Proceed with deleting app %q? [y/N] ", appSlug)
+				answer, _ := reader.ReadString('\n')
+				answer = strings.ToLower(strings.TrimSpace(answer))
+				if answer != "y" && answer != "yes" {
+					return nil
+				}
+			}
+
+			resp, err := client.DeleteApp(ctx, ctxInfo.TeamSlug, appSlug, dto.ConfirmDeleteAppRequest{PreviewID: preview.PreviewID})
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(out, "App %q deletion initiated (trace_id: %s, deleted_at: %s)\n", resp.AppSlug, resp.TraceID, resp.DeletedAt)
+			return nil
+		},
+	}
+	deleteCmd.Flags().BoolVar(&deleteYes, "yes", false, "skip the second y/N confirmation (typed slug still required)")
+	cmd.AddCommand(deleteCmd)
 
 	return cmd
 }

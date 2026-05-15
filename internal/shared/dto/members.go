@@ -48,12 +48,24 @@ type RemoveMemberRequest struct {
 	UserID string `json:"user_id"`
 }
 
+// SideEffect is one entry in PreviewResponse.SideEffects. delete_app
+// populates these with the 5 ordered effects in spec § 4.3; other actions
+// may leave the slice empty.
+//
+//nolint:revive // exported for public API
+type SideEffect struct {
+	Effect      string `json:"effect"`
+	Reversible  bool   `json:"reversible"`
+	Description string `json:"description"`
+}
+
 //nolint:revive // exported for public API
 type PreviewResponse struct {
-	PreviewID string    `json:"preview_id"`
-	Action    string    `json:"action"`
-	Summary   string    `json:"summary"`
-	ExpiresAt time.Time `json:"expires_at"`
+	PreviewID    string       `json:"preview_id"`
+	Action       string       `json:"action"`
+	Summary      string       `json:"summary"`
+	ExpiresAt    time.Time    `json:"expires_at"`
+	SideEffects  []SideEffect `json:"side_effects,omitempty"`
 }
 
 //nolint:revive // exported for public API

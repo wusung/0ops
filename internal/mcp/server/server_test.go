@@ -354,6 +354,23 @@ func (f *mcpFakeStore) AppendWebhookAudit(_ context.Context, _ string, _ string,
 	return nil
 }
 
+func (f *mcpFakeStore) ListAppDomainBindings(_ context.Context, _ string) ([]db.AppDomainBinding, error) {
+	return nil, nil
+}
+func (f *mcpFakeStore) DeleteAppDomainBindings(_ context.Context, _ string) error { return nil }
+func (f *mcpFakeStore) ListInFlightDeployRuns(_ context.Context, _ string) ([]db.InFlightDeployRun, error) {
+	return nil, nil
+}
+func (f *mcpFakeStore) CancelDeployRun(_ context.Context, _, _ string) error { return nil }
+func (f *mcpFakeStore) UpdateAppStatus(_ context.Context, _, _ string) error { return nil }
+func (f *mcpFakeStore) EnqueueReconciliationJob(_ context.Context, _ db.ReconciliationJobInsert) (string, error) {
+	return "", nil
+}
+func (f *mcpFakeStore) AppendAuditLog(_ context.Context, _ db.AuditLogInsert) error { return nil }
+func (f *mcpFakeStore) MarkReconciliationJobAttempt(_ context.Context, _, _ string, _ *time.Time, _ bool) error {
+	return nil
+}
+
 func (f mcpFakeStore) IsToolGranted(_ context.Context, _ string, _ string, _ string) (bool, error) {
 	return true, nil
 }

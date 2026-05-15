@@ -144,6 +144,26 @@ func (c *Client) CreateApp(ctx context.Context, teamSlug string, reqBody dto.Con
 	return out, nil
 }
 
+// PreviewDeleteApp opens a delete_app preview for the given app.
+func (c *Client) PreviewDeleteApp(ctx context.Context, teamSlug, appSlug string, reqBody dto.AppDeleteRequest) (dto.PreviewResponse, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/apps/" + url.PathEscape(appSlug) + ":preview-delete"
+	var out dto.PreviewResponse
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, reqBody, &out); err != nil {
+		return dto.PreviewResponse{}, err
+	}
+	return out, nil
+}
+
+// DeleteApp confirms a delete_app preview.
+func (c *Client) DeleteApp(ctx context.Context, teamSlug, appSlug string, reqBody dto.ConfirmDeleteAppRequest) (dto.AppDeleteResponse, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/apps/" + url.PathEscape(appSlug) + ":delete"
+	var out dto.AppDeleteResponse
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, reqBody, &out); err != nil {
+		return dto.AppDeleteResponse{}, err
+	}
+	return out, nil
+}
+
 // PreviewRedeploy opens a redeploy preview for the given app.
 //
 //nolint:revive // exported for public API

@@ -45,6 +45,14 @@ type fakeStore struct {
 	auditEntries      []fakeAuditEntry
 	redeployRuns      []db.InsertRedeployRunParams
 	inFlightAppIDs    map[string]bool
+
+	// M5.1 delete-app-flow bookkeeping. domainBindings/deployRuns mirror
+	// the production tables; reconciliationJobs/auditLogRows capture the
+	// rows the saga inserts.
+	domainBindings     []db.DomainBinding
+	deployRuns         []db.DeployRun
+	reconciliationJobs []db.ReconciliationJobInsert
+	auditLogRows       []db.AuditLogInsert
 }
 
 // fakeAuditEntry records calls to AppendWebhookAudit so push-handler tests
@@ -460,6 +468,80 @@ func (f *fakeStore) InsertRedeployRun(_ context.Context, params db.InsertRedeplo
 
 func (f *fakeStore) AppendWebhookAudit(_ context.Context, teamID, action string, args map[string]any, result map[string]any) error {
 	f.auditEntries = append(f.auditEntries, fakeAuditEntry{TeamID: teamID, Action: action, Args: args, Result: result})
+	return nil
+}
+
+func (f *fakeStore) ListAppDomainBindings(_ context.Context, appID string) ([]db.AppDomainBinding, error) {
+	out := []db.AppDomainBinding{}
+	for _, d := range f.domainBindings {
+		if d.AppID == appID {
+			b := db.AppDomainBinding{ID: d.ID, Hostname: d.Hostname}
+			if d.Kind != nil {
+				b.Kind = *d.Kind
+			}
+			out = append(out, b)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeStore) DeleteAppDomainBindings(_ context.Context, appID string) error {
+	remaining := f.domainBindings[:0]
+	for _, d := range f.domainBindings {
+		if d.AppID != appID {
+			remaining = append(remaining, d)
+		}
+	}
+	f.domainBindings = remaining
+	return nil
+}
+
+func (f *fakeStore) ListInFlightDeployRuns(_ context.Context, appID string) ([]db.InFlightDeployRun, error) {
+	out := []db.InFlightDeployRun{}
+	for _, dr := range f.deployRuns {
+		if dr.AppID != appID {
+			continue
+		}
+		terminal := dr.Status == "live" || dr.Status == "failed" || dr.Status == "canceled" || dr.Status == "rolled_back"
+		if terminal {
+			continue
+		}
+		out = append(out, db.InFlightDeployRun{ID: dr.ID, Status: dr.Status})
+	}
+	return out, nil
+}
+
+func (f *fakeStore) CancelDeployRun(_ context.Context, runID, _ string) error {
+	for idx := range f.deployRuns {
+		if f.deployRuns[idx].ID == runID {
+			f.deployRuns[idx].Status = "canceled"
+		}
+	}
+	return nil
+}
+
+func (f *fakeStore) UpdateAppStatus(_ context.Context, appID, status string) error {
+	for idx := range f.apps {
+		if f.apps[idx].ID == appID {
+			s := status
+			f.apps[idx].Status = &s
+			return nil
+		}
+	}
+	return nil
+}
+
+func (f *fakeStore) EnqueueReconciliationJob(_ context.Context, in db.ReconciliationJobInsert) (string, error) {
+	f.reconciliationJobs = append(f.reconciliationJobs, in)
+	return "rj-test", nil
+}
+
+func (f *fakeStore) AppendAuditLog(_ context.Context, in db.AuditLogInsert) error {
+	f.auditLogRows = append(f.auditLogRows, in)
+	return nil
+}
+
+func (f *fakeStore) MarkReconciliationJobAttempt(_ context.Context, _, _ string, _ *time.Time, _ bool) error {
 	return nil
 }
 
