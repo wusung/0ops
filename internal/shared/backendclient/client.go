@@ -444,16 +444,47 @@ func (c *Client) PreviewGitHubInstall(ctx context.Context, teamSlug string) (dto
 func (c *Client) ConfirmGitHubInstall(ctx context.Context, teamSlug, previewID string) (dto.GitHubInstallResponse, error) {
 	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/github:install"
 	var out dto.GitHubInstallResponse
-	if err := c.doJSON(ctx, http.MethodPost, endpoint, map[string]string{"preview_id": previewID}, &out); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, dto.GitHubConfirmRequest{PreviewID: previewID}, &out); err != nil {
 		return dto.GitHubInstallResponse{}, err
 	}
 	return out, nil
 }
 
+// PreviewGitHubUninstall opens an uninstall_github_app preview row.
+//
 //nolint:revive // exported for public API
-func (c *Client) UninstallGitHubApp(ctx context.Context, teamSlug string) error {
+func (c *Client) PreviewGitHubUninstall(ctx context.Context, teamSlug string) (dto.PreviewResponse, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/github:preview-uninstall"
+	var out dto.PreviewResponse
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, nil, &out); err != nil {
+		return dto.PreviewResponse{}, err
+	}
+	return out, nil
+}
+
+// ConfirmGitHubUninstall consumes the uninstall preview and clears the team's
+// installation binding.
+//
+//nolint:revive // exported for public API
+func (c *Client) ConfirmGitHubUninstall(ctx context.Context, teamSlug, previewID string) (dto.GitHubUninstallResponse, error) {
 	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/github:uninstall"
-	return c.doJSON(ctx, http.MethodPost, endpoint, nil, nil)
+	var out dto.GitHubUninstallResponse
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, dto.GitHubConfirmRequest{PreviewID: previewID}, &out); err != nil {
+		return dto.GitHubUninstallResponse{}, err
+	}
+	return out, nil
+}
+
+// GetGitHubInstallStatus polls whether the team has an active install binding.
+//
+//nolint:revive // exported for public API
+func (c *Client) GetGitHubInstallStatus(ctx context.Context, teamSlug string) (dto.GitHubInstallStatusResponse, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/github/install-status"
+	var out dto.GitHubInstallStatusResponse
+	if err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &out); err != nil {
+		return dto.GitHubInstallStatusResponse{}, err
+	}
+	return out, nil
 }
 
 func (c *Client) httpClient() *http.Client {

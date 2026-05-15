@@ -318,6 +318,22 @@ func (f *mcpFakeStore) RegisterWebhookDelivery(_ context.Context, _, _ string) (
 	return true, nil
 }
 
+func (f *mcpFakeStore) GetTeamByID(_ context.Context, _ string) (db.Team, error) {
+	return f.team, nil
+}
+
+func (f *mcpFakeStore) FindTeamByGitHubInstallID(_ context.Context, _ int64) (db.Team, error) {
+	return db.Team{}, db.ErrTeamNotFound
+}
+
+func (f *mcpFakeStore) SetTeamGitHubInstall(_ context.Context, _, _ string, _ *int64, _ string, _ map[string]any, _ map[string]any) error {
+	return nil
+}
+
+func (f *mcpFakeStore) PauseTeamApps(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
 func (f *mcpFakeStore) ApplyDeployCallback(_ context.Context, _ db.DeployCallbackParams) error {
 	return nil
 }

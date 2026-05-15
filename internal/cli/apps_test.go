@@ -207,6 +207,18 @@ func (f *cliFakeStore) RegisterWebhookDelivery(_ context.Context, _, _ string) (
 func (f *cliFakeStore) ApplyDeployCallback(_ context.Context, _ db.DeployCallbackParams) error {
 	return nil
 }
+func (f *cliFakeStore) GetTeamByID(_ context.Context, _ string) (db.Team, error) {
+	return f.team, nil
+}
+func (f *cliFakeStore) FindTeamByGitHubInstallID(_ context.Context, _ int64) (db.Team, error) {
+	return db.Team{}, db.ErrTeamNotFound
+}
+func (f *cliFakeStore) SetTeamGitHubInstall(_ context.Context, _, _ string, _ *int64, _ string, _ map[string]any, _ map[string]any) error {
+	return nil
+}
+func (f *cliFakeStore) PauseTeamApps(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
 func (f cliFakeStore) IsToolGranted(_ context.Context, _ string, _ string, _ string) (bool, error) {
 	return true, nil
 }

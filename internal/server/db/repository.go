@@ -29,22 +29,27 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 // ResolveTeamBySlug loads a team by slug.
 func (r *Repository) ResolveTeamBySlug(ctx context.Context, slug string) (Team, error) {
 	var (
-		id         pgtype.UUID
-		archivedAt pgtype.Timestamptz
-		team       Team
+		id              pgtype.UUID
+		archivedAt      pgtype.Timestamptz
+		githubInstallID pgtype.Int8
+		team            Team
 	)
 
 	err := r.pool.QueryRow(ctx, `
-SELECT id, slug, name, plan, archived_at
+SELECT id, slug, name, plan, github_install_id, archived_at
 FROM team
 WHERE slug = $1
-`, slug).Scan(&id, &team.Slug, &team.Name, &team.Plan, &archivedAt)
+`, slug).Scan(&id, &team.Slug, &team.Name, &team.Plan, &githubInstallID, &archivedAt)
 	if err != nil {
 		return Team{}, err
 	}
 
 	team.ID = id.String()
 	team.ArchivedAt = timestamptzPtr(archivedAt)
+	if githubInstallID.Valid {
+		v := githubInstallID.Int64
+		team.GithubInstallID = &v
+	}
 
 	return team, nil
 }

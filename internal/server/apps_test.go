@@ -369,6 +369,48 @@ func (f *fakeStore) RegisterWebhookDelivery(_ context.Context, provider, deliver
 	return true, nil
 }
 
+func (f *fakeStore) GetTeamByID(_ context.Context, teamID string) (db.Team, error) {
+	if teamID != f.team.ID {
+		return db.Team{}, db.ErrTeamNotFound
+	}
+	return f.team, nil
+}
+
+func (f *fakeStore) FindTeamByGitHubInstallID(_ context.Context, installID int64) (db.Team, error) {
+	if f.team.GithubInstallID != nil && *f.team.GithubInstallID == installID {
+		return f.team, nil
+	}
+	return db.Team{}, db.ErrTeamNotFound
+}
+
+func (f *fakeStore) SetTeamGitHubInstall(_ context.Context, teamID, _ string, installID *int64, _ string, _ map[string]any, _ map[string]any) error {
+	if teamID != f.team.ID {
+		return db.ErrTeamNotFound
+	}
+	if installID == nil {
+		f.team.GithubInstallID = nil
+	} else {
+		v := *installID
+		f.team.GithubInstallID = &v
+	}
+	return nil
+}
+
+func (f *fakeStore) PauseTeamApps(_ context.Context, teamID string) (int64, error) {
+	if teamID != f.team.ID {
+		return 0, nil
+	}
+	var paused int64
+	for idx := range f.apps {
+		if f.apps[idx].Status == nil || *f.apps[idx].Status != "paused" {
+			s := "paused"
+			f.apps[idx].Status = &s
+			paused++
+		}
+	}
+	return paused, nil
+}
+
 func (f *fakeStore) ApplyDeployCallback(_ context.Context, params db.DeployCallbackParams) error {
 	for idx := range f.deploys {
 		if f.deploys[idx].ID != params.RunID {
