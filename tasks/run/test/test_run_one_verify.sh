@@ -39,8 +39,11 @@ OUT="$(bash "$TMP/tasks/run/run-one.sh" F02 2>&1)" || { echo "$OUT"; exit 1; }
 
 assert_contains "$OUT" "MODE=fresh" "fresh worktree mode"
 assert_contains "$OUT" "VERIFY=ok"  "verify section ran clean"
-# A commit landed on task/F02
-git -C "$TMP/.worktrees/F02" log --oneline | head -1 | grep -q "task(F02)" \
+# A commit landed on task/F02.
+# Use `git log -1` (not `git log | head -1`) — under `set -o pipefail`,
+# closing the pipe early makes git exit with SIGPIPE (141) and fails the whole
+# pipeline even when grep matched.
+git -C "$TMP/.worktrees/F02" log -1 --format=%s | grep -q "task(F02)" \
   || { echo "FAIL: missing task(F02) commit" >&2; exit 1; }
 
 echo "OK: test_run_one_verify"

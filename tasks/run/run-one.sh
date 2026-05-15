@@ -149,7 +149,22 @@ pr_number="${pr_url##*/}"
 # 8c. Wait for CI (skippable while CI not yet wired)
 if [[ "${TASK_SKIP_CI_WAIT:-0}" != "1" ]]; then
   ci_timeout="${TASK_CI_TIMEOUT:-1800}"
-  if ! ( cd "$worktree_path" && timeout "$ci_timeout" gh pr checks "$pr_number" --watch --interval 30 --required ); then
+  ci_appear_timeout="${TASK_CI_APPEAR_TIMEOUT:-180}"
+
+  # Wait for at least one check to register on the PR before invoking
+  # `gh pr checks --watch`. Otherwise the watcher exits immediately with
+  # "no checks reported" on the brief window between push and Actions queue.
+  appear_deadline=$(( SECONDS + ci_appear_timeout ))
+  while (( SECONDS < appear_deadline )); do
+    check_count="$( ( cd "$worktree_path" && gh pr view "$pr_number" --json statusCheckRollup --jq '.statusCheckRollup | length' ) 2>/dev/null )" || check_count=0
+    [[ -n "$check_count" ]] || check_count=0
+    if (( check_count > 0 )); then
+      break
+    fi
+    sleep 5
+  done
+
+  if ! ( cd "$worktree_path" && timeout "$ci_timeout" gh pr checks "$pr_number" --watch --interval 30 ); then
     mark_task_failed "$task_id"
     die "CI did not pass within ${ci_timeout}s for PR ${pr_url}"
   fi
