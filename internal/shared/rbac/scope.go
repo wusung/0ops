@@ -17,4 +17,9 @@ const (
 	// ScopeAuditRead grants read access to audit_log entries
 	// (audit-log spec § 6.2).
 	ScopeAuditRead Scope = "audit:read"
+	// ScopeIncidentsRead grants read access to incident rows
+	// (reconciler-and-incident spec § 9.3).
+	ScopeIncidentsRead Scope = "incidents:read"
+	// ScopeIncidentsWrite grants close access to incidents (spec § 9.3).
+	ScopeIncidentsWrite Scope = "incidents:write"
 )

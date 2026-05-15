@@ -29,9 +29,15 @@ type Metrics struct {
 	tunnelConnectors  prometheus.Gauge
 	domainVerify      *prometheus.CounterVec
 	reconPending      *prometheus.GaugeVec
-	createAppPreviews  *prometheus.CounterVec
-	createAppConfirms  *prometheus.CounterVec
-	rateLimitTriggered *prometheus.CounterVec
+	createAppPreviews   *prometheus.CounterVec
+	createAppConfirms   *prometheus.CounterVec
+	rateLimitTriggered  *prometheus.CounterVec
+	reconTick           *prometheus.CounterVec
+	reconJobTerminal    *prometheus.CounterVec
+	reconClassification *prometheus.CounterVec
+	incidentsOpened     *prometheus.CounterVec
+	incidentsClosed     *prometheus.CounterVec
+	incidentsOpen       *prometheus.GaugeVec
 }
 
 // NewMetrics creates the default HTTP metrics registry.
@@ -123,6 +129,30 @@ func NewMetrics() *Metrics {
 			Name: "zeroops_rate_limit_triggered_total",
 			Help: "Number of rate-limited (HTTP 429) responses, labelled by scope, category, and plan tier.",
 		}, []string{"scope", "category", "plan"}),
+		reconTick: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zeroops_reconciler_tick_total",
+			Help: "Reconciler loop ticks, labelled by loop kind and outcome (success / error / skipped_not_leader).",
+		}, []string{"kind", "outcome"}),
+		reconJobTerminal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zeroops_reconciler_job_terminal_total",
+			Help: "Reconciliation jobs reaching a terminal status (completed / failed_permanently), labelled by job kind.",
+		}, []string{"kind", "outcome"}),
+		reconClassification: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zeroops_deploy_run_failure_classification_total",
+			Help: "Deploy failures attributed by reconciler classification (spec § 7.1 enum). Used for the unknown-share dashboard panel.",
+		}, []string{"classification"}),
+		incidentsOpened: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zeroops_incident_opened_total",
+			Help: "Incidents opened, labelled by kind and severity (reconciler-and-incident spec § 9.2).",
+		}, []string{"kind", "severity"}),
+		incidentsClosed: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zeroops_incident_closed_total",
+			Help: "Incidents closed via CLI, labelled by kind and severity.",
+		}, []string{"kind", "severity"}),
+		incidentsOpen: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "zeroops_incident_open",
+			Help: "Currently open incidents, grouped by severity.",
+		}, []string{"severity"}),
 	}
 	reg.MustRegister(
 		m.httpTotal,
@@ -142,6 +172,12 @@ func NewMetrics() *Metrics {
 		m.createAppPreviews,
 		m.createAppConfirms,
 		m.rateLimitTriggered,
+		m.reconTick,
+		m.reconJobTerminal,
+		m.reconClassification,
+		m.incidentsOpened,
+		m.incidentsClosed,
+		m.incidentsOpen,
 	)
 	return m
 }
@@ -311,6 +347,72 @@ func (m *Metrics) SetReconciliationJobsPending(kind string, count float64) {
 		count = 0
 	}
 	m.reconPending.WithLabelValues(kind).Set(count)
+}
+
+// ObserveReconcilerTick records one reconciler loop tick result.
+func (m *Metrics) ObserveReconcilerTick(kind, outcome string) {
+	if kind == "" {
+		kind = "unknown"
+	}
+	if outcome == "" {
+		outcome = "unknown"
+	}
+	m.reconTick.WithLabelValues(kind, outcome).Inc()
+}
+
+// ObserveReconcilerJobTerminal records one terminal reconciliation_job
+// outcome (completed / failed_permanently).
+func (m *Metrics) ObserveReconcilerJobTerminal(kind, outcome string) {
+	if kind == "" {
+		kind = "unknown"
+	}
+	if outcome == "" {
+		outcome = "unknown"
+	}
+	m.reconJobTerminal.WithLabelValues(kind, outcome).Inc()
+}
+
+// ObserveFailureClassification records every failed deploy_run by its
+// classification value (spec § 7.3 panel input).
+func (m *Metrics) ObserveFailureClassification(classification string) {
+	if classification == "" {
+		classification = "unknown"
+	}
+	m.reconClassification.WithLabelValues(classification).Inc()
+}
+
+// ObserveIncidentOpened increments the incident-opened counter.
+func (m *Metrics) ObserveIncidentOpened(kind, severity string) {
+	if kind == "" {
+		kind = "unknown"
+	}
+	if severity == "" {
+		severity = "medium"
+	}
+	m.incidentsOpened.WithLabelValues(kind, severity).Inc()
+}
+
+// ObserveIncidentClosed increments the incident-closed counter.
+func (m *Metrics) ObserveIncidentClosed(kind, severity string) {
+	if kind == "" {
+		kind = "unknown"
+	}
+	if severity == "" {
+		severity = "medium"
+	}
+	m.incidentsClosed.WithLabelValues(kind, severity).Inc()
+}
+
+// SetOpenIncidents sets the current number of open incidents grouped
+// by severity (drives the dashboard "open incidents" panel).
+func (m *Metrics) SetOpenIncidents(severity string, count float64) {
+	if severity == "" {
+		severity = "medium"
+	}
+	if count < 0 {
+		count = 0
+	}
+	m.incidentsOpen.WithLabelValues(severity).Set(count)
 }
 
 func teamBucketForRequest(r *http.Request) string {

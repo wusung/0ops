@@ -376,6 +376,52 @@
 4. **「audit log 寫入失敗 reconciliation_job 重寫」（spec § 15 hard rule #10）** — service `Log()` 已回傳 error 不 silent；reconciliation_job 重寫鉤子需在所有 audit 寫入點都採 service 後再加，屬 M5.2.1 配套。
 5. **shared redactor 落於 `internal/server/observability/redaction.go`（error-model spec § 9.3）** — 該 package 之 observability skeleton 尚未實作。M5.2 redactor 暫居 `internal/server/services/audit/redact.go`；待 observability skeleton 落地後再 rehome；行為一致，僅 import path 變化。
 
+### M5.3 — reconciler GA + incident classification（2026-05-16）
+
+> 對應 spec：`docs/features/reconciler-and-incident/spec.md`
+> 對應 task：`tasks/task-list.md` row M5.3
+> 對應 paths：`internal/server/services/reconciler/**`
+
+- [x] migration `00008_incident_and_recon_extensions.sql`：建 `incident` 表（PK uuid、severity CHECK、opened/closed 索引）；reconciliation_job 補 `status`（CHECK pending/in_progress/completed/failed_permanently）+ `trace_id`；重建 `recon_pending` 為 `WHERE status='pending'`；加 `recon_subject` / `recon_team` 索引；`deploy_run` 新增 SQL CHECK `failure_classification_required`（spec § 6.3 + § 16 #1）
+- [x] `internal/server/services/reconciler/`：`doc.go` / `leader.go`（Leader 介面 + `AlwaysLeader` stub，M5.5 將替換為 Lease 實作）/ `store.go`（Store 介面，prod 走 *db.Repository、tests 走 fakeStore）/ `statemachine.go`（spec § 6.1 完整 transition 表 + `Lint()` + `ErrIllegalTransition` / `ErrMissingClassification`）/ `classification.go`（13 個 spec § 7.1 enum + ClassifyWorkflowRun / ClassifyArgoCD）/ `jobs.go`（HandlerRegistry + NextBackoff + ShouldFailPermanently，固定 60s × 2^attempts cap 30min，> 8 次轉永久失敗，hard rule #4）/ `deploy_status.go`（building > 30min 拉 GHA workflow_run + 分類落入 failed） / `argo_sync.go`（syncing > 15min 拉 ArgoCD Application、Healthy→live、Degraded→failed/health_check_failed、Missing/OutOfSync→failed/argo_sync_timeout、Progressing→defer） / `incident.go`（IncidentService Open/Get/List/Close、AuditWriter 介面避免 audit↔reconciler 循環依賴）/ `metrics.go`（Observer 介面 + NopObserver）/ `runner.go`（4 個 leader-gated goroutines：deploy_status / argo_sync / job_queue / metrics；ProcessOne 供測試驅動）
+- [x] DB 層：`internal/server/db/reconciler.go`（ListPendingReconciliationJobs / Count / ClaimReconciliationJob 原子 CAS / CompleteReconciliationJob / RescheduleReconciliationJob / FailReconciliationJobPermanently / ListStuckBuildingDeployRuns / ListStuckSyncingDeployRuns / `TransitionDeployRun` 含 optimistic CAS + events jsonb append + `ErrDeployRunStateConflict`）; `internal/server/db/incident.go`（InsertIncident / GetIncident / ListIncidents keyset (opened_at, id) desc / CloseIncident / CountOpenIncidents）
+- [x] RBAC：新增 `ScopeIncidentsRead` / `ScopeIncidentsWrite`；`ActionListIncidents`（viewer + incidents:read，spec § 9.3）/ `ActionCloseIncident`（admin + incidents:write，spec § 16 #8）
+- [x] HTTP：`GET /v1/teams/{slug}/incidents`（含 status/kind/severity 過濾 + base64 keyset cursor）/ `GET /v1/teams/{slug}/incidents/{id}` / `POST /v1/teams/{slug}/incidents/{id}:close`；新增 `NewRouterWithReconciler` constructor 與舊有 6 個 constructor 共存
+- [x] DTO：`internal/shared/dto/incidents.go`（Incident / ListIncidentsResponse / CloseIncidentRequest）
+- [x] backendclient：`ListIncidents(IncidentListParams)` / `GetIncident(id)` / `CloseIncident(id, req)`
+- [x] CLI：`0ops incidents list [--status=open|closed|all] [--kind] [--severity] [--page-size] [--cursor] [--all]`、`0ops incidents get <id>`、`0ops incidents close <id> --note "..."`（spec § 16 #8 規定 close 必經 CLI、含 audit）
+- [x] MCP：新增 read tool `list_incidents`（status/kind/severity 過濾、不適用 lint R1/R2/R3 因非 write/preview）；既有 14 個 write/preview tool 仍通過 startup lint（`TestRegisteredToolsPassStartupLint`）
+- [x] cmd/server 接入：`reconciler.New(Config{...}).Start(ctx)`；`AlwaysLeader` stub（M5.5 升 leader election 替換）；`auditAdapter`（橋接 audit.Service.Log onto reconciler.AuditWriter，避免 service 間循環依賴）；`reconcilerObserver`（橋接 reconciler.Observer onto observability.Metrics）；`argoCDAdapter`（橋接 k3s.Client.GetApplicationStatus）；deploy_status scanner 在無 GHA 環境變數時 fetcher=nil → tick no-op（dev 不擋）
+- [x] Observability：新增 6 條 metric — `zeroops_reconciler_tick_total{kind,outcome}` / `zeroops_reconciler_job_terminal_total{kind,outcome}` / `zeroops_deploy_run_failure_classification_total{classification}`（spec § 7.3 unknown panel 來源）/ `zeroops_incident_opened_total{kind,severity}` / `zeroops_incident_closed_total{kind,severity}` / `zeroops_incident_open{severity}`；既有 `zeroops_reconciliation_jobs_pending{kind}` 由 metrics tick 維護
+- [x] 高風險區覆蓋（AGENTS.md「Testing」段）：
+  - **preview/confirm 流程**：incident.Service.Close 採顯式單階段且 emit audit_log；CLI close 命令路徑驗 spec § 16 #8（close_handler_test 守備 already_closed → 409、cross-team → 404、無 admin → 403、無 incidents:read → 403）
+  - **idempotent retry**：reconciliation_job 重試走 `RescheduleReconciliationJob` 同 row attempts++ + 不變 row_id；同樣 job 連續失敗 8 次後永久失敗（`TestRunnerProcessOneFailsPermanentlyAfterMaxAttempts` 守備）；`ClaimReconciliationJob` 原子 CAS 防雙 worker 重入（`TestRunnerProcessOneIgnoresClaimedJobs`）
+  - **team 隔離**：`Incident.GetIncident` 一律帶 team_id，cross-team 走 `ErrIncidentNotFound`（ADR-0001 enumeration 防範）；`TestIncidentServiceCloseCrossTeamReturnsNotFound` 守備
+  - **role / scope 權限矩陣**：list 走 `ActionListIncidents`（viewer+incidents:read），close 走 `ActionCloseIncident`（admin+incidents:write）；handler test 涵蓋三條失敗路徑
+  - **deploy 狀態轉移**：`statemachine.Lint` 攔截非法 transition（self-loop / 從 final 退出 / 跳階段）+ 強制 failed/rolled_back/failed_permanently 必帶 `failure_classification`；`TestLintRejectsIllegalTransitions` / `TestLintEnforcesClassificationOnFailureStates` 守備；deploy_status_test / argo_sync_test 守備 reconciler→transition→失敗分類 整鏈
+  - **reconciler 收斂**：`NextBackoff(attempts)` 完整覆蓋 spec § 16 #4 公式（含 cap、負數正規化）；`TestNextBackoffMatchesSpec` / `TestShouldFailPermanently` 守備；CAS 衝突視為 no-op（`TestDeployStatusScannerCASConflictIsNoOp`）；leader gate false 時 tick 走 skipped_not_leader（`TestRunnerSkipsWhenLeaderGateFalse`）
+- [x] 測試摘要：
+  - `internal/server/services/reconciler/statemachine_test.go`：4 個 case set，含 9 條合法 transition、6 條非法、3 個必要分類路徑、2 個 canceled/live 不需分類
+  - `internal/server/services/reconciler/classification_test.go`：覆蓋 spec § 7.2 自動分類表的 11 個 signal → classification mapping、ArgoCD 4 個 health 分支
+  - `internal/server/services/reconciler/jobs_test.go`：backoff/permanent flip/registry duplicate panic
+  - `internal/server/services/reconciler/deploy_status_test.go`：success / timeout failure with classification / in_progress 跳過 / 未超 threshold 跳過 / CAS 衝突 no-op
+  - `internal/server/services/reconciler/argo_sync_test.go`：Healthy→live、Degraded→failed/health_check_failed、Progressing→defer、Missing→failed/argo_sync_timeout
+  - `internal/server/services/reconciler/incident_test.go`：Open + List、Close emit audit、already-closed、cross-team not-found、empty inputs reject、clock override
+  - `internal/server/services/reconciler/runner_test.go`：ProcessOne happy / failed permanently → incident + audit / reschedule / 已 claimed 不再執行 / unknown kind / leader gate skip
+  - `internal/server/incident_handlers_test.go`：list + filter / 404 / close note 傳遞 / already_closed 409 / member 拒絕 / 缺 scope 403 / cursor roundtrip
+  - `internal/cli/incidents_test.go`：table render + close note POST 傳遞
+  - `internal/server/services/reconciler/fake_store_test.go`：完整 Store fake，跨 7 個 test 檔
+- [x] `make test` 全綠（31 packages，含新增 reconciler service package）
+- [x] `make lint-compose` 通過
+- [x] dev DB smoke：通過 podman compose db (postgres-17) 真實庫驗證 migration 00001 → 00008 sequential apply（同 M5.2 採 awk extract `+goose Up` 區塊）；incident 表完整 schema + 索引 + severity CHECK + FK；reconciliation_job 補 status/trace_id 含 CHECK；deploy_run `failure_classification_required` CHECK 已生效（手動 NULL classification + status='failed' insert 被 DB 拒；正確帶 'build_timeout' 通過）；`EXPLAIN` 確認 `SELECT ... WHERE closed_at IS NULL ORDER BY opened_at DESC` 走 `incident_open` 部分索引
+
+**Out of scope / 風險回報**：
+1. **`migrations/00003_*.sql` duplicate version panic（M2 → M3.2 既有遺留）** — `make migrate` 仍 panic。本任務沿用 M3.2 / M4.1 / M5.2 同模式：以 `psql` sequential apply 於 dev compose db 驗證 schema 正確。建議獨立任務 rename `00003_tool_grants_and_auth_status.sql` → `00004_*.sql`，後續 migration 順延。
+2. **deploy_status scanner 之 GHA fetcher 在 cmd/server 預設為 nil** — 因 workflowdispatch.Client 仰賴 `OPS_GITHUB_REPOSITORY` + token；dev/staging 無此 env 時 fetcher=nil → 該 scanner tick 視為 no-op。production rollout 時應於 cmd/server 將 `workflowdispatch.NewClientFromEnv` 之 client 注入 scanner（M5.3 已提供 WorkflowRunFetcher 介面與 `GetWorkflowRun` 方法）。建議於 M5.3 rollout 補 wiring。
+3. **leader election 為 `AlwaysLeader` stub** — 屬 M5.5 範圍（backend-ha-leader-election spec）；M5.3 之 reconciler 介面已準備好接入 Lease 實作，M5.5 落地時只需替換 Config.Leader。
+4. **spec § 9.2「unknown 比例突增（> 10% / 1h）」自動建 incident** — v1 未在 backend tick 中實作；該觸發需 Prometheus rate query 結果聚合，超出 reconciler tick 範疇。已暴露 `zeroops_deploy_run_failure_classification_total{classification}` metric 供 dashboard / alerting 計算；建議於 M5.4 之 alerting roundtrip 中補 spec § 9.2 自動觸發鏈路。
+5. **incident close 之 MCP write tool** — spec § 16 #8 明定 close 必經 CLI（含 audit）；MCP 僅暴露 read 只 `list_incidents`，與 spec 一致。
+
 ## M3 — install / domain verify backlog
 
 ### M3.2 — GitHub App install/uninstall 流程（2026-05-15）

@@ -33,6 +33,12 @@ const (
 	// ActionListSelfAudit requires viewer role + audit:read scope to query
 	// audit_log restricted to the calling actor (audit-log spec § 6.2).
 	ActionListSelfAudit Action = "list_self_audit"
+	// ActionListIncidents requires viewer role + incidents:read scope
+	// to list / get incident rows (reconciler-and-incident spec § 9.3).
+	ActionListIncidents Action = "list_incidents"
+	// ActionCloseIncident requires admin role + incidents:write scope
+	// to close an incident (reconciler-and-incident spec § 9.3, § 16 #8).
+	ActionCloseIncident Action = "close_incident"
 )
 
 // Requirement couples minimum role with required scope.
@@ -68,6 +74,10 @@ func RequiredFor(action Action) Requirement {
 		return Requirement{MinRole: RoleAdmin, RequiredScope: ScopeAuditRead}
 	case ActionListSelfAudit:
 		return Requirement{MinRole: RoleViewer, RequiredScope: ScopeAuditRead}
+	case ActionListIncidents:
+		return Requirement{MinRole: RoleViewer, RequiredScope: ScopeIncidentsRead}
+	case ActionCloseIncident:
+		return Requirement{MinRole: RoleAdmin, RequiredScope: ScopeIncidentsWrite}
 	default:
 		return Requirement{}
 	}
