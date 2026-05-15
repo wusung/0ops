@@ -20,6 +20,9 @@ assert_contains "$OUT" "tasks/task-status.md"  "task-status file referenced"
 assert_contains "$OUT" "make test"             "test requirement noted"
 assert_contains "$OUT" "compose + Makefile"    "compose-via-Makefile rule cited"
 assert_contains "$OUT" "Done"                  "asks agent to flip status to Done"
+assert_contains "$OUT" "Expected Paths"        "expected-paths section present"
+assert_contains "$OUT" "internal/fake/f02/**"  "expected-paths glob injected"
+assert_contains "$OUT" "cmd/fake/f02.go"       "expected-paths glob injected (multi)"
 
 # Resume mode injects extra line
 OUT_RESUME="$(TASK_LIST_FILE="$TMP/task-list.md" \

@@ -51,6 +51,16 @@ while IFS= read -r ref; do
   printf -- '- %s\n' "$ref"
 done < <(task_spec_refs "$task_id")
 
+mapfile -t expected_paths_list < <(task_expected_paths "$task_id")
+if (( ${#expected_paths_list[@]} > 0 )); then
+  printf '\n【Expected Paths（harness verify 契約）】\n'
+  printf 'runner 在 verify 階段會檢查改動清單（含 untracked）至少有一條 path 符合以下 glob：\n'
+  for glob in "${expected_paths_list[@]}"; do
+    printf -- '- %s\n' "$glob"
+  done
+  printf '若你判定實作應用更貼語意的命名（package / 檔名），動工前停下來回報，由 user 決定要更新 tasks/task-list.md 還是讓你對齊現有 glob。不要在 worktree 裡靜默偏離 — verify 會失敗，runner 會把 task 標為 Failed。\n'
+fi
+
 cat <<EOF
 
 【完成定義】
