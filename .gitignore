@@ -29,6 +29,7 @@ compose.override.yml
 coverage.*
 .cache/
 .worktrees/
+.task-sessions/
 
 # OS junk
 .DS_Store
