@@ -182,13 +182,18 @@
     - dashboard 載入
     - burn-rate rule 可被 promtool 驗證
 
-- [ ] **M2.7 MCP preview/confirm description lint 契約**
-  - 對 `create_app_preview` / `create_app` 補 `ALWAYS` / `NEVER` 必備句式
-  - 補 server startup lint，違反時啟動失敗
+- [x] **M2.7 MCP preview/confirm description lint 契約**（2026-05-15）
+  - `create_app_preview` / `create_app` description 已補入 `ALWAYS call this BEFORE` / `NEVER call this tool without` verbatim 子字串；同步補 `invite_member` / `remove_member` preview-confirm pair
+  - `cmd/mcp/main.go` 改為 `run()` 結構：完成 `mcpserver.NewWithRegistry` 後立即跑 `lint.ApplyAll`，違反任一規則 → 印所有違反行 → `os.Exit(2)`（spec § 4.6）
+  - `internal/mcp/registry.go`：新增 `Registry` + 泛型 `AddTool[In, Out]`，於註冊時透過 `jsonschema.For[In]` 擷取 InputSchema，補上 SDK 未公開的 reflective tool 列舉接口（spec § 4.7）
+  - `internal/mcp/lint/`：實作 R1（`*_preview` 必含 `ALWAYS call this BEFORE`）、R2（write/delete tool 必含 `NEVER call this tool without`）、R3（write/preview tool input schema 必 required `team_slug`）；`Violation` 型別承載 RuleID、Tool、Message
+  - `WriteActions()` 與 spec § 4.3 表同步，並補入 `remove_member`（spec hard rule #6 同步）
   - 對齊 `docs/features/mcp-tool-description-lint/spec.md`
   - 驗收證據：
-    - 啟動時 lint pass
-    - 故意放錯 description 時測試紅燈
+    - `internal/mcp/lint/rules_test.go`：12 條規則 fixture（fail / pass）皆通過，含 R3 對「`team_slug` 在 properties 但不在 required」紅燈分支
+    - `internal/mcp/server/lint_test.go::TestRegisteredToolsPassStartupLint`：實際 `NewWithRegistry` 註冊的 14 個 tool 全數通過 `lint.ApplyAll`
+    - `internal/mcp/server/lint_test.go::TestCreateAppToolsContainRequiredClauses`：固化 `create_app_preview` / `create_app` 的 ALWAYS / NEVER 子字串
+    - `cmd/mcp/main_test.go::TestStartupLintWouldRejectBadDescription`：對「故意放錯 description」case 回傳 exit code 2 並印出 `Aborting startup`
 
 - [ ] **M2.8 端到端驗收腳本**
   - 建立一條可重複驗收流程：preview → confirm → dispatch → callback → sync → public URL 200
@@ -239,7 +244,7 @@
 - [ ] `nextdemo.winshare.tw` 真實外部 HTTP 200
 - [x] Prometheus metrics 含 preview/deploy/cf 指標
 - [x] Grafana dashboard + burn-rate alert 可用
-- [ ] MCP `create_app_preview` / `create_app` description lint 合規
+- [x] MCP `create_app_preview` / `create_app` description lint 合規
 - [ ] CLI 與 MCP 都各跑過一次端到端驗收
 
 ## Milestone Supporting Work
