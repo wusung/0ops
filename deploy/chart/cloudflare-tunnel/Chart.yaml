@@ -1,0 +1,17 @@
+apiVersion: v2
+name: cloudflare-tunnel
+description: Cloudflare Tunnel connector pool for 0ops winshare.tw zone (3 replicas with anti-affinity)
+type: application
+version: 0.1.0
+appVersion: "2025.1.0"
+keywords:
+  - cloudflare
+  - tunnel
+  - cloudflared
+  - 0ops
+home: https://0ops.tw
+sources:
+  - https://github.com/winshare/zeroops
+maintainers:
+  - name: 0ops
+    email: ops@winshare.tw

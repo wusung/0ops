@@ -58,6 +58,8 @@ func TestPrometheusAlertRulesContainM26CriticalRules(t *testing.T) {
 		"PreviewConsumptionRateLow":        false,
 		"CloudflareAPIThrottled":           false,
 		"UnknownFailureClassificationHigh": false,
+		"TunnelConnectorsLow":              false,
+		"TunnelDown":                       false,
 	}
 
 	for _, group := range rules.Groups {

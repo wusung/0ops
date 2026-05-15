@@ -47,6 +47,7 @@ func main() {
 		metrics.ObserveDeployRunFailure,
 	)
 	cloudflare.BindMetrics(metrics.ObserveCloudflareAPICall)
+	cloudflare.BindCallDurationMetric(metrics.ObserveCloudflareAPICallDuration)
 
 	// Initialize K3s and Cloudflare infrastructure clients
 	k3sCfg := &k3s.Config{

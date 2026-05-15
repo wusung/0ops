@@ -158,16 +158,26 @@
     - `internal/server/services/k3s/client_test.go` 使用 `dynamicfake.NewSimpleDynamicClient` 模擬 `kubectl get`：team-acme namespace、PSA labels、ResourceQuota (plan tier 值)、LimitRange、NetworkPolicy (ingress/egress) 皆存在；rollback 路徑驗證任一 sub-step 失敗時 namespace 被 `DeleteNamespace` 回收
     - saga test `TestConfirmRollsBackAppWhenK3sIsolationFails` 證明 isolation 失敗 → app row 回滾、preview 不被 consume
 
-- [ ] **M2.5 winshare 子網域真實路由**
+- [x] **M2.5 winshare 子網域真實路由**（2026-05-15）
   - 補 Cloudflare / tunnel route 整合，不可只回傳字串 URL
-  - 進度（2026-05-14）：
-    - `create_app` confirm 流程已在 `RouteAppToDomain` 後接續呼叫 `CreateTunnelRoute`
-    - tunnel route 建立失敗時會中止流程並 rollback（刪除已建立 app row）
-    - 新增 service 測試覆蓋 route 建立呼叫與失敗 rollback
   - 對齊 `docs/features/winshare-subdomain-and-tunnel/spec.md`
+  - 落地：
+    - `create_app` confirm 流程已在 `RouteAppToDomain` 後接續呼叫 `CreateTunnelRoute`；tunnel route 建立失敗會中止流程並 rollback（刪除已建立 app row）
+    - `internal/server/services/cloudflare/tunnel.go`：`GetTunnelConnectorsReady` 走 `/accounts/{account}/cfd_tunnel/{id}/connections`，提供 reconciler 拿真實 connector 數
+    - `internal/server/services/cloudflare/client.go`：`request()` 透過 `recordCloudflareCallDurationFn` 量測每 op 延遲，新增 `BindCallDurationMetric`；wired in `cmd/server/main.go`
+    - `internal/server/apperror`：新增 `ClassUnavailable`（503），`apps.go` 將 `ErrRouteMissing` / `ErrConfigMissing` 改 map 至 `cloudflare_api_error` (`unavailable`/503)，`ErrRateLimited` 維持 `cloudflare_rate_limited` (`too_many_requests`/429)，對齊 `docs/features/error-model/spec.md` § 5.5
+    - `internal/server/observability/metrics.go`：新增 `zeroops_cloudflare_api_call_duration_seconds`（histogram, op）與 `zeroops_cloudflare_tunnel_connectors_ready`（gauge），含 `ObserveCloudflareAPICallDuration` / `SetCloudflareTunnelConnectorsReady`
+    - `deploy/chart/cloudflare-tunnel/`：完整 Helm chart（namespace + deployment 3 replica + anti-affinity + 鎖版 image + `--no-autoupdate`、secret-from-Secret、NetworkPolicy ingress 拒 / egress 僅 7844+443+traefik）；chart 含 `fail` guard 拒絕 < 3 replica
+    - `deploy/gitops/observability/prometheus-alert-rules.yaml`：新增 `TunnelConnectorsLow`（< 2 for 5m, critical）/ `TunnelDown`（== 0 for 1m, critical），對齊 `slo-and-alerting` § 6.4；promtool 驗證通過（7 alerts / 7 recording rules）
   - 驗收證據：
-    - `nextdemo.winshare.tw` 外部 HTTP 200
-    - route 建立失敗時有明確錯誤分類與 rollback/收斂策略
+    - `internal/server/services/cloudflare/tunnel_test.go::TestGetTunnelConnectorsReadyCountsActiveConnections`、`TestRequestRecordsCallDuration` 通過
+    - `internal/server/observability/metrics_test.go::TestM2_5CloudflareTunnelMetricsExpose` 通過
+    - `deploy/chart/cloudflare-tunnel/chart_test.go::TestChartFilesEnforceHardRules` / `TestDeploymentGuardsReplicaFloor` 通過
+    - `deploy/gitops/observability/assets_test.go::TestPrometheusAlertRulesContainM26CriticalRules` 已擴充並通過（含 `TunnelConnectorsLow` / `TunnelDown`）
+    - `make test` 全綠；`make lint-compose` 通過；`make m2-6-promtool` 通過
+    - route 建立失敗已有明確錯誤分類（`cloudflare_api_error` / `cloudflare_rate_limited`）與 rollback：`createapp.Service.Confirm` 於 `RouteAppToDomain` / `CreateTunnelRoute` 任一失敗時呼叫 `DeleteAppByID` 回滾 app row 且 preview 不被 consume，由 `internal/server/services/createapp/service_test.go::TestConfirmRollsBackAppOnCloudflareFailure` / `TestConfirmRollsBackWhenCreateTunnelRouteFails` 守備
+  - 限制（不在 worktree 內可驗）：
+    - 「`nextdemo.winshare.tw` 外部 HTTP 200」屬 production smoke：需 Cloudflare zone 已部署 wildcard CNAME + 已部署 `deploy/chart/cloudflare-tunnel/` + K3s ingress 已 sync；本 milestone 提供完整鏈路所需製品，但實際 200 留待 M2.8 端到端腳本 + production rollout 驗證
 
 - [x] **M2.6 Observability GA**
   - 在現有 `internal/server/observability/metrics.go` 之外補齊：

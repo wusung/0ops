@@ -115,3 +115,20 @@ func TestM2_6ObservabilitySeriesExpose(t *testing.T) {
 		t.Fatalf("metrics output missing reconciliation_jobs_pending gauge: %s", body)
 	}
 }
+
+func TestM2_5CloudflareTunnelMetricsExpose(t *testing.T) {
+	metrics := NewMetrics()
+	metrics.ObserveCloudflareAPICallDuration("dns_list", 250*time.Millisecond)
+	metrics.SetCloudflareTunnelConnectorsReady(3)
+
+	metricsRec := httptest.NewRecorder()
+	metrics.Handler().ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+
+	body := metricsRec.Body.String()
+	if !strings.Contains(body, `zeroops_cloudflare_api_call_duration_seconds_count{op="dns_list"} 1`) {
+		t.Fatalf("metrics output missing cloudflare api call duration histogram: %s", body)
+	}
+	if !strings.Contains(body, `zeroops_cloudflare_tunnel_connectors_ready 3`) {
+		t.Fatalf("metrics output missing tunnel connectors_ready gauge: %s", body)
+	}
+}
