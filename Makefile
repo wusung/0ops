@@ -9,7 +9,7 @@ SQLC_IMAGE ?= docker.io/sqlc/sqlc:1.31.1
 
 .PHONY: help dev dev-down dev-clean dev-logs dev-shell migrate migrate-down \
         build-images lint-compose lint-docker lint-go lint-prom-rules test contract-test build tidy sqlc \
-        m2-2-e2e-validation m2-2-check m2-6-promtool \
+        m2-2-e2e-validation m2-2-check m2-6-promtool m2-8-e2e-acceptance m2-8-check \
         task-list task-next task-run-all task-run task-rerun task-runner-test
 
 help:
@@ -89,6 +89,16 @@ m2-2-e2e-validation:
 .PHONY: m2-2-check
 m2-2-check: lint-go test
 	@echo "✓ M2.2 code checks passed"
+
+## --- M2.8 e2e acceptance ---
+
+.PHONY: m2-8-e2e-acceptance
+m2-8-e2e-acceptance: ## 跑 M2.8 端到端驗收腳本（預設 mode=local；E2E_MODE=staging|production 可覆蓋）
+	@bash tasks/m2-8-e2e-acceptance.sh
+
+.PHONY: m2-8-check
+m2-8-check: lint-go test ## M2.8 程式檢查（lint + 單元/契約測試）
+	@echo "✓ M2.8 code checks passed"
 
 sqlc: ## 產生 sqlc 程式碼
 	podman run --rm --userns=keep-id -v $(CURDIR):/src -w /src $(SQLC_IMAGE) generate

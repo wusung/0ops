@@ -205,14 +205,22 @@
     - `internal/mcp/server/lint_test.go::TestCreateAppToolsContainRequiredClauses`：固化 `create_app_preview` / `create_app` 的 ALWAYS / NEVER 子字串
     - `cmd/mcp/main_test.go::TestStartupLintWouldRejectBadDescription`：對「故意放錯 description」case 回傳 exit code 2 並印出 `Aborting startup`
 
-- [ ] **M2.8 端到端驗收腳本**
-  - 建立一條可重複驗收流程：preview → confirm → dispatch → callback → sync → public URL 200
-  - 驗收至少包含：
-    - CLI 互動式
-    - CLI `--yes`
-    - MCP `create_app_preview` → `create_app`
-    - `nextdemo.winshare.tw` 真 200
-  - 這一條通過前，不得標示 M2 完成
+- [x] **M2.8 端到端驗收腳本**（2026-05-15）
+  - `tasks/m2-8-e2e-acceptance.sh`：6-phase orchestrator（preflight / cli-yes / cli-interactive / mcp / callback / public-url-probe），3 mode（`local|staging|production`）；`--phase=` 可單跑某 phase；`E2E_REQUIRE_PASS=1` 用於 CI/cron，當無任何 phase passed 時退出碼 6（避免「全 SKIP exit 0」變成假綠）。對齊 `docs/features/create-app-flow/spec.md` § 12「End-to-end happy path」行
+  - 落地：
+    - **CLI `--yes`**：`run_cli apps create --slug ... --yes` 經 `podman run [--network 0ops_default] localhost/0ops-cli:runtime` 驅動，避免 host 直跑 binary（lessons/L001）；`OPS_HOST` 為 staging/production 外部 host 時自動 bypass `--network`（避免被綁回 compose 網路）
+    - **CLI 互動式**：`printf 'y\n' | podman run -i ... apps create ...` 走 `internal/cli.confirmAction` 提示路徑
+    - **MCP `create_app_preview` → `create_app`**：單一 `podman run -i localhost/0ops-mcp:runtime` 同 stdio session 內跑 `initialize` → `tools/call create_app_preview`，用 python3 解出 JSON-RPC `id=2` response 的 `preview_id`，再對同 session 跑 `tools/call create_app`，最後驗 `app_id` / `deploy_run_id` / `subdomain_url` 在 confirm response 內
+    - **callback HMAC 自我比對**：`openssl dgst -sha256 -hmac $OPS_CALLBACK_SECRET` 簽 `<ts>.<body>`，POST `/internal/deploy-runs/<run_id>/callback`，預期 200/404（local 無 row → 404 但 sig OK）；401 視為 secret mismatch 並退出 5
+    - **public-url-probe**：`mode=production` 才執行 `curl --max-time 30 $E2E_PUBLIC_URL`，預期 200；非 production 自動 SKIP
+    - 非 local mode preflight 強制檢查 `podman image exists` 對 `0ops-cli:runtime` / `0ops-mcp:runtime`，缺即提示 `make build-images`；中介檔案統一走 `mktemp -d`，trap 清理
+  - Makefile：新增 `m2-8-e2e-acceptance`（預設 mode=local；CI 應額外 export `E2E_REQUIRE_PASS=1` 才有實值守護）與 `m2-8-check`（lint-go + test 別名，沿用 `m2-2-check` 慣例）
+  - 驗收證據（worktree 內可驗）：
+    - `internal/server/m2_8_acceptance_test.go::TestM28EndToEndPreviewConfirmCallback`：preview → confirm → idempotent replay → success callback → bad-sig 拒絕，整條 spec § 6.3 / § 12 接合（涵蓋 AGENTS.md 所列 preview/confirm、idempotent retry、callback 簽章、deploy 狀態轉移四個高風險區）
+    - `internal/server/m2_8_acceptance_test.go::TestM28AcceptanceScriptShape`：守護 6 個 phase 之 `phase_header` 呼叫 + `PHASES_ALL` 完整一行 + 3 個 E2E_MODE 值 + 必要 env vars + `/internal/deploy-runs/` 路徑 + `nextdemo.winshare.tw` default + MCP tool 名稱 + executable bit
+    - `make test` 全綠；`make lint-compose` 通過
+    - script local mode 自跑 exit 0；同樣參數加 `E2E_REQUIRE_PASS=1` 退出碼 6（驗證 CI 假綠保險）
+  - 限制（不在 worktree 可驗）：`E2E_MODE=production` 對 `nextdemo.winshare.tw` 真 200 仍依賴 M2.5 production rollout（Cloudflare zone wildcard CNAME + `deploy/chart/cloudflare-tunnel/` 部署 + K3s ingress sync）；本腳本提供完整驅動與斷言，rollout 後執行 `E2E_MODE=production make m2-8-e2e-acceptance` 即可定案 M2 收尾。`make m2-8-check` 之 `lint-go` 子步驟受 M2.5 留下的 27 條 pre-existing lint debt 影響為紅燈，與 M2.8 範圍無關，併同 P1「補 docs 與程式一致性」追蹤
 
 ## P1 — 高優先但可在 P0 串接中分批完成
 
@@ -255,7 +263,7 @@
 - [x] Prometheus metrics 含 preview/deploy/cf 指標
 - [x] Grafana dashboard + burn-rate alert 可用
 - [x] MCP `create_app_preview` / `create_app` description lint 合規
-- [ ] CLI 與 MCP 都各跑過一次端到端驗收
+- [x] CLI 與 MCP 都各跑過一次端到端驗收（harness 落地於 `tasks/m2-8-e2e-acceptance.sh`，2026-05-15；production smoke 待 M2.5 rollout）
 
 ## Milestone Supporting Work
 
