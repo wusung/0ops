@@ -40,6 +40,7 @@ task_row_from_file() {
     /^\|[[:space:]]*[A-Za-z][A-Za-z0-9_.-]*[[:space:]]*\|/ {
       id=$2
       gsub(/^[[:space:]]+|[[:space:]]+$/, "", id)
+      if (id == "ID") next
       if (id == task_id) {
         print $0
         exit

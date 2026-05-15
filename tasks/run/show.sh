@@ -11,6 +11,7 @@ awk -F'|' '
     gsub(/^[[:space:]]+|[[:space:]]+$/, "", id)
     gsub(/^[[:space:]]+|[[:space:]]+$/, "", title)
     gsub(/^[[:space:]]+|[[:space:]]+$/, "", deps)
+    if (id == "ID") next
     print id "|" title "|" deps
   }
 ' "$TASK_LIST_FILE" | while IFS='|' read -r id title deps; do

@@ -9,7 +9,8 @@ SQLC_IMAGE ?= docker.io/sqlc/sqlc:1.31.1
 
 .PHONY: help dev dev-down dev-clean dev-logs dev-shell migrate migrate-down \
         build-images lint-compose lint-docker lint-go test contract-test build tidy sqlc \
-        m2-2-e2e-validation m2-2-check
+        m2-2-e2e-validation m2-2-check \
+        task-list task-next task-run-all task-run task-rerun task-runner-test
 
 help:
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -85,3 +86,25 @@ m2-2-check: lint-go test
 
 sqlc: ## 產生 sqlc 程式碼
 	podman run --rm --userns=keep-id -v $(CURDIR):/src -w /src $(SQLC_IMAGE) generate
+
+## --- task runner ---
+
+task-list: ## 列出所有 task 與狀態
+	@bash tasks/run/show.sh
+
+task-next: ## 顯示下一個可執行 task
+	@bash tasks/run/next.sh
+
+task-run-all: ## 依序跑完所有 Pending task（中斷後再呼叫即 resume）
+	@bash tasks/run/run-all.sh
+
+task-run: ## 跑指定 task：make task-run TASK=M2.5
+	@test -n "$(TASK)" || (echo "usage: make task-run TASK=<ID>" >&2; exit 1)
+	@bash tasks/run/run-one.sh $(TASK)
+
+task-rerun: ## 強制重跑指定 task：make task-rerun TASK=M2.5
+	@test -n "$(TASK)" || (echo "usage: make task-rerun TASK=<ID>" >&2; exit 1)
+	@bash tasks/run/run-one.sh --force $(TASK)
+
+task-runner-test: ## 跑 task runner 自身的 smoke 測試
+	@bash tasks/run/test/run-tests.sh
