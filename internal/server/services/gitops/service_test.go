@@ -113,7 +113,7 @@ func initGitRepo(t *testing.T, name, branch, fileName, contents string) string {
 func initBareRepo(t *testing.T, name string) string {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), name)
-	mustGit(t, "", "init", "--bare", dir)
+	mustGit(t, "", "init", "--bare", "-b", "main", dir)
 	return dir
 }
 
