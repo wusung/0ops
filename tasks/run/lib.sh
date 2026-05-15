@@ -173,3 +173,52 @@ build_merge_command() {
   local pr_number="$1"
   printf '%s\0' "gh" "pr" "merge" "$pr_number" "--merge" "--delete-branch"
 }
+
+# --- verify + state helpers ---
+
+# Match path against any of the provided glob patterns. Uses bash globstar.
+path_matches_glob() {
+  local path="$1"
+  shift
+  shopt -s globstar
+  local pattern
+  for pattern in "$@"; do
+    [[ -n "$pattern" ]] || continue
+    # shellcheck disable=SC2053
+    if [[ "$path" == $pattern ]]; then
+      shopt -u globstar
+      return 0
+    fi
+  done
+  shopt -u globstar
+  return 1
+}
+
+# Within the current worktree, list all paths that differ from `main`
+# (committed diff + uncommitted changes + untracked files).
+git_changed_paths_vs_main() {
+  {
+    git diff main --name-only
+    git ls-files --others --exclude-standard
+  } | sort -u
+}
+
+# Mark a task Failed in main + commit a chore record. Run from any cwd.
+mark_task_failed() {
+  local task_id="$1"
+  local main_status="$TASK_REPO_ROOT/tasks/task-status.md"
+  python3 - "$main_status" "$task_id" <<'PY'
+import re, sys, pathlib
+path = pathlib.Path(sys.argv[1])
+task_id = sys.argv[2]
+text = path.read_text()
+pat = re.compile(rf'^(\|\s*{re.escape(task_id)}\s*\|[^|]*\|\s*)(Pending|Done|Failed)(\s*\|)$', re.M)
+new_text, n = pat.subn(rf'\1Failed\3', text)
+if n != 1:
+    sys.exit(f"could not flip {task_id} to Failed (matches={n})")
+path.write_text(new_text)
+PY
+  ( cd "$TASK_REPO_ROOT" \
+    && git add tasks/task-status.md \
+    && git -c commit.gpgsign=false commit -m "chore(task-runner): mark $task_id failed" )
+}
