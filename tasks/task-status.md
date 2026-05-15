@@ -15,7 +15,7 @@
 | M2.5  | winshare 子網域真實路由                     | Done     | 2026-05-15     |
 | M2.6  | Observability GA                            | Done     | 2026-05-15     |
 | M2.7  | MCP preview/confirm description lint 契約   | Done     | 2026-05-15     |
-| M2.8  | 端到端驗收腳本                              | Pending  | -              |
+| M2.8  | 端到端驗收腳本                              | Done     | 2026-05-15     |
 | M3.1  | 客戶自有域名 DNS verify (24h TTL + extend)  | Pending  | -              |
 | M3.2  | GitHub App install/uninstall 流程           | Pending  | -              |
 | M4.1  | Webhook auto/manual redeploy + replay protection | Pending | -           |
