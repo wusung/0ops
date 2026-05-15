@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-scripts
+  namespace: {{ .Values.namespace | quote }}
+  labels:
+    app.0ops.io/managed-by: 0ops
+data:
+  # The chart_test.go and ops keep these scripts in sync with deploy/postgres/scripts/.
+  # Renders match the bash files verbatim; Helm template substitution is not used here.
+  wal-push.sh: |
+    {{- .Files.Get "scripts/wal-push.sh" | nindent 4 }}
+  pg-dump.sh: |
+    {{- .Files.Get "scripts/pg-dump.sh" | nindent 4 }}
+  replica-init.sh: |
+    {{- .Files.Get "scripts/replica-init.sh" | nindent 4 }}

@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-replica
+  namespace: {{ .Values.namespace | quote }}
+  labels:
+    app: postgres
+    role: replica
+    app.0ops.io/managed-by: 0ops
+spec:
+  type: ClusterIP
+  selector:
+    app: postgres
+    role: replica
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP

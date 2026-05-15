@@ -1,0 +1,123 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-replica
+  namespace: {{ .Values.namespace | quote }}
+  labels:
+    app: postgres
+    role: replica
+    app.0ops.io/managed-by: 0ops
+spec:
+  serviceName: postgres-replica
+  replicas: {{ .Values.replica.replicas }}
+  selector:
+    matchLabels:
+      app: postgres
+      role: replica
+  template:
+    metadata:
+      labels:
+        app: postgres
+        role: replica
+    spec:
+      # Hard rule #2：anti-affinity requiredDuringSchedulingIgnoredDuringExecution
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - { key: app, operator: In, values: [postgres] }
+              topologyKey: kubernetes.io/hostname
+      securityContext:
+        fsGroup: 999
+        runAsUser: 999
+        runAsGroup: 999
+      initContainers:
+        - name: replica-init
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/sh", "/scripts/replica-init.sh"]
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: PRIMARY_HOST
+              value: postgres-main.{{ .Values.namespace }}.svc.cluster.local
+            - name: PRIMARY_PORT
+              value: "5432"
+            - name: REPLICATION_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.credentialsSecret | quote }}
+                  key: replication_user
+            - name: REPLICATION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.credentialsSecret | quote }}
+                  key: replication_password
+          volumeMounts:
+            - { name: data,    mountPath: /var/lib/postgresql/data }
+            - { name: scripts, mountPath: /scripts }
+      containers:
+        - name: postgres
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - "-c"
+            - "config_file=/etc/postgresql/postgresql.conf"
+            - "-c"
+            - "hba_file=/etc/postgresql/pg_hba.conf"
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "ops", "-d", {{ .Values.auth.database | quote }}]
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "ops", "-d", {{ .Values.auth.database | quote }}]
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: {{ .Values.replica.resources.requests.cpu | quote }}
+              memory: {{ .Values.replica.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.replica.resources.limits.cpu | quote }}
+              memory: {{ .Values.replica.resources.limits.memory | quote }}
+          volumeMounts:
+            - { name: data,    mountPath: /var/lib/postgresql/data }
+            - { name: scripts, mountPath: /scripts }
+            - { name: conf,    mountPath: /etc/postgresql }
+      volumes:
+        - name: scripts
+          configMap:
+            name: postgres-scripts
+            defaultMode: 0755
+        - name: conf
+          projected:
+            sources:
+              - configMap:
+                  name: postgres-conf
+                  items:
+                    - { key: postgresql.conf, path: postgresql.conf }
+              - configMap:
+                  name: postgres-pg-hba
+                  items:
+                    - { key: pg_hba.conf, path: pg_hba.conf }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: {{ .Values.replica.storage.storageClassName | quote }}
+        resources:
+          requests:
+            storage: {{ .Values.replica.storage.size | quote }}

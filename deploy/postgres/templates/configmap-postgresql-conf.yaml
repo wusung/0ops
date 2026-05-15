@@ -1,0 +1,37 @@
+{{- /* spec § 4.4 + hard rule #3：archive_timeout 必 ≤ 300s */ -}}
+{{- if gt (int .Values.postgresql.archiveTimeoutSeconds) 300 }}
+{{- fail "postgres chart requires archiveTimeoutSeconds <= 300 (spec § 16 hard rule #3)" }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-conf
+  namespace: {{ .Values.namespace | quote }}
+  labels:
+    app.0ops.io/managed-by: 0ops
+data:
+  postgresql.conf: |
+    # Managed by 0ops postgres chart — spec § 4.4
+    listen_addresses = '*'
+    max_connections = {{ .Values.postgresql.maxConnections }}
+
+    # Replication (spec § 4.4)
+    wal_level = {{ .Values.postgresql.walLevel }}
+    max_wal_senders = {{ .Values.postgresql.maxWalSenders }}
+    wal_keep_size = '{{ .Values.postgresql.walKeepSize }}'
+    hot_standby = {{ .Values.postgresql.hotStandby }}
+    synchronous_commit = {{ .Values.postgresql.synchronousCommit }}
+
+    # WAL archive (spec § 6) — hard rule #3 RPO 5 min
+    archive_mode = {{ .Values.postgresql.archiveMode }}
+    archive_command = '/scripts/wal-push.sh %p %f'
+    archive_timeout = {{ .Values.postgresql.archiveTimeoutSeconds }}s
+
+    # Sane defaults
+    shared_buffers = '256MB'
+    effective_cache_size = '1GB'
+    work_mem = '16MB'
+    log_min_duration_statement = '500ms'
+    log_line_prefix = '%m [%p] %q%u@%d/%a '
+    log_connections = on
+    log_disconnections = on

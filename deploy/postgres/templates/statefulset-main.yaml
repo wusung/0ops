@@ -1,0 +1,133 @@
+{{- /* Hard rule #1：main + replica；不得 single Postgres on production */ -}}
+{{- if lt (int .Values.main.replicas) 1 }}
+{{- fail "postgres chart requires main.replicas >= 1 (spec § 16 hard rule #1)" }}
+{{- end }}
+{{- if lt (int .Values.replica.replicas) 1 }}
+{{- fail "postgres chart requires replica.replicas >= 1 — single Postgres is not permitted in production (spec § 16 hard rule #1)" }}
+{{- end }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-main
+  namespace: {{ .Values.namespace | quote }}
+  labels:
+    app: postgres
+    role: main
+    app.0ops.io/managed-by: 0ops
+spec:
+  serviceName: postgres-main
+  replicas: {{ .Values.main.replicas }}
+  selector:
+    matchLabels:
+      app: postgres
+      role: main
+  template:
+    metadata:
+      labels:
+        app: postgres
+        role: main
+    spec:
+      # Hard rule #2：anti-affinity requiredDuringSchedulingIgnoredDuringExecution
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - { key: app, operator: In, values: [postgres] }
+              topologyKey: kubernetes.io/hostname
+      securityContext:
+        fsGroup: 999
+        runAsUser: 999
+        runAsGroup: 999
+      containers:
+        - name: postgres
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - "-c"
+            - "config_file=/etc/postgresql/postgresql.conf"
+            - "-c"
+            - "hba_file=/etc/postgresql/pg_hba.conf"
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.auth.database | quote }}
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.credentialsSecret | quote }}
+                  key: app_user
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.credentialsSecret | quote }}
+                  key: app_password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: WAL_S3_BUCKET
+              value: {{ .Values.walArchive.bucket | quote }}
+            - name: WAL_S3_PREFIX
+              value: {{ .Values.walArchive.prefix | quote }}
+            - name: WAL_S3_ENDPOINT
+              value: {{ .Values.walArchive.endpoint | quote }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.walArchive.credentialsSecret | quote }}
+                  key: access_key_id
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.walArchive.credentialsSecret | quote }}
+                  key: secret_access_key
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "ops", "-d", {{ .Values.auth.database | quote }}]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "ops", "-d", {{ .Values.auth.database | quote }}]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: {{ .Values.main.resources.requests.cpu | quote }}
+              memory: {{ .Values.main.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.main.resources.limits.cpu | quote }}
+              memory: {{ .Values.main.resources.limits.memory | quote }}
+          volumeMounts:
+            - { name: data,    mountPath: /var/lib/postgresql/data }
+            - { name: scripts, mountPath: /scripts }
+            - { name: conf,    mountPath: /etc/postgresql }
+      volumes:
+        - name: scripts
+          configMap:
+            name: postgres-scripts
+            defaultMode: 0755
+        - name: conf
+          projected:
+            sources:
+              - configMap:
+                  name: postgres-conf
+                  items:
+                    - { key: postgresql.conf, path: postgresql.conf }
+              - configMap:
+                  name: postgres-pg-hba
+                  items:
+                    - { key: pg_hba.conf, path: pg_hba.conf }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: {{ .Values.main.storage.storageClassName | quote }}
+        resources:
+          requests:
+            storage: {{ .Values.main.storage.size | quote }}

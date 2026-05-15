@@ -422,6 +422,45 @@
 4. **spec § 9.2「unknown 比例突增（> 10% / 1h）」自動建 incident** — v1 未在 backend tick 中實作；該觸發需 Prometheus rate query 結果聚合，超出 reconciler tick 範疇。已暴露 `zeroops_deploy_run_failure_classification_total{classification}` metric 供 dashboard / alerting 計算；建議於 M5.4 之 alerting roundtrip 中補 spec § 9.2 自動觸發鏈路。
 5. **incident close 之 MCP write tool** — spec § 16 #8 明定 close 必經 CLI（含 audit）；MCP 僅暴露 read 只 `list_incidents`，與 spec 一致。
 
+### M5.4 — Postgres HA + WAL archive + PITR 演練（2026-05-16）
+
+> 對應 spec：`docs/features/postgres-ha-and-dr/spec.md`
+> 對應 task：`tasks/task-list.md` row M5.4
+> 對應 paths：`deploy/postgres/**`、`internal/server/db/**`
+> 對應 ADR：ADR-0008 § 4 第 5/6/7 點
+
+- [x] `deploy/postgres/` Helm chart：`Chart.yaml`（appVersion 17.2）、`values.yaml`（main + replica replicas=1、`archiveTimeoutSeconds=300`、`synchronousCommit="off"`、`retentionDays=30`、`schedule="0 18 * * *"`）、`README.md`、`templates/configmap-postgresql-conf.yaml`（spec § 4.4 全部 knob：wal_level/max_wal_senders/wal_keep_size/archive_mode/archive_command=`/scripts/wal-push.sh %p %f`/archive_timeout/hot_standby/synchronous_commit/max_connections）/ `templates/configmap-pg-hba.yaml`（replication/app/dump user scram-sha-256）/ `templates/configmap-scripts.yaml`（Helm `.Files.Get` 把 scripts/ 內容 mount 進 pod，scripts 與 ConfigMap 來源一致）/ `templates/statefulset-main.yaml` + `templates/statefulset-replica.yaml`（皆帶 `podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution` + `topologyKey: kubernetes.io/hostname`，spec § 16 hard rule #2；replica 帶 `pg_basebackup` init container）/ `templates/service-main.yaml` + `templates/service-replica.yaml`（ClusterIP, port 5432）/ `templates/networkpolicy.yaml`（ingress 限 system-0ops + peer postgres pod、egress 443 至 R2）/ `templates/secret-placeholder.yaml`（`auth.renderPlaceholder=false`，prod 由 secrets-management 補）/ `templates/cronjob-pg-dump.yaml`（spec § 7.1 daily 18:00 UTC、concurrencyPolicy=Forbid、backoffLimit=2）
+- [x] Helm 渲染時硬性閘門（`fail` 觸發）：`statefulset-main.yaml` 拒絕 `main.replicas < 1` 或 `replica.replicas < 1`（spec § 16 hard rule #1，禁止 single Postgres on production）；`configmap-postgresql-conf.yaml` 拒絕 `archiveTimeoutSeconds > 300`（spec § 16 hard rule #3，RPO ≤ 5 min）
+- [x] `deploy/postgres/chart_test.go`：3 個 test 守備 — `TestChartFilesEnforceHardRules`（11 個檔案的 substring matrix，含 anti-affinity / archive_command / `pg_basebackup` / `--write-recovery-conf`）/ `TestTemplateGuards`（Helm `fail` 條件文字必含 spec § 16 hard rule reference）/ `TestRetentionPolicyMatchesHardRule`（walArchive + pgDump 兩 block 各自 retentionDays=30）
+- [x] `deploy/postgres/scripts/`：`wal-push.sh`（archive_command；timeline 取前 8 char、`aws s3 cp --endpoint-url` 推 R2、失敗 exit 1 由 PostgreSQL retry 至 `archive_timeout`）/ `pg-dump.sh`（spec § 7.2 `pg_dump -Fc -Z9` + `aws s3 cp` + `trap rm`）/ `replica-init.sh`（idempotent guard：`PGDATA/PG_VERSION` 存在即 skip；首跑 `pg_basebackup --wal-method=stream --write-recovery-conf` + `touch standby.signal`）/ `pitr-drill.sh`（podman-based 本機 PITR drill：source/target Postgres pair、`archive_timeout=5` 加速、`pg_switch_wal()` 觸發、`recovery_target_time` + `recovery_target_action=promote`、canary id=1 必須存在且 id=2 必須不存在）
+- [x] `internal/server/db/migrationlint/`：`lint.go`（`ScanDir(dir, floor)` + `ScanBytes(name, content)` + `Aggregate(violations)`；2 條 rule — R1 `CREATE/ALTER INDEX` 必含 `CONCURRENTLY`（spec § 16 hard rule #7）、R2 `ADD COLUMN ... NOT NULL DEFAULT ...` 必拆 3 步（spec § 16 hard rule #8）；`stripCommentsAndStrings` 處理 `--` line comment、`/* */` block comment、單引號字串字面值，避免 false positive）/ `lint_test.go`（11 個 case：R1 bare CREATE / R1 ALTER / R1 大小寫變體 / R1 comment 忽略 / R1 string literal 忽略 / R2 combined / R2 nullable add 與 bare NOT NULL 不誤判 / R2 跨多行 / R2 ALTER TABLE 多 ADD COLUMN 中段命中 / Aggregate / numericPrefix）/ `repo_test.go`（`TestRepoMigrationsPassLint` 掃 `migrations/*.sql`，以 `DefaultGrandfatherFloor=9` 跳過既有 00001..00008 baseline）
+- [x] `internal/server/db/primary.go`：`EnsurePrimary(ctx, Probe)` 跑 `SHOW transaction_read_only`，回 `ErrConnectedToReplica` 若值為 `on`（spec § 4.2 + § 16 hard rule #10）；`PoolProbe{Pool}` adapter 包 `*pgxpool.Pool`；`Probe` / `PrimaryQueryRow` 介面讓單元測試不需起 pgx
+- [x] `internal/server/db/primary_test.go`：4 個 case — off 接受 / on 回 `ErrConnectedToReplica` / Scan error 走 `errors.Is` 包裹 / nil probe 拒絕
+- [x] `cmd/server/main.go` 接入：pool 建好 + `MustPing` 後立即跑 `db.EnsurePrimary(ctx, db.PoolProbe{Pool: pool})`；失敗 `logger.Error` + `os.Exit(1)`（避免 backend 在 replica 上服務寫流量靜默失敗）
+- [x] `docs/runbooks/postgres-failover.md`：spec § 9 手動 failover 流程（pg_ctl promote + Service selector patch + backend rolling restart）、RTO 預算說明、worst-case 回退、演練要求
+- [x] `docs/runbooks/postgres-pitr.md`：spec § 8 PITR 流程（scale backend → 0、pull base + WAL archive、`recovery_target_time` + `recovery_target_action=pause`、verify canary、resume + promote、rolling restart backend）
+- [x] `docs/runbooks/postgres-restore-test.md`：演練清單分三層（local PITR drill / full PITR drill / failover drill）、每季排程、演練紀錄 append-only；M5.4 工件就位紀錄
+- [x] Makefile：新增 `migrate-lint` target（`go test ./internal/server/db/migrationlint/...`，spec § 10.1 CI 攔截）+ `m5-4-pitr-drill` target（`bash deploy/postgres/scripts/pitr-drill.sh`，spec § 8.3 本機 drill）
+- [x] 高風險區覆蓋（AGENTS.md「Testing」段）：
+  - **deploy 狀態 / reconciler 收斂**：本任務不動 deploy 狀態機；EnsurePrimary 與 reconciler 正交。
+  - **idempotent retry**：`replica-init.sh` 以 `PG_VERSION` 存在性為 idempotency 標記，第二次執行即 skip pg_basebackup；`pitr-drill.sh` 的 trap cleanup 在 success / fail / interrupt 三種出口都釋放 podman resource。
+  - **權限 / 隔離**：NetworkPolicy 限制 5432 入流為 `system-0ops` 命名空間 + peer postgres pod；pg_hba.conf 內 replicator/ops/dumper 三角色 scram-sha-256 + 私網段；無 host 0.0.0.0 trust。
+  - **簽章 / preview-confirm**：本任務不引入新 write endpoint；EnsurePrimary 為 read-only probe，無 preview / confirm 對。
+  - **migration lint（spec § 16 hard rule #7 / #8）**：lint_test.go 覆蓋 CONCURRENTLY 大小寫 + 註解內 false positive 防護 + ADD COLUMN 跨多行 + 同 ALTER TABLE 多 ADD COLUMN 中段命中；repo_test.go 對既有 migrations 走 floor=9 grandfather。
+  - **failover 流程**：runbook Step 4 強制 rolling restart backend；EnsurePrimary 於新 pod 啟動時驗證 DSN 指向 primary（hard rule #10）。
+- [x] `make test` 全綠（33 packages，新增 `deploy/postgres` + `internal/server/db/migrationlint`）
+- [x] `make migrate-lint` 通過（既有 8 支 migration 全在 baseline 之下 grandfathered；新 rule 對 ≥ 00009 才生效）
+- [x] `make lint-compose` 通過
+- [x] dev DB smoke：`podman compose up -d db` → `psql -At -c 'SHOW transaction_read_only'` 回 `off`；`SELECT pg_is_in_recovery()` 回 `f`；確認 EnsurePrimary 對單實例 dev compose db 為 pass-through，不會誤擋 dev 啟動。
+
+**Out of scope / 風險回報**：
+1. **deploy/postgres 路徑 vs spec § 3 layout 差異** — spec § 3 文字列 `deploy/chart/postgres/` 與既有 `deploy/chart/cloudflare-tunnel/` 對齊；但 `tasks/task-list.md` row M5.4 之 Expected Paths 為 `deploy/postgres/**`。為對齊 harness verify 契約（runner 會驗 changed paths 至少一條落在 `deploy/postgres/**`），實作落 `deploy/postgres/`。spec § 3 為 draft 狀態的示意 layout，與 task-list 衝突時 task-list 勝出。建議未來統一：若要遵循 `deploy/chart/*` 命名，應更新 task-list.md row M5.4；本任務不擅改 task-list。
+2. **Full prod-style PITR / failover drill 尚未跑** — local PITR drill 腳本 (`deploy/postgres/scripts/pitr-drill.sh`) 已就位且可隨 chart 變更跑；但 spec § 8.3 之「M5 GA 前必演練一次完整 PITR」屬 ops 排程（需 staging cluster + 真實 R2），不在本 PR 範疇。`docs/runbooks/postgres-restore-test.md` § 5.1 已記錄此 gap 並指派為 M5 GA 前 owner=ops。
+3. **postgres_exporter sidecar（spec § 11）** — `pg_replication_lag_seconds` / `pg_wal_archive_status` 之 Prometheus exporter sidecar 於 v1.1 補；v1 採 ops 手動觀察 + 演練覆蓋，與 spec 一致。M5.5 之 backend HA 完成後再評估是否同時上 exporter。
+4. **R2 bucket lifecycle 30d** — chart values 已宣告 `retentionDays: 30`（spec § 16 hard rule #9），但 R2 bucket 端 lifecycle rule 為帳號層級設定，需由 ops 在 Cloudflare 控制台或 wrangler 配置，chart 本身無法施加。已在 README + values 註解明示。
+5. **wal-g / pgbackrest 替代 archive_command** — spec § 6.1 列為 v1.1 評估項；本任務沿用 `archive_command` + `wal-push.sh` 直推 R2，與 spec 一致。
+6. **`migrations/00003_*.sql` duplicate version panic（M2 遺留）** — 本任務不修；migration lint 的 grandfather floor=9 設計即建立在現狀之上，floor 提升前不會觸碰既有 8 支 migration。
+
 ## M3 — install / domain verify backlog
 
 ### M3.2 — GitHub App install/uninstall 流程（2026-05-15）
@@ -458,7 +497,7 @@
 - [ ] `docs/features/delete-app-flow/spec.md`
 - [x] `docs/features/github-app-install-flow/spec.md`
 - [ ] `docs/features/mcp-tool-permissions/spec.md`
-- [ ] `docs/features/postgres-ha-and-dr/spec.md`
+- [x] `docs/features/postgres-ha-and-dr/spec.md`
 - [ ] `docs/features/rate-limit-and-abuse/spec.md`
 - [ ] `docs/features/read-api-vertical-slice/spec.md`
 - [ ] `docs/features/secrets-management/spec.md`

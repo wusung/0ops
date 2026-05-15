@@ -1,0 +1,14 @@
+apiVersion: v2
+name: postgres
+description: Application Postgres (main + 1 streaming replica) with WAL archive + daily pg_dump for 0ops
+type: application
+version: 0.1.0
+appVersion: "17.2"
+home: https://github.com/winshare/zeroops
+keywords:
+  - postgres
+  - ha
+  - wal-archive
+  - pitr
+maintainers:
+  - name: 0ops
