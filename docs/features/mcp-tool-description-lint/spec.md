@@ -130,6 +130,7 @@ Fix: 把 plan.md「MCP server / Tool description 強制約定」段第二個範�
 | add_domain | `add_domain_preview` | `add_domain` |
 | remove_domain | `remove_domain_preview` | `remove_domain` |
 | invite_member | `invite_member_preview` | `invite_member` |
+| remove_member | `remove_member_preview` | `remove_member` |
 | install_github_app | `install_github_app_preview` | `install_github_app` |
 | uninstall_github_app | `uninstall_github_app_preview` | `uninstall_github_app` |
 

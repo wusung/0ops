@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	appmcp "github.com/winshare/zeroops/internal/mcp"
 	"github.com/winshare/zeroops/internal/shared"
 	"github.com/winshare/zeroops/internal/shared/authconfig"
 	"github.com/winshare/zeroops/internal/shared/backendclient"
@@ -24,13 +25,24 @@ func Implementation() *mcp.Implementation {
 	}
 }
 
-// New returns a configured MCP server.
+// New returns a configured MCP server. The registry produced during
+// registration is discarded; callers that need to lint registered tools
+// should use NewWithRegistry instead.
 func New(logger *slog.Logger) *mcp.Server {
+	srv, _ := NewWithRegistry(logger)
+	return srv
+}
+
+// NewWithRegistry returns a configured MCP server alongside a registry that
+// captured the metadata of every registered tool. The registry is the
+// authoritative source for the startup lint contract enforced in cmd/mcp.
+func NewWithRegistry(logger *slog.Logger) (*mcp.Server, *appmcp.Registry) {
 	srv := mcp.NewServer(Implementation(), &mcp.ServerOptions{
 		Logger: logger,
 	})
-	registerTools(srv)
-	return srv
+	reg := appmcp.NewRegistry()
+	registerTools(srv, reg)
+	return srv, reg
 }
 
 type listAppsInput struct {
@@ -106,8 +118,8 @@ type removeMemberInput struct {
 	PreviewID string `json:"preview_id"`
 }
 
-func registerTools(srv *mcp.Server) {
-	mcp.AddTool(srv, &mcp.Tool{
+func registerTools(srv *mcp.Server, reg *appmcp.Registry) {
+	appmcp.AddTool(srv, reg, &mcp.Tool{
 		Name:        "list_teams",
 		Description: "List teams available to the current actor.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ listTeamsInput) (*mcp.CallToolResult, dto.ListTeamsResponse, error) {
@@ -122,7 +134,7 @@ func registerTools(srv *mcp.Server) {
 		return nil, out, nil
 	})
 
-	mcp.AddTool(srv, &mcp.Tool{
+	appmcp.AddTool(srv, reg, &mcp.Tool{
 		Name:        "list_apps",
 		Description: "List apps in a team.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input listAppsInput) (*mcp.CallToolResult, dto.ListAppsResponse, error) {
@@ -140,7 +152,7 @@ func registerTools(srv *mcp.Server) {
 		return nil, out, nil
 	})
 
-	mcp.AddTool(srv, &mcp.Tool{
+	appmcp.AddTool(srv, reg, &mcp.Tool{
 		Name:        "get_app",
 		Description: "Get an app in a team.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getAppInput) (*mcp.CallToolResult, dto.AppRef, error) {
@@ -161,9 +173,9 @@ func registerTools(srv *mcp.Server) {
 		return nil, out, nil
 	})
 
-	mcp.AddTool(srv, &mcp.Tool{
+	appmcp.AddTool(srv, reg, &mcp.Tool{
 		Name:        "create_app_preview",
-		Description: "Create preview for create_app action.",
+		Description: "ALWAYS call this BEFORE create_app. Returns a PlanPreview (action_summary, side_effects, expires_at) for creating a new app. Show the user the action_summary and the FULL side_effects list, then obtain explicit approval before calling create_app with the returned preview_id.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input createAppPreviewInput) (*mcp.CallToolResult, dto.PreviewResponse, error) {
 		if input.TeamSlug == "" || input.Slug == "" || input.RepoURL == "" || input.Ref == "" {
 			return nil, dto.PreviewResponse{}, fmt.Errorf("team_slug, slug, repo_url and ref are required")
@@ -184,9 +196,9 @@ func registerTools(srv *mcp.Server) {
 		return nil, out, nil
 	})
 
-	mcp.AddTool(srv, &mcp.Tool{
+	appmcp.AddTool(srv, reg, &mcp.Tool{
 		Name:        "create_app",
-		Description: "Confirm create_app with preview_id.",
+		Description: "Confirm create_app using a preview_id returned by create_app_preview. Idempotent on the same preview_id. NEVER call this tool without a fresh, user-approved preview_id; the backend will reject otherwise.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input createAppInput) (*mcp.CallToolResult, dto.AppCreateResponse, error) {
 		if input.TeamSlug == "" || input.PreviewID == "" {
 			return nil, dto.AppCreateResponse{}, fmt.Errorf("team_slug and preview_id are required")
@@ -204,7 +216,7 @@ func registerTools(srv *mcp.Server) {
 		return nil, out, nil
 	})
 
-	mcp.AddTool(srv, &mcp.Tool{
+	appmcp.AddTool(srv, reg, &mcp.Tool{
 		Name:        "inspect_repo",
 		Description: "Inspect app repository metadata.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input inspectRepoInput) (*mcp.CallToolResult, dto.RepoInspectResponse, error) {
@@ -222,7 +234,7 @@ func registerTools(srv *mcp.Server) {
 		return nil, out, nil
 	})
 
-	mcp.AddTool(srv, &mcp.Tool{
+	appmcp.AddTool(srv, reg, &mcp.Tool{
 		Name:        "get_deploy_status",
 		Description: "Get latest deploy status for an app.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input deployStatusInput) (*mcp.CallToolResult, dto.DeployStatusResponse, error) {
@@ -240,7 +252,7 @@ func registerTools(srv *mcp.Server) {
 		return nil, out, nil
 	})
 
-	mcp.AddTool(srv, &mcp.Tool{
+	appmcp.AddTool(srv, reg, &mcp.Tool{
 		Name:        "tail_logs",
 		Description: "Tail latest deploy logs for an app.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input tailLogsInput) (*mcp.CallToolResult, dto.TailLogsResponse, error) {
@@ -258,7 +270,7 @@ func registerTools(srv *mcp.Server) {
 		return nil, out, nil
 	})
 
-	mcp.AddTool(srv, &mcp.Tool{
+	appmcp.AddTool(srv, reg, &mcp.Tool{
 		Name:        "list_domains",
 		Description: "List domains for an app.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input listDomainsInput) (*mcp.CallToolResult, dto.ListDomainsResponse, error) {
@@ -276,7 +288,7 @@ func registerTools(srv *mcp.Server) {
 		return nil, out, nil
 	})
 
-	mcp.AddTool(srv, &mcp.Tool{
+	appmcp.AddTool(srv, reg, &mcp.Tool{
 		Name:        "list_members",
 		Description: "List members in a team.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input listMembersInput) (*mcp.CallToolResult, dto.ListMembersResponse, error) {
@@ -294,9 +306,9 @@ func registerTools(srv *mcp.Server) {
 		return nil, out, nil
 	})
 
-	mcp.AddTool(srv, &mcp.Tool{
+	appmcp.AddTool(srv, reg, &mcp.Tool{
 		Name:        "invite_member_preview",
-		Description: "Create preview for inviting a team member.",
+		Description: "ALWAYS call this BEFORE invite_member. Returns a PlanPreview (action_summary, side_effects, expires_at) for inviting a team member. Show the user the action_summary and the FULL side_effects list, then obtain explicit approval before calling invite_member with the returned preview_id.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input inviteMemberPreviewInput) (*mcp.CallToolResult, dto.PreviewResponse, error) {
 		if input.TeamSlug == "" {
 			return nil, dto.PreviewResponse{}, fmt.Errorf("team_slug is required")
@@ -319,9 +331,9 @@ func registerTools(srv *mcp.Server) {
 		return nil, out, nil
 	})
 
-	mcp.AddTool(srv, &mcp.Tool{
+	appmcp.AddTool(srv, reg, &mcp.Tool{
 		Name:        "invite_member",
-		Description: "Confirm member invite using preview_id.",
+		Description: "Confirm a team member invite using a preview_id returned by invite_member_preview. Idempotent on the same preview_id. NEVER call this tool without a fresh, user-approved preview_id; the backend will reject otherwise.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input inviteMemberInput) (*mcp.CallToolResult, dto.InviteMemberResponse, error) {
 		if input.TeamSlug == "" || input.PreviewID == "" {
 			return nil, dto.InviteMemberResponse{}, fmt.Errorf("team_slug and preview_id are required")
@@ -339,9 +351,9 @@ func registerTools(srv *mcp.Server) {
 		return nil, out, nil
 	})
 
-	mcp.AddTool(srv, &mcp.Tool{
+	appmcp.AddTool(srv, reg, &mcp.Tool{
 		Name:        "remove_member_preview",
-		Description: "Create preview for removing a member.",
+		Description: "ALWAYS call this BEFORE remove_member. Returns a PlanPreview (action_summary, side_effects, expires_at) for removing a team member. Show the user the action_summary and the FULL side_effects list, then obtain explicit approval before calling remove_member with the returned preview_id.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input removeMemberPreviewInput) (*mcp.CallToolResult, dto.PreviewResponse, error) {
 		if input.TeamSlug == "" || input.UserID == "" {
 			return nil, dto.PreviewResponse{}, fmt.Errorf("team_slug and user_id are required")
@@ -359,9 +371,9 @@ func registerTools(srv *mcp.Server) {
 		return nil, out, nil
 	})
 
-	mcp.AddTool(srv, &mcp.Tool{
+	appmcp.AddTool(srv, reg, &mcp.Tool{
 		Name:        "remove_member",
-		Description: "Confirm member removal using preview_id.",
+		Description: "Confirm a team member removal using a preview_id returned by remove_member_preview. Idempotent on the same preview_id. NEVER call this tool without a fresh, user-approved preview_id; the backend will reject otherwise.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input removeMemberInput) (*mcp.CallToolResult, map[string]string, error) {
 		if input.TeamSlug == "" || input.PreviewID == "" {
 			return nil, nil, fmt.Errorf("team_slug and preview_id are required")
