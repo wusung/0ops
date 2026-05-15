@@ -387,7 +387,7 @@ func createAppHandler(store appsStore, k3sClient infraK3sClient, cfClient infraC
 			case errors.Is(err, createappsvc.ErrValidationFailed):
 				apperror.Write(w, "validation_failed", apperror.ClassBadRequest, err.Error(), nil)
 			case errors.Is(err, cloudflare.ErrRouteMissing), errors.Is(err, cloudflare.ErrConfigMissing):
-				apperror.Write(w, "cloudflare_route_unavailable", apperror.ClassBadRequest, "cloudflare route unavailable", nil)
+				apperror.Write(w, "cloudflare_api_error", apperror.ClassUnavailable, "cloudflare api unavailable", nil)
 			case errors.Is(err, cloudflare.ErrRateLimited):
 				apperror.Write(w, "cloudflare_rate_limited", apperror.ClassTooManyRequests, "cloudflare rate limited", nil)
 			default:

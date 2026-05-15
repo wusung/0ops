@@ -1,0 +1,39 @@
+# Cloudflare Tunnel connector pool — see docs/features/winshare-subdomain-and-tunnel/spec.md
+# Hard rules enforced in templates:
+#   - replicaCount must be >= 3 (spec § 16 #3)
+#   - cloudflared image is pinned (spec § 16 #9)
+#   - args include --no-autoupdate (spec § 16 #9)
+#   - tunnel token sourced from Secret (spec § 16 #5)
+
+namespace: cloudflare-tunnel
+
+image:
+  repository: cloudflare/cloudflared
+  tag: "2025.1.0"
+  pullPolicy: IfNotPresent
+
+replicaCount: 3
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# Cloudflare Tunnel token. In production, expose via an ExternalSecret /
+# SealedSecret pointing at the cloudflared-tunnel-token secret rather than
+# embedding the literal value here.
+tunnelToken: ""
+
+# Service backing K3s ingress traffic (cloudflared egress target).
+traefik:
+  namespace: kube-system
+  service: traefik
+  port: 80
+
+# pod-security.kubernetes.io labels applied to the namespace (spec § 5.1).
+podSecurityLabels:
+  enforce: baseline
+  warn: restricted

@@ -12,7 +12,7 @@
 | M2.2  | GitHub Actions dispatch + callback 全鏈路   | Done     | 2026-05-13     |
 | M2.3  | GitOps render/push + ArgoCD sync 鏈路       | Done     | 2026-05-13     |
 | M2.4  | K3s namespace isolation 最小可用版          | Done     | 2026-05-15     |
-| M2.5  | winshare 子網域真實路由                     | Pending  | -              |
+| M2.5  | winshare 子網域真實路由                     | Done     | 2026-05-15     |
 | M2.6  | Observability GA                            | Done     | 2026-05-15     |
 | M2.7  | MCP preview/confirm description lint 契約   | Done     | 2026-05-15     |
 | M2.8  | 端到端驗收腳本                              | Pending  | -              |

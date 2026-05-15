@@ -49,6 +49,28 @@ data:
             annotations:
               summary: Cloudflare API throttling ratio above 0.5%
               runbook_url: https://0ops.tw/runbooks/cloudflare-throttled
+          - alert: TunnelConnectorsLow
+            expr: zeroops_cloudflare_tunnel_connectors_ready < 2
+            for: 5m
+            labels:
+              severity: critical
+              service: 0ops-backend
+              slo: tunnel_uptime
+            annotations:
+              summary: Cloudflare tunnel connectors ready below redundancy threshold
+              description: "Only {{ $value }} cloudflared connectors are ready; spec requires >= 2 of 3."
+              runbook_url: https://0ops.tw/runbooks/tunnel-connectors-low
+          - alert: TunnelDown
+            expr: zeroops_cloudflare_tunnel_connectors_ready == 0
+            for: 1m
+            labels:
+              severity: critical
+              service: 0ops-backend
+              slo: tunnel_uptime
+            annotations:
+              summary: Cloudflare tunnel has zero ready connectors
+              description: "All cloudflared connectors are unready; traffic to *.winshare.tw is broken."
+              runbook_url: https://0ops.tw/runbooks/tunnel-down
           - alert: UnknownFailureClassificationHigh
             expr: cluster:zeroops_unknown_failure_ratio:7d > 0.05
             for: 14d

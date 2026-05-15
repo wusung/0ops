@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace | quote }}
+  labels:
+    app.0ops.io/managed-by: 0ops
+    pod-security.kubernetes.io/enforce: {{ .Values.podSecurityLabels.enforce | quote }}
+    pod-security.kubernetes.io/warn: {{ .Values.podSecurityLabels.warn | quote }}

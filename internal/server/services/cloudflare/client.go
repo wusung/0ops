@@ -72,7 +72,10 @@ type dnsRecord struct {
 	TTL     int    `json:"ttl"`
 }
 
-var recordCloudflareMetric = func(string, string) {}
+var (
+	recordCloudflareMetric         = func(string, string) {}
+	recordCloudflareCallDurationFn = func(string, time.Duration) {}
+)
 
 // BindMetrics wires cloudflare operation metrics recorder.
 func BindMetrics(recorder func(op, outcome string)) {
@@ -81,6 +84,15 @@ func BindMetrics(recorder func(op, outcome string)) {
 		return
 	}
 	recordCloudflareMetric = recorder
+}
+
+// BindCallDurationMetric wires the cloudflare API call duration recorder.
+func BindCallDurationMetric(recorder func(op string, latency time.Duration)) {
+	if recorder == nil {
+		recordCloudflareCallDurationFn = func(string, time.Duration) {}
+		return
+	}
+	recordCloudflareCallDurationFn = recorder
 }
 
 // NewClient creates a new Cloudflare client.
@@ -226,7 +238,7 @@ func (c *Client) listDNSRecords(ctx context.Context, name string) ([]dnsRecord, 
 	query.Set("type", "CNAME")
 	query.Set("name", name)
 
-	body, err := c.request(ctx, http.MethodGet, fmt.Sprintf("/zones/%s/dns_records", c.config.ZoneID), query)
+	body, err := c.request(ctx, "dns_list", http.MethodGet, fmt.Sprintf("/zones/%s/dns_records", c.config.ZoneID), query)
 	if err != nil {
 		return nil, err
 	}
@@ -249,13 +261,16 @@ func (c *Client) listDNSRecords(ctx context.Context, name string) ([]dnsRecord, 
 	return envelope.Result, nil
 }
 
-func (c *Client) request(ctx context.Context, method, path string, query url.Values) ([]byte, error) {
+func (c *Client) request(ctx context.Context, op, method, path string, query url.Values) ([]byte, error) {
 	const maxAttempts = 5
 
 	endpoint := c.baseURL + path
 	if query != nil && len(query) > 0 {
 		endpoint += "?" + query.Encode()
 	}
+
+	started := time.Now()
+	defer func() { recordCloudflareCallDurationFn(op, time.Since(started)) }()
 
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {

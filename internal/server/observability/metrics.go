@@ -25,6 +25,8 @@ type Metrics struct {
 	deployRunLeadTime prometheus.Histogram
 	deployRunFailures *prometheus.CounterVec
 	cloudflareAPICall *prometheus.CounterVec
+	cloudflareAPIDur  *prometheus.HistogramVec
+	tunnelConnectors  prometheus.Gauge
 	domainVerify      *prometheus.CounterVec
 	reconPending      *prometheus.GaugeVec
 	createAppPreviews *prometheus.CounterVec
@@ -89,6 +91,15 @@ func NewMetrics() *Metrics {
 			Name: "zeroops_cloudflare_api_calls_total",
 			Help: "Cloudflare API calls by operation and outcome.",
 		}, []string{"op", "outcome"}),
+		cloudflareAPIDur: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "zeroops_cloudflare_api_call_duration_seconds",
+			Help:    "Cloudflare API call latency by operation.",
+			Buckets: prometheus.ExponentialBuckets(0.05, 2, 10),
+		}, []string{"op"}),
+		tunnelConnectors: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "zeroops_cloudflare_tunnel_connectors_ready",
+			Help: "Number of cloudflared tunnel connectors currently ready (0..N).",
+		}),
 		domainVerify: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "zeroops_domain_verify_attempts_total",
 			Help: "Domain verify attempts by outcome.",
@@ -119,6 +130,8 @@ func NewMetrics() *Metrics {
 		m.deployRunLeadTime,
 		m.deployRunFailures,
 		m.cloudflareAPICall,
+		m.cloudflareAPIDur,
+		m.tunnelConnectors,
 		m.domainVerify,
 		m.reconPending,
 		m.createAppPreviews,
@@ -237,6 +250,26 @@ func (m *Metrics) ObserveCloudflareAPICall(op, outcome string) {
 		outcome = "error"
 	}
 	m.cloudflareAPICall.WithLabelValues(op, outcome).Inc()
+}
+
+// ObserveCloudflareAPICallDuration records Cloudflare API call latency by op.
+func (m *Metrics) ObserveCloudflareAPICallDuration(op string, latency time.Duration) {
+	if op == "" {
+		op = "unknown"
+	}
+	if latency < 0 {
+		latency = 0
+	}
+	m.cloudflareAPIDur.WithLabelValues(op).Observe(latency.Seconds())
+}
+
+// SetCloudflareTunnelConnectorsReady sets current number of cloudflared
+// connectors reported ready (0..N). Populated by the tunnel reconciler.
+func (m *Metrics) SetCloudflareTunnelConnectorsReady(count float64) {
+	if count < 0 {
+		count = 0
+	}
+	m.tunnelConnectors.Set(count)
 }
 
 // ObserveDomainVerifyAttempt records domain verification attempts by outcome.

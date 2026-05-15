@@ -24,6 +24,8 @@ const (
 	ClassTooManyRequests Class = "too_many_requests"
 	// ClassInternal indicates an internal error.
 	ClassInternal Class = "internal"
+	// ClassUnavailable indicates an upstream/dependency outage.
+	ClassUnavailable Class = "unavailable"
 )
 
 // Error is the server error envelope source.
@@ -63,6 +65,8 @@ func Status(class Class) int {
 		return http.StatusTooManyRequests
 	case ClassInternal:
 		return http.StatusInternalServerError
+	case ClassUnavailable:
+		return http.StatusServiceUnavailable
 	default:
 		return http.StatusInternalServerError
 	}
