@@ -1,0 +1,73 @@
+# 0ops application Postgres chart — values
+# Spec：docs/features/postgres-ha-and-dr/spec.md
+#
+# Hard rules from spec § 16 enforced by templates / chart_test.go:
+#   #1 main + replica；不得 single
+#   #2 anti-affinity requiredDuringSchedulingIgnoredDuringExecution
+#   #3 archive_timeout ≤ 300s（RPO ≤ 5 min）
+#   #4 daily pg_dump CronJob
+#   #9 R2 bucket lifecycle 30d
+
+namespace: system-0ops
+
+image:
+  repository: docker.io/library/postgres
+  tag: "17-alpine"
+  pullPolicy: IfNotPresent
+
+main:
+  replicas: 1
+  storage:
+    size: 20Gi
+    storageClassName: local-path
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits:   { cpu: 2,    memory: 4Gi }
+
+replica:
+  replicas: 1
+  storage:
+    size: 20Gi
+    storageClassName: local-path
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits:   { cpu: 2,    memory: 4Gi }
+
+# postgresql.conf knobs (spec § 4.4)
+postgresql:
+  walLevel: replica
+  maxWalSenders: 5
+  walKeepSize: "1GB"
+  archiveMode: "on"
+  # Hard rule #3：archive_timeout 必 ≤ 300s
+  archiveTimeoutSeconds: 300
+  hotStandby: "on"
+  # Hard rule from § 4.4：async replication，RPO 5 min
+  synchronousCommit: "off"
+  maxConnections: 100
+
+# WAL archive 推 R2（spec § 6）
+walArchive:
+  bucket: "0ops-pg-wal"
+  prefix: "prod/main/wal"
+  endpoint: "https://example.r2.cloudflarestorage.com"
+  # 必設 lifecycle 30 天保留（hard rule #9）
+  retentionDays: 30
+  credentialsSecret: "r2-backup-credentials"
+
+# Daily pg_dump（spec § 7；hard rule #4）
+pgDump:
+  schedule: "0 18 * * *"  # UTC 18:00 = TST 02:00（hard rule #4 spec § 7.1）
+  bucket: "0ops-pg-dump"
+  prefix: "prod"
+  endpoint: "https://example.r2.cloudflarestorage.com"
+  retentionDays: 30
+  credentialsSecret: "r2-backup-credentials"
+  resources:
+    requests: { cpu: 200m, memory: 512Mi }
+    limits:   { cpu: 1,    memory: 2Gi }
+
+# Credentials for application user / replication / dump
+auth:
+  credentialsSecret: "postgres-app-credentials"
+  database: "ops"

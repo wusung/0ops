@@ -7,9 +7,10 @@ VERSION ?= dev
 LDFLAGS := -s -w -X github.com/winshare/zeroops/internal/shared.Version=$(VERSION)
 SQLC_IMAGE ?= docker.io/sqlc/sqlc:1.31.1
 
-.PHONY: help dev dev-down dev-clean dev-logs dev-shell migrate migrate-down \
+.PHONY: help dev dev-down dev-clean dev-logs dev-shell migrate migrate-down migrate-lint \
         build-images lint-compose lint-docker lint-go lint-prom-rules test contract-test build tidy sqlc \
         m2-2-e2e-validation m2-2-check m2-6-promtool m2-8-e2e-acceptance m2-8-check \
+        m5-4-pitr-drill \
         task-list task-next task-run-all task-run task-rerun task-runner-test
 
 help:
@@ -39,6 +40,9 @@ migrate: ## 套用 migration up（idempotent）
 
 migrate-down: ## 回滾一格
 	podman compose run --rm migrate down
+
+migrate-lint: ## 跑 spec § 10.1 migration 安全閘（CONCURRENTLY、ADD COLUMN NOT NULL 三步拆分）
+	go test ./internal/server/db/migrationlint/...
 
 ## --- build ---
 
@@ -99,6 +103,11 @@ m2-8-e2e-acceptance: ## 跑 M2.8 端到端驗收腳本（預設 mode=local；E2E
 .PHONY: m2-8-check
 m2-8-check: lint-go test ## M2.8 程式檢查（lint + 單元/契約測試）
 	@echo "✓ M2.8 code checks passed"
+
+## --- M5.4 PITR drill ---
+
+m5-4-pitr-drill: ## 跑 local PITR drill（podman compose；spec § 8.3 + § 16 hard rule #5）
+	@bash deploy/postgres/scripts/pitr-drill.sh
 
 sqlc: ## 產生 sqlc 程式碼
 	podman run --rm --userns=keep-id -v $(CURDIR):/src -w /src $(SQLC_IMAGE) generate

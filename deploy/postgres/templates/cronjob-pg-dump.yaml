@@ -1,0 +1,75 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-daily-dump
+  namespace: {{ .Values.namespace | quote }}
+  labels:
+    app.0ops.io/managed-by: 0ops
+spec:
+  # Hard rule #4：daily pg_dump CronJob 必跑（spec § 7.1）
+  schedule: {{ .Values.pgDump.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 7
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsUser: 999
+            runAsGroup: 999
+            fsGroup: 999
+          containers:
+            - name: dumper
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["/bin/sh", "/scripts/pg-dump.sh"]
+              env:
+                - name: PGHOST
+                  value: postgres-main.{{ .Values.namespace }}.svc.cluster.local
+                - name: PGPORT
+                  value: "5432"
+                - name: PGDATABASE
+                  value: {{ .Values.auth.database | quote }}
+                - name: PGUSER
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.auth.credentialsSecret | quote }}
+                      key: dump_user
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.auth.credentialsSecret | quote }}
+                      key: dump_password
+                - name: DUMP_S3_BUCKET
+                  value: {{ .Values.pgDump.bucket | quote }}
+                - name: DUMP_S3_PREFIX
+                  value: {{ .Values.pgDump.prefix | quote }}
+                - name: DUMP_S3_ENDPOINT
+                  value: {{ .Values.pgDump.endpoint | quote }}
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.pgDump.credentialsSecret | quote }}
+                      key: access_key_id
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.pgDump.credentialsSecret | quote }}
+                      key: secret_access_key
+              volumeMounts:
+                - { name: scripts, mountPath: /scripts }
+              resources:
+                requests:
+                  cpu: {{ .Values.pgDump.resources.requests.cpu | quote }}
+                  memory: {{ .Values.pgDump.resources.requests.memory | quote }}
+                limits:
+                  cpu: {{ .Values.pgDump.resources.limits.cpu | quote }}
+                  memory: {{ .Values.pgDump.resources.limits.memory | quote }}
+          volumes:
+            - name: scripts
+              configMap:
+                name: postgres-scripts
+                defaultMode: 0755

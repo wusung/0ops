@@ -40,6 +40,13 @@ func main() {
 	}
 	defer pool.Close()
 
+	// Spec § 16 hard rule #10 — refuse to serve traffic if DATABASE_URL
+	// resolved to the read-only replica instead of postgres-main.
+	if err := db.EnsurePrimary(context.Background(), db.PoolProbe{Pool: pool}); err != nil {
+		logger.Error("postgres primary check failed", "err", err)
+		os.Exit(1)
+	}
+
 	repo := db.NewRepository(pool)
 	appserver.BindCreateAppMetrics(metrics.ObserveCreateAppPreview, metrics.ObserveCreateAppConfirm)
 	appserver.BindPlatformMetrics(
