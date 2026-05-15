@@ -401,11 +401,11 @@
 6. 基本 audit log 與 failure trace 可回看。
 
 ### 待決事項（TBD）
-- [ ] 公司法律主體
-- [ ] 領投人選與時程
-- [ ] Open source 範圍（v1 全閉源 → v2 部分開源 vs v1 即 OSS core）
-- [ ] 商業 managed cloud 上線時程（建議與 v2 Web UI 同步）
-- [ ] 對 AI CLI 廠商的合作 outreach 順序
+- 公司法律主體
+- 領投人選與時程
+- Open source 範圍（v1 全閉源 → v2 部分開源 vs v1 即 OSS core）
+- 商業 managed cloud 上線時程（建議與 v2 Web UI 同步）
+- 對 AI CLI 廠商的合作 outreach 順序
 
 ---
 

@@ -30,11 +30,11 @@
 ---
 
 ## TBD（執行前需 user 確認）
-- [ ] Repo 主機位置（自建 git server、GitHub org、其他）
-- [ ] **Copilot CLI / Codex CLI 與官方 Go SDK 相容性矩陣**：M0 spike 驗證 tool registry、preview/confirm、streaming fallback
-- [ ] **Copilot CLI 是否原生支援 MCP**（影響 skill pack 形式：MCP 共用 / 退路 wrap CLI）
-- [ ] **Codex / Copilot skill metadata 精確格式**（v1 起手時驗證）
-- [ ] Backend 是否需要 SSE → MCP streaming（官方 Go SDK 若支援不足，則改分頁拉取）
+- Repo 主機位置（自建 git server、GitHub org、其他）
+- **Copilot CLI / Codex CLI 與官方 Go SDK 相容性矩陣**：M0 spike 驗證 tool registry、preview/confirm、streaming fallback
+- **Copilot CLI 是否原生支援 MCP**（影響 skill pack 形式：MCP 共用 / 退路 wrap CLI）
+- **Codex / Copilot skill metadata 精確格式**（v1 起手時驗證）
+- Backend 是否需要 SSE → MCP streaming（官方 Go SDK 若支援不足，則改分頁拉取）
 > 已從 TBD 移除（上游已決議）：
 > - 專案名稱：`0ops`（agents-guide §2、dev-environment spec）
 > - Module path：`github.com/winshare/zeroops`（agents-guide §3.2）
