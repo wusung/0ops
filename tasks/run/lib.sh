@@ -212,21 +212,33 @@ git_changed_paths_vs_main() {
   } | sort -u
 }
 
-# Mark a task Failed in main + commit a chore record. Run from any cwd.
-mark_task_failed() {
+# Flip a task's Status cell in TASK_STATUS_FILE. No git side effects.
+# Regex anchors only through the closing `|` of the Status column, so trailing
+# columns (e.g. Completed Date) are left untouched.
+flip_task_status() {
   local task_id="$1"
-  local main_status="$TASK_REPO_ROOT/tasks/task-status.md"
-  python3 - "$main_status" "$task_id" <<'PY'
+  local new_status="$2"
+  python3 - "$TASK_STATUS_FILE" "$task_id" "$new_status" <<'PY'
 import re, sys, pathlib
 path = pathlib.Path(sys.argv[1])
 task_id = sys.argv[2]
+new_status = sys.argv[3]
 text = path.read_text()
-pat = re.compile(rf'^(\|\s*{re.escape(task_id)}\s*\|[^|]*\|\s*)(Pending|Done|Failed)(\s*\|)$', re.M)
-new_text, n = pat.subn(rf'\1Failed\3', text)
+pat = re.compile(
+    rf'^(\|\s*{re.escape(task_id)}\s*\|[^|]*\|\s*)(Pending|Done|Failed)(\s*\|)',
+    re.M,
+)
+new_text, n = pat.subn(rf'\g<1>{new_status}\g<3>', text)
 if n != 1:
-    sys.exit(f"could not flip {task_id} to Failed (matches={n})")
+    sys.exit(f"could not flip {task_id} to {new_status} (matches={n})")
 path.write_text(new_text)
 PY
+}
+
+# Mark a task Failed in main + commit a chore record. Run from any cwd.
+mark_task_failed() {
+  local task_id="$1"
+  flip_task_status "$task_id" "Failed"
   ( cd "$TASK_REPO_ROOT" \
     && git add tasks/task-status.md \
     && git -c commit.gpgsign=false commit -m "chore(task-runner): mark $task_id failed" )
