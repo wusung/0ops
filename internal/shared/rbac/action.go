@@ -19,7 +19,8 @@ const (
 	ActionRemoveMembers Action = "remove_members"
 	// ActionManageTokens requires admin access to manage tokens.
 	ActionManageTokens Action = "manage_tokens"
-	// ActionManageGithubApp requires admin access to manage GitHub App.
+	// ActionManageGithubApp requires owner role to install or uninstall the
+	// GitHub App for a team (github-app-install-flow spec § 14 hard rule #2).
 	ActionManageGithubApp Action = "manage_github_app"
 )
 
@@ -47,7 +48,7 @@ func RequiredFor(action Action) Requirement {
 	case ActionManageTokens:
 		return Requirement{MinRole: RoleAdmin, RequiredScope: ScopeMembersManage}
 	case ActionManageGithubApp:
-		return Requirement{MinRole: RoleAdmin, RequiredScope: ScopeMembersManage}
+		return Requirement{MinRole: RoleOwner, RequiredScope: ScopeMembersManage}
 	default:
 		return Requirement{}
 	}

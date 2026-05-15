@@ -265,6 +265,30 @@
 - [x] MCP `create_app_preview` / `create_app` description lint 合規
 - [x] CLI 與 MCP 都各跑過一次端到端驗收（harness 落地於 `tasks/m2-8-e2e-acceptance.sh`，2026-05-15；production smoke 待 M2.5 rollout）
 
+## M3 — install / domain verify backlog
+
+### M3.2 — GitHub App install/uninstall 流程（2026-05-15）
+
+> 對應 spec：`docs/features/github-app-install-flow/spec.md`
+> 對應 task：`tasks/task-list.md` row M3.2
+> 對應 paths：`internal/server/services/githubapp/**`
+
+- [x] preview/confirm 兩階段 install action（service `PreviewInstall` / `ConfirmInstall`，last_result idempotent replay）
+- [x] preview/confirm 兩階段 uninstall action（service `PreviewUninstall` / `ConfirmUninstall`，GitHub DELETE → 清 install_id → app paused → token cache invalidate）
+- [x] `state` HMAC 簽/驗 10 分鐘 TTL；callback handler 驗 HMAC + actor 仍為 owner + preview 已 consumed
+- [x] `/v1/auth/github/install-callback` 真正 update `team.github_install_id`，302 redirect 至 success page
+- [x] `/v1/webhooks/github` `installation` event (`created/deleted/suspend/unsuspend/new_permissions_accepted`) 與 dedup via `webhook_dedup`
+- [x] `/v1/teams/{slug}/github/install-status` 提供 CLI polling
+- [x] Installation token cache（per-pod，`TokenProvider`）；uninstall 與 webhook `deleted` 走 `Invalidate`
+- [x] RBAC：`ActionManageGithubApp` 升級為 `RoleOwner`，admin 級被拒絕；spec § 14 hard rule #2
+- [x] migration `00004_team_github_install_index.sql` 新增 partial index on `team(github_install_id)`
+- [x] CLI：`0ops teams github install / uninstall / status` 兩階段流程 + 10 分鐘 status polling
+- [x] MCP：`install_github_app_preview` / `install_github_app` / `uninstall_github_app_preview` / `uninstall_github_app`，全數滿足 R1/R2/R3 lint 規則（`internal/mcp/server/lint_test.go` 涵蓋）
+- [x] 高風險區測試：state HMAC tampering / cross-actor preview / role downgrade between confirm and callback / install URL idempotent replay / uninstall GitHub failure 不清 binding / webhook 簽章拒絕 / webhook dedup not re-acting (`internal/server/services/githubapp/service_test.go` + `internal/server/github_handlers_test.go`)
+- [x] `make test` 通過
+
+**Out of scope / 風險回報**：M3.2 不修 `migrations/00003_*.sql` 兩支同版本檔造成的 goose duplicate version panic（屬 M2 遺留問題；只有 image 重建時觸發）。本任務的 migration `00004` 已透過 podman compose db 容器手動 apply 驗證正確 (`team_github_install_id_idx` 建立成功)。建議另起任務改 rename 其中一支 `00003` → `00004`，本任務的 index 順延為 `00005`。
+
 ## Milestone Supporting Work
 
 ### docs/features 覆蓋補齊（追蹤缺漏項）
@@ -275,7 +299,7 @@
 - [ ] `docs/features/backend-ha-leader-election/spec.md`
 - [ ] `docs/features/custom-domain-and-verify/spec.md`
 - [ ] `docs/features/delete-app-flow/spec.md`
-- [ ] `docs/features/github-app-install-flow/spec.md`
+- [x] `docs/features/github-app-install-flow/spec.md`
 - [ ] `docs/features/mcp-tool-permissions/spec.md`
 - [ ] `docs/features/postgres-ha-and-dr/spec.md`
 - [ ] `docs/features/rate-limit-and-abuse/spec.md`

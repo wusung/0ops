@@ -66,6 +66,10 @@ type appsStore interface {
 	DeleteAppByID(ctx context.Context, appID string) error
 	RegisterWebhookDelivery(ctx context.Context, provider, deliveryID string) (bool, error)
 	ApplyDeployCallback(ctx context.Context, params db.DeployCallbackParams) error
+	GetTeamByID(ctx context.Context, teamID string) (db.Team, error)
+	FindTeamByGitHubInstallID(ctx context.Context, installID int64) (db.Team, error)
+	SetTeamGitHubInstall(ctx context.Context, teamID, actorUserID string, installID *int64, action string, args map[string]any, result map[string]any) error
+	PauseTeamApps(ctx context.Context, teamID string) (int64, error)
 }
 
 // infraK3sClient provides K3s namespace management operations.
@@ -1182,108 +1186,6 @@ func logoutHandler(store appsStore) http.HandlerFunc {
 	}
 }
 
-func previewGitHubInstallHandler(_ appsStore) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		teamID := auth.TeamID(r.Context())
-		if teamID == "" {
-			apperror.Write(w, "missing_team", apperror.ClassBadRequest, "team_id missing", nil)
-			return
-		}
-
-		previewID, _ := base64.URLEncoding.DecodeString(
-			base64.URLEncoding.EncodeToString([]byte(fmt.Sprintf("%d_%d", time.Now().Unix(), len(teamID)))),
-		)
-
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"preview_id": fmt.Sprintf("%x", previewID),
-			"expires_at": time.Now().Add(10 * time.Minute).UTC(),
-		})
-	}
-}
-
-func confirmGitHubInstallHandler(_ appsStore) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		teamID := auth.TeamID(r.Context())
-		if teamID == "" {
-			apperror.Write(w, "missing_team", apperror.ClassBadRequest, "team_id missing", nil)
-			return
-		}
-
-		githubAppURL := "https://github.com/apps/0ops"
-		// TODO: Generate proper state HMAC via StateSigner
-		state := fmt.Sprintf("team_%s_state", teamID)
-
-		installURL := fmt.Sprintf(
-			"%s/installations/new?state=%s",
-			githubAppURL,
-			base64.URLEncoding.EncodeToString([]byte(state)),
-		)
-
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"install_url": installURL,
-		})
-	}
-}
-
-func githubInstallCallbackHandler(_ appsStore) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// GitHub calls this with:
-		// ?code=<installation_id>&state=<state_token>&setup_action=install
-		if err := r.ParseForm(); err != nil {
-			apperror.Write(w, "invalid_request", apperror.ClassBadRequest, "parse form failed", nil)
-			return
-		}
-
-		installationID := r.FormValue("code")
-		state := r.FormValue("state")
-		setupAction := r.FormValue("setup_action")
-
-		if installationID == "" || state == "" {
-			apperror.Write(w, "missing_params", apperror.ClassBadRequest, "code or state missing", nil)
-			return
-		}
-
-		if setupAction != "install" {
-			// Redirect without error for uninstall (handled by webhook)
-			w.Header().Set("Location", "https://github.com/")
-			w.WriteHeader(http.StatusFound)
-			return
-		}
-
-		// TODO: Decode state and verify HMAC signature
-		// TODO: UPDATE team SET github_install_id
-		// TODO: Mark preview as consumed
-
-		// For now, just return confirmation
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"status": "confirmed",
-		})
-	}
-}
-
-func uninstallGitHubAppHandler(_ appsStore) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		teamID := auth.TeamID(r.Context())
-		if teamID == "" {
-			apperror.Write(w, "missing_team", apperror.ClassBadRequest, "team_id missing", nil)
-			return
-		}
-
-		// TODO: UPDATE team SET github_install_id = NULL
-		// TODO: Write audit log
-		// TODO: Mark old installation as deprecated
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"status": "uninstalled",
-		})
-	}
-}
 
 // NewRouter returns the HTTP router for the server.
 func NewRouter(store routerStore) http.Handler {
@@ -1306,6 +1208,7 @@ func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient,
 	}
 
 	mw := auth.NewMiddleware(store)
+	githubSvc, githubWebhookVer := githubServiceFactoryFn(store)
 
 	r := chi.NewRouter()
 	r.Post("/v1/admin/bootstrap-owner", bootstrapOwnerHandler(store))
@@ -1314,9 +1217,10 @@ func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient,
 		sr.Post("/device/start", startDeviceLoginHandler(store, githubClient))
 		sr.Post("/device/callback", callbackDeviceLoginHandler(store))
 		sr.Post("/device/poll", pollDeviceLoginHandler(store, githubClient))
-		sr.Post("/github/install-callback", githubInstallCallbackHandler(store))
+		sr.Get("/github/install-callback", githubInstallCallbackV2Handler(githubSvc))
 		sr.With(mw.Bearer).Post("/logout", logoutHandler(store))
 	})
+	r.Post("/v1/webhooks/github", githubInstallationWebhookHandler(githubSvc, githubWebhookVer))
 
 	// Tool authorization endpoint (requires temporary token)
 	r.Post("/v1/teams/{team_slug}/auth:grant-tools", authorizeToolsHandler(store))
@@ -1386,13 +1290,19 @@ func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient,
 		}).Post("/members:remove", removeHandler(store))
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionManageGithubApp, next)
-		}).Post("/github:preview-install", previewGitHubInstallHandler(store))
+		}).Post("/github:preview-install", previewGitHubInstallV2Handler(githubSvc))
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionManageGithubApp, next)
-		}).Post("/github:install", confirmGitHubInstallHandler(store))
+		}).Post("/github:install", confirmGitHubInstallV2Handler(githubSvc))
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionManageGithubApp, next)
-		}).Post("/github:uninstall", uninstallGitHubAppHandler(store))
+		}).Post("/github:preview-uninstall", previewGitHubUninstallHandler(githubSvc))
+		sr.With(func(next http.Handler) http.Handler {
+			return mw.CheckTokenScope(rbac.ActionManageGithubApp, next)
+		}).Post("/github:uninstall", confirmGitHubUninstallHandler(githubSvc))
+		sr.With(func(next http.Handler) http.Handler {
+			return mw.CheckTokenScope(rbac.ActionListMembers, next)
+		}).Get("/github/install-status", githubInstallStatusHandler(githubSvc))
 	})
 
 	return r

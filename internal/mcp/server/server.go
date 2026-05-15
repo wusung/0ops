@@ -118,6 +118,24 @@ type removeMemberInput struct {
 	PreviewID string `json:"preview_id"`
 }
 
+type installGitHubAppPreviewInput struct {
+	TeamSlug string `json:"team_slug"`
+}
+
+type installGitHubAppInput struct {
+	TeamSlug  string `json:"team_slug"`
+	PreviewID string `json:"preview_id"`
+}
+
+type uninstallGitHubAppPreviewInput struct {
+	TeamSlug string `json:"team_slug"`
+}
+
+type uninstallGitHubAppInput struct {
+	TeamSlug  string `json:"team_slug"`
+	PreviewID string `json:"preview_id"`
+}
+
 func registerTools(srv *mcp.Server, reg *appmcp.Registry) {
 	appmcp.AddTool(srv, reg, &mcp.Tool{
 		Name:        "list_teams",
@@ -388,6 +406,78 @@ func registerTools(srv *mcp.Server, reg *appmcp.Registry) {
 			return nil, nil, err
 		}
 		return nil, map[string]string{"status": "removed"}, nil
+	})
+
+	appmcp.AddTool(srv, reg, &mcp.Tool{
+		Name:        "install_github_app_preview",
+		Description: "ALWAYS call this BEFORE install_github_app. Returns a PlanPreview (action_summary, side_effects, expires_at) describing the GitHub App install flow. Show the user the action_summary and the FULL side_effects list, then obtain explicit approval before calling install_github_app with the returned preview_id.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input installGitHubAppPreviewInput) (*mcp.CallToolResult, dto.PreviewResponse, error) {
+		if input.TeamSlug == "" {
+			return nil, dto.PreviewResponse{}, fmt.Errorf("team_slug is required")
+		}
+		host, token, err := resolveBackendAuth()
+		if err != nil {
+			return nil, dto.PreviewResponse{}, err
+		}
+		out, err := backendclient.New(host, token).PreviewGitHubInstall(ctx, input.TeamSlug)
+		if err != nil {
+			return nil, dto.PreviewResponse{}, err
+		}
+		return nil, out, nil
+	})
+
+	appmcp.AddTool(srv, reg, &mcp.Tool{
+		Name:        "install_github_app",
+		Description: "Confirm a GitHub App install using a preview_id returned by install_github_app_preview. Returns an install_url the user must visit in a browser to complete the GitHub OAuth step. Idempotent on the same preview_id. NEVER call this tool without a fresh, user-approved preview_id; the backend will reject otherwise.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input installGitHubAppInput) (*mcp.CallToolResult, dto.GitHubInstallResponse, error) {
+		if input.TeamSlug == "" || input.PreviewID == "" {
+			return nil, dto.GitHubInstallResponse{}, fmt.Errorf("team_slug and preview_id are required")
+		}
+		host, token, err := resolveBackendAuth()
+		if err != nil {
+			return nil, dto.GitHubInstallResponse{}, err
+		}
+		out, err := backendclient.New(host, token).ConfirmGitHubInstall(ctx, input.TeamSlug, input.PreviewID)
+		if err != nil {
+			return nil, dto.GitHubInstallResponse{}, err
+		}
+		return nil, out, nil
+	})
+
+	appmcp.AddTool(srv, reg, &mcp.Tool{
+		Name:        "uninstall_github_app_preview",
+		Description: "ALWAYS call this BEFORE uninstall_github_app. Returns a PlanPreview (action_summary, side_effects, expires_at) describing the GitHub App uninstall: the installation is deleted server-side and every team app is paused. Show the user the action_summary and the FULL side_effects list, then obtain explicit approval before calling uninstall_github_app with the returned preview_id.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input uninstallGitHubAppPreviewInput) (*mcp.CallToolResult, dto.PreviewResponse, error) {
+		if input.TeamSlug == "" {
+			return nil, dto.PreviewResponse{}, fmt.Errorf("team_slug is required")
+		}
+		host, token, err := resolveBackendAuth()
+		if err != nil {
+			return nil, dto.PreviewResponse{}, err
+		}
+		out, err := backendclient.New(host, token).PreviewGitHubUninstall(ctx, input.TeamSlug)
+		if err != nil {
+			return nil, dto.PreviewResponse{}, err
+		}
+		return nil, out, nil
+	})
+
+	appmcp.AddTool(srv, reg, &mcp.Tool{
+		Name:        "uninstall_github_app",
+		Description: "Confirm a GitHub App uninstall using a preview_id returned by uninstall_github_app_preview. Idempotent on the same preview_id. NEVER call this tool without a fresh, user-approved preview_id; the backend will reject otherwise.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input uninstallGitHubAppInput) (*mcp.CallToolResult, dto.GitHubUninstallResponse, error) {
+		if input.TeamSlug == "" || input.PreviewID == "" {
+			return nil, dto.GitHubUninstallResponse{}, fmt.Errorf("team_slug and preview_id are required")
+		}
+		host, token, err := resolveBackendAuth()
+		if err != nil {
+			return nil, dto.GitHubUninstallResponse{}, err
+		}
+		out, err := backendclient.New(host, token).ConfirmGitHubUninstall(ctx, input.TeamSlug, input.PreviewID)
+		if err != nil {
+			return nil, dto.GitHubUninstallResponse{}, err
+		}
+		return nil, out, nil
 	})
 }
 

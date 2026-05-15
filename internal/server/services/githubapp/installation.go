@@ -76,3 +76,38 @@ func (c *InstallationTokenClient) GetAccessToken(ctx context.Context, installID 
 
 	return result, nil
 }
+
+// DeleteInstallation removes the installation server-side via the GitHub API
+// (uninstall-flow spec § 5.1). HTTP 204 / 404 are treated as success because
+// the user-controlled installation may already be gone.
+func (c *InstallationTokenClient) DeleteInstallation(ctx context.Context, installID int64) error {
+	if c.signer == nil {
+		return ErrMissingPrivateKey
+	}
+
+	appJWT, err := c.signer.Sign(10 * time.Minute)
+	if err != nil {
+		return fmt.Errorf("sign app jwt: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/app/installations/%d", c.apiBaseURL, installID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+appJWT)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "0ops-server")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	body, _ := io.ReadAll(resp.Body)
+	return fmt.Errorf("github api %d: %s", resp.StatusCode, string(body))
+}
