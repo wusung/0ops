@@ -13,11 +13,11 @@ import (
 
 // mockK3sClient implements infraK3sClient for testing.
 type mockK3sClient struct {
-	ensureNamespaceCalled bool
+	ensureTeamIsolationCalled bool
 }
 
-func (m *mockK3sClient) EnsureNamespace(_ context.Context, _, _, _ string) (string, error) {
-	m.ensureNamespaceCalled = true
+func (m *mockK3sClient) EnsureTeamIsolation(_ context.Context, _, _, _ string) (string, error) {
+	m.ensureTeamIsolationCalled = true
 	return "team-test", nil
 }
 

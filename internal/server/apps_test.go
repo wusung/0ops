@@ -74,7 +74,7 @@ func (f fakeArgoCDStatusProvider) GetApplicationStatus(context.Context, string, 
 	return f.status, nil
 }
 
-func (f *fakeInfraK3sArgoClient) EnsureNamespace(_ context.Context, _, _, _ string) (string, error) {
+func (f *fakeInfraK3sArgoClient) EnsureTeamIsolation(_ context.Context, _, _, _ string) (string, error) {
 	return "team-test", nil
 }
 

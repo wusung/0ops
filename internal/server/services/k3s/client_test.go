@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"testing"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	k8stesting "k8s.io/client-go/testing"
+
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 )
 
@@ -69,6 +73,12 @@ func TestEnsureNamespaceCreatesTeamNamespace(t *testing.T) {
 	labels := obj.GetLabels()
 	if labels["app.0ops.io/team-slug"] != "acme" || labels["app.0ops.io/plan"] != "free" || labels["app.0ops.io/team-id"] != "team-1" {
 		t.Fatalf("namespace labels = %#v", labels)
+	}
+	// Spec § 4.2 + hard rule #4: PSA labels must be set at namespace creation.
+	if labels["pod-security.kubernetes.io/enforce"] != "baseline" ||
+		labels["pod-security.kubernetes.io/warn"] != "restricted" ||
+		labels["pod-security.kubernetes.io/audit"] != "restricted" {
+		t.Fatalf("PSA labels missing at creation: %#v", labels)
 	}
 }
 
@@ -142,6 +152,88 @@ func TestPatchNamespacePSAAddsLabels(t *testing.T) {
 		labels["pod-security.kubernetes.io/warn"] != "restricted" ||
 		labels["pod-security.kubernetes.io/audit"] != "restricted" {
 		t.Fatalf("PSA labels = %#v", labels)
+	}
+}
+
+func TestEnsureTeamIsolationProvisionsAllPrimitives(t *testing.T) {
+	client := newFakeClient()
+
+	namespace, err := client.EnsureTeamIsolation(context.Background(), "team-1", "acme", "free")
+	if err != nil {
+		t.Fatalf("EnsureTeamIsolation() error = %v", err)
+	}
+	if namespace != "team-acme" {
+		t.Fatalf("EnsureTeamIsolation() namespace = %q, want team-acme", namespace)
+	}
+
+	ns, err := client.dynamicClient.Resource(testNamespacesGVR).Get(context.Background(), "team-acme", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Get namespace error = %v", err)
+	}
+	if ns.GetLabels()["pod-security.kubernetes.io/enforce"] != "baseline" {
+		t.Fatalf("PSA enforce missing on namespace: %#v", ns.GetLabels())
+	}
+	if _, err := client.dynamicClient.Resource(testQuotaGVR).Namespace("team-acme").Get(context.Background(), "default", metav1.GetOptions{}); err != nil {
+		t.Fatalf("ResourceQuota missing after EnsureTeamIsolation: %v", err)
+	}
+	if _, err := client.dynamicClient.Resource(testLimitRangeGVR).Namespace("team-acme").Get(context.Background(), "default", metav1.GetOptions{}); err != nil {
+		t.Fatalf("LimitRange missing after EnsureTeamIsolation: %v", err)
+	}
+	if _, err := client.dynamicClient.Resource(testPolicyGVR).Namespace("team-acme").Get(context.Background(), "default-deny-ingress", metav1.GetOptions{}); err != nil {
+		t.Fatalf("Ingress NetworkPolicy missing: %v", err)
+	}
+	if _, err := client.dynamicClient.Resource(testPolicyGVR).Namespace("team-acme").Get(context.Background(), "default-egress", metav1.GetOptions{}); err != nil {
+		t.Fatalf("Egress NetworkPolicy missing: %v", err)
+	}
+}
+
+func TestEnsureTeamIsolationIsIdempotent(t *testing.T) {
+	client := newFakeClient()
+	if _, err := client.EnsureTeamIsolation(context.Background(), "team-1", "acme", "starter"); err != nil {
+		t.Fatalf("first EnsureTeamIsolation: %v", err)
+	}
+	if _, err := client.EnsureTeamIsolation(context.Background(), "team-1", "acme", "starter"); err != nil {
+		t.Fatalf("second EnsureTeamIsolation: %v", err)
+	}
+}
+
+func TestEnsureTeamIsolationRollsBackNamespaceWhenQuotaFails(t *testing.T) {
+	client := newFakeClient()
+	tracker := client.dynamicClient.(*dynamicfake.FakeDynamicClient).Tracker()
+	sentinel := errors.New("quota apply failed")
+	fake := client.dynamicClient.(*dynamicfake.FakeDynamicClient)
+	fake.PrependReactor("create", "resourcequotas", func(_ k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, sentinel
+	})
+
+	_, err := client.EnsureTeamIsolation(context.Background(), "team-1", "acme", "free")
+	if err == nil {
+		t.Fatal("expected EnsureTeamIsolation to fail when quota apply fails")
+	}
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("error chain missing sentinel: %v", err)
+	}
+
+	_, getErr := tracker.Get(testNamespacesGVR, "", "team-acme")
+	if getErr == nil {
+		t.Fatal("expected namespace to be rolled back when quota apply fails")
+	}
+	if !apierrors.IsNotFound(getErr) {
+		t.Fatalf("expected NotFound after rollback, got %v", getErr)
+	}
+}
+
+func TestEnsureTeamIsolationDisabledIsNoOp(t *testing.T) {
+	client, err := NewClient(&Config{DisableNamespaceIsolation: true})
+	if err != nil {
+		t.Fatalf("NewClient(): %v", err)
+	}
+	ns, err := client.EnsureTeamIsolation(context.Background(), "team-1", "acme", "free")
+	if err != nil {
+		t.Fatalf("EnsureTeamIsolation() error = %v", err)
+	}
+	if ns != "team-acme" {
+		t.Fatalf("ns = %q, want team-acme", ns)
 	}
 }
 

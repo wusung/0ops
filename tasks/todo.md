@@ -142,19 +142,21 @@
     - git push failure → compensate
     - sync status transition test
 
-- [ ] **M2.4 K3s namespace isolation 最小可用版**
-  - 把 `internal/server/services/k3s/client.go` 從 no-op 改為真 client
+- [x] **M2.4 K3s namespace isolation 最小可用版**（2026-05-15）
+  - `internal/server/services/k3s/client.go` 為真 dynamic client，非 no-op
   - 落地：
-    - `EnsureNamespace`
-    - `EnsureResourceQuota`
+    - `EnsureNamespace`（PSA label 隨 namespace 同 transaction 套用，spec § 4.2 + 硬性規則 #4）
+    - `EnsureResourceQuota`（依 plan tier，spec § 5.1）
     - `EnsureLimitRange`
-    - `EnsureNetworkPolicy`
-    - `PatchNamespacePSA`
-    - `PatchGHCRImagePullSecret`
+    - `EnsureNetworkPolicy`（ingress + egress 預設拒跨 team）
+    - `PatchNamespacePSA`（reconciler 用，現場補救殘缺 PSA）
+    - `PatchGHCRImagePullSecret`（method 就緒；token 簽發等 M3.2 wire `github_install_id`）
+    - `EnsureTeamIsolation`（atomic orchestration：NS + RQ + LR + NP；任一失敗則 `DeleteNamespace` 回滾，spec § 15 硬性規則 #3）
+  - `internal/server/services/createapp/service.go` saga 改呼叫 `EnsureTeamIsolation`，K3s 失敗會 rollback `CreateApp`
   - 對齊 `docs/features/k3s-namespace-isolation/spec.md`
   - 驗收證據：
-    - `team-<slug>` namespace 存在
-    - ResourceQuota / LimitRange / NetworkPolicy / PSA label 皆可 `kubectl get` 驗證
+    - `internal/server/services/k3s/client_test.go` 使用 `dynamicfake.NewSimpleDynamicClient` 模擬 `kubectl get`：team-acme namespace、PSA labels、ResourceQuota (plan tier 值)、LimitRange、NetworkPolicy (ingress/egress) 皆存在；rollback 路徑驗證任一 sub-step 失敗時 namespace 被 `DeleteNamespace` 回收
+    - saga test `TestConfirmRollsBackAppWhenK3sIsolationFails` 證明 isolation 失敗 → app row 回滾、preview 不被 consume
 
 - [ ] **M2.5 winshare 子網域真實路由**
   - 補 Cloudflare / tunnel route 整合，不可只回傳字串 URL

@@ -69,8 +69,11 @@ type appsStore interface {
 }
 
 // infraK3sClient provides K3s namespace management operations.
+// EnsureTeamIsolation is the atomic provisioning entry point used by the
+// create_app saga; the secondary methods remain for reconciler / integration
+// callers that need targeted re-application (e.g. plan-tier upgrade).
 type infraK3sClient interface {
-	EnsureNamespace(ctx context.Context, teamID, teamSlug, planTier string) (string, error)
+	EnsureTeamIsolation(ctx context.Context, teamID, teamSlug, planTier string) (string, error)
 	EnsureResourceQuota(ctx context.Context, namespace, planTier string) error
 	EnsureLimitRange(ctx context.Context, namespace string) error
 	EnsureNetworkPolicy(ctx context.Context, namespace string) error
