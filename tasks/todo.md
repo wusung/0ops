@@ -302,6 +302,40 @@
 
 **Out of scope / 風險回報**：M4.1 不修 `migrations/00003_*.sql` duplicate version panic（屬 M2 → M3.2 既知遺留問題）；M4.1 migration 編號 `00005` 不衝突且已通過真實 psql roundtrip 驗證。後續另起任務 rename `00003_tool_grants_and_auth_status.sql` → `00004_*.sql`，現有 `00004_team_github_install_index.sql` 與本任務 `00005_deploy_run_redeploy.sql` 順延一格。
 
+### M4.2 — Rate limit (per-token / per-team) + 429（2026-05-16）
+
+> 對應 spec：`docs/features/rate-limit-and-abuse/spec.md`
+> 對應 task：`tasks/task-list.md` row M4.2
+> 對應 paths：`internal/server/middleware/ratelimit/**`
+> 對應 ADR：ADR-0011（plan tier 配額表 § 3.1）
+
+- [x] `internal/server/middleware/ratelimit/`：plan tier 表（ADR-0011 § 3.1 free/starter/pro/team × per-token read/write/preview-create + per-team write/preview-create）、token-bucket pool（`golang.org/x/time/rate`，per-(scope,key,category) `sync.Map`）、chi middleware（categorize by method+path；GET → read，含 `:preview` substring → preview-create，其餘 → write）
+- [x] 429 envelope（`apperror.Write` `code=rate_limited`、`class=too_many_requests`）+ `Retry-After` header（ceil seconds, min 1）+ `details.{scope, category, limit, window_s, retry_after_s, plan}`，符合 spec § 5.1 + § 14 hard rule #1
+- [x] 兩層 enforce：per-token 然後 per-team（spec § 4.2 步驟 2、3）；per-team read 無 quota cell → 不限制；per-token / per-team 各自獨立 bucket（spec § 4.3）
+- [x] in-memory bucket，plan 變動 invalidate（`Limiter.InvalidateKey`）；`SweepIdle` 24h TTL 清理；`RunCleanup` background goroutine 由 `cmd/server` 啟動（context bound to SIGINT/SIGTERM）
+- [x] chi 鏈整合：`r.Route("/v1/teams/{team_slug}")` 與 `r.Route("/v1/me")` 在 Bearer / ResolveTeam / CheckMembership 之後加上 `ratelimit.NewMiddleware(...).Handler`（spec § 14 hard rule #2）
+- [x] Plan 來源：`auth.ResolveTeam` 將 `team.plan` 寫入 ctx（新增 `keyTeamPlan` + `TeamPlan(ctx)` getter + `withTeamPlan` setter）；middleware 從 ctx 讀；無 team route fallback `free`（最保守）
+- [x] Metric `zeroops_rate_limit_triggered_total{scope, category, plan}`（cardinality 3×3×4 = 36；ADR-0006 § 4.5 cardinality 安全範圍內；spec § 14 hard rule #8 plan 固定 4 值）
+- [x] CLI 自動退避：`backendclient.Client` 對 429 走 `RetryMax=5` + 解析 `Retry-After` + jitter ±20% + 指數遞增 base；`OPS_NO_RETRY=1` env 與 `Client.NoRetry=true` 跳過（spec § 7.1 + § 14 hard rule #4）；POST body 透過 `snapshotBody` 重放，多次 attempt 間 idempotent
+- [x] MCP：保持既有「不主動 retry」行為（`internal/mcp/server` 不呼叫 backendclient retry path），envelope 直接回 LLM（spec § 7.2 + § 14 hard rule #5）
+- [x] 高風險區覆蓋（AGENTS.md「Testing」段）：
+  - **preview/confirm 流程**：既有 createapp / redeploy preview-confirm 整合測試在新 middleware 下持續綠（`NewRouter` 不掛 limiter，避免 burst 衝突；只在 `NewRouterWithRateLimit` wire）；`internal/server/services/createapp/...`、`internal/server/services/redeploy/...` 全綠
+  - **idempotent retry**：`backendclient` retry path 對 429 自動退避；`Client.do` 重放 request body；`TestClientRetriesOn429UntilSuccess` / `TestClientGivesUpAfterMaxRetries` / `TestClientPostRetriesReplayBody` 守備
+  - **team 隔離**：`TestLimiterBucketsIsolatedByKey`（per-token A 排空不影響 B）+ `TestMiddlewarePerTeamLimitTriggers`（兩 token 同 team，per-team bucket 排空後第三個 token 也 429）
+  - **role / scope 權限矩陣**：middleware 在 CheckMembership 之後跑，scope 檢驗不受 ratelimit middleware 影響；既有 RBAC 測試全綠
+  - **Retry-After 計算**：`TestMiddlewareReturns429WithRetryAfterAndEnvelope` 守備 `Retry-After >= 1`；`TestMiddlewareReadCategoryUsesReadBucket` 守備 read 類別獨立 bucket
+- [x] 整合測試：`internal/server/ratelimit_integration_test.go::TestRouterEnforcesPerTokenRateLimit` 用真 router + small quota 驗證 third request 回 429 + envelope details + `Retry-After`
+- [x] `make test` 全綠（28 packages）
+- [x] `make lint-compose` 通過
+- [x] dev 行為驗證：`internal/server/ratelimit_integration_test.go::TestRouterEnforcesPerTokenRateLimit` 用真 chi router + auth chain + ratelimit middleware（同 prod 路徑）跑端到端，drain → 429 → envelope 全證；M4.2 不含 schema 變更，無需 `make migrate` 路徑。`make dev` 在本 worktree 仍受 M3.2 留下的 `migrations/00003_*.sql` duplicate version panic 阻擋（同 M4.1 出口報告之既知遺留），與 M4.2 範圍無關
+
+**Out of scope / 風險回報**：
+1. **Build trigger limit（spec § 4.2 步驟 4 + § 14 hard rule #10）** — 屬 redeploy / create_app saga 內 GHA `workflow_dispatch` 之前的 hourly bucket check，需注入 limiter 至 `redeploy.Service` 與 `createapp.Service`，超出 M4.2「per-token / per-team」標題。建議起後續 task `M4.2.1 — build-trigger rate limit` 處理。當前 limiter 已預留 `Allow(ScopePerTeam, ..., CategoryWrite)` 路徑可重用，落地時新增 `ScopeBuild` + `CategoryBuild` + per-hour quota 即可。
+2. **Abuse detector（spec § 6）** — 三條偵測規則需 `access_log_aggregate` 聚合表（v1 不存在）+ audit_log 整合，超出 M4.2 範圍。建議起後續 task `M4.2.2 — abuse detection v1 (audit only)`，與 M5.2 audit_log task 同期。
+3. **Per-token plan 5 分鐘快取（spec § 13 open issue）** — v1 在 `auth.ResolveTeam` 從 DB 取 plan 入 ctx 已涵蓋常用路徑（每 request 走 DB 一次，與既有 `ResolveTeamBySlug` 同調用點，無額外 round trip）；快取屬效能優化，留待 M5 觀察。
+4. **`internal/server/services/ratelimit/`（spec § 3 草案）** — 未引入；middleware + limiter 緊耦合，單套件結構更乾淨。abuse detector 引入後若邏輯量上升再評估拆包。
+5. **Spec § 8 metric 命名 `0ops_*`** — Prometheus exposition format 不允許 metric name 起手為 digit，已在 `docs/features/rate-limit-and-abuse/spec.md` § 1 implementation note 記錄；實作沿用專案 `zeroops_` prefix。
+
 ## M3 — install / domain verify backlog
 
 ### M3.2 — GitHub App install/uninstall 流程（2026-05-15）

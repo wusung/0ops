@@ -18,6 +18,7 @@ import (
 	appserver "github.com/winshare/zeroops/internal/server"
 	"github.com/winshare/zeroops/internal/server/db"
 	"github.com/winshare/zeroops/internal/server/health"
+	ratelimit "github.com/winshare/zeroops/internal/server/middleware/ratelimit"
 	"github.com/winshare/zeroops/internal/server/observability"
 	"github.com/winshare/zeroops/internal/server/services/cloudflare"
 	"github.com/winshare/zeroops/internal/server/services/k3s"
@@ -83,7 +84,9 @@ func main() {
 
 	r.Get("/health", health.Handler())
 	r.Method(http.MethodGet, "/metrics", metrics.Handler())
-	r.Mount("/", appserver.NewRouterWithInfra(repo, k3sClient, cfClient))
+
+	limiter := ratelimit.New(ratelimit.Config{Quotas: ratelimit.DefaultPlanQuotas()})
+	r.Mount("/", appserver.NewRouterWithRateLimit(repo, k3sClient, cfClient, limiter, metrics.RateLimitObserver()))
 
 	srv := &http.Server{
 		Addr:              addr,
@@ -93,6 +96,8 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	go limiter.RunCleanup(ctx, time.Hour)
 
 	go func() {
 		logger.Info("0ops-server listening", "addr", addr, "version", shared.Version)

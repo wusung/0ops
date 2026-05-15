@@ -14,6 +14,7 @@ const (
 	keyTeamID      contextKey = "team_id"
 	keyTeamSlug    contextKey = "team_slug"
 	keyActorRole   contextKey = "actor_role"
+	keyTeamPlan    contextKey = "team_plan"
 	keyPollToken   contextKey = "device_poll_token" //nolint:gosec // not a credential, just a context key
 )
 
@@ -44,6 +45,10 @@ func withTeam(ctx context.Context, id, slug string) context.Context {
 
 func withActorRole(ctx context.Context, value string) context.Context {
 	return context.WithValue(ctx, keyActorRole, value)
+}
+
+func withTeamPlan(ctx context.Context, value string) context.Context {
+	return context.WithValue(ctx, keyTeamPlan, value)
 }
 
 //nolint:revive // exported for public API
@@ -91,6 +96,14 @@ func TeamSlug(ctx context.Context) string {
 //nolint:revive // exported for public API
 func ActorRole(ctx context.Context) string {
 	v, _ := ctx.Value(keyActorRole).(string)
+	return v
+}
+
+// TeamPlan returns the plan tier stored in ctx by ResolveTeam.
+//
+//nolint:revive // exported for public API
+func TeamPlan(ctx context.Context) string {
+	v, _ := ctx.Value(keyTeamPlan).(string)
 	return v
 }
 
