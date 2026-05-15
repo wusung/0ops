@@ -28,7 +28,7 @@ cat >fake-agent.sh <<'EOA'
 set -euo pipefail
 mkdir -p internal/fake/f02
 echo "agent: noop with side effects" >internal/fake/f02/handler.go
-sed -i 's/| F02  | Pending child   | Pending  |/| F02  | Pending child   | Done     |/' tasks/task-status.md
+sed -i 's/| F02  | Pending child   | Pending  | -              |/| F02  | Pending child   | Done     | 2026-05-15     |/' tasks/task-status.md
 EOA
 chmod +x fake-agent.sh
 

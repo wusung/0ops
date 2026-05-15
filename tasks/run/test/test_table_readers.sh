@@ -25,6 +25,10 @@ assert_eq "$(task_status F01)" "Done"    "task_status F01"
 assert_eq "$(task_status F02)" "Pending" "task_status F02"
 assert_eq "$(task_status F03)" "Failed"  "task_status F03"
 
+# task_completed_date
+assert_eq "$(task_completed_date F01)" "2026-05-10" "task_completed_date F01"
+assert_eq "$(task_completed_date F02)" "-"          "task_completed_date F02"
+
 # task_dependencies — one ID per line, no blanks
 assert_eq "$(task_dependencies F01 | tr '\n' ',')" ""              "task_dependencies F01 (none)"
 assert_eq "$(task_dependencies F02 | tr '\n' ',')" "F01,"          "task_dependencies F02"

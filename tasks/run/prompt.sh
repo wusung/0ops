@@ -58,8 +58,8 @@ cat <<EOF
 - 對應測試補齊；高風險區（preview/confirm、idempotent、隔離、權限、簽章、reconciler）強制覆蓋
 - dev 驗證走 compose + Makefile（不可在 host 直跑 binary）
 - worktree 內 \`make test\` 必須通過
-- 完成後將 tasks/task-status.md 中 $task_id 該列 Status 改為 Done
-- 不要動其他 task 的 status
+- 完成後將 tasks/task-status.md 中 $task_id 該列 Status 改為 Done，並把 Completed Date 欄填為當天日期（格式 YYYY-MM-DD，UTC 或本地皆可，只要與 todo.md 一致）
+- 不要動其他 task 的 status 或 Completed Date
 - 不要 commit；commit 由 runner 完成
 
 【範圍硬限制】

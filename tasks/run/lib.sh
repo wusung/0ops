@@ -68,6 +68,14 @@ task_status() {
   task_field "$row" 4
 }
 
+task_completed_date() {
+  local row; row="$(task_row_from_file "$TASK_STATUS_FILE" "$1")"
+  [[ -n "$row" ]] || die "task status not found: $1"
+  local value; value="$(task_field "$row" 5)"
+  [[ -n "$value" ]] || value="-"
+  printf '%s' "$value"
+}
+
 # Split a comma-separated cell into one entry per line.
 # Strips surrounding backticks and whitespace. Skips empty / `-` / `無` placeholders.
 _split_cell() {
