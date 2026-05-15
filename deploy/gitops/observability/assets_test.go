@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -15,8 +16,11 @@ type configMapFile struct {
 
 type promRulesFile struct {
 	Groups []struct {
+		Name  string `yaml:"name"`
 		Rules []struct {
+			Record      string            `yaml:"record"`
 			Alert       string            `yaml:"alert"`
+			Expr        string            `yaml:"expr"`
 			Labels      map[string]string `yaml:"labels"`
 			Annotations map[string]string `yaml:"annotations"`
 		} `yaml:"rules"`
@@ -77,6 +81,93 @@ func TestPrometheusAlertRulesContainM26CriticalRules(t *testing.T) {
 	for alertName, seen := range required {
 		if !seen {
 			t.Fatalf("required alert %s not found", alertName)
+		}
+	}
+}
+
+func TestPrometheusRecordingRulesContainM26RequiredSeries(t *testing.T) {
+	cm := loadConfigMap(t, "prometheus-recording-rules.yaml")
+	raw := cm.Data["rules.yaml"]
+	if raw == "" {
+		t.Fatal("rules.yaml missing from prometheus-recording-rules configmap")
+	}
+
+	var rules promRulesFile
+	if err := yaml.Unmarshal([]byte(raw), &rules); err != nil {
+		t.Fatalf("unmarshal embedded recording rules: %v", err)
+	}
+
+	required := map[string]bool{
+		"cluster:zeroops_http_error_rate:1h":               false,
+		"cluster:zeroops_http_error_rate:6h":               false,
+		"cluster:zeroops_preview_consumption_rate:7d":      false,
+		"cluster:zeroops_preview_confirm_latency_p50:7d":   false,
+		"cluster:zeroops_deploy_terminal_success_rate:28d": false,
+		"cluster:zeroops_unknown_failure_ratio:7d":         false,
+		"cluster:zeroops_cloudflare_api_throttled_rate:15m": false,
+	}
+
+	for _, group := range rules.Groups {
+		for _, rule := range group.Rules {
+			if rule.Record == "" {
+				continue
+			}
+			if rule.Expr == "" {
+				t.Fatalf("recording rule %s has empty expr", rule.Record)
+			}
+			if _, ok := required[rule.Record]; ok {
+				required[rule.Record] = true
+			}
+		}
+	}
+
+	for name, seen := range required {
+		if !seen {
+			t.Fatalf("required recording rule %s not found", name)
+		}
+	}
+}
+
+func TestPrometheusRecordingRulesReferenceM26SourceMetrics(t *testing.T) {
+	cm := loadConfigMap(t, "prometheus-recording-rules.yaml")
+	raw := cm.Data["rules.yaml"]
+
+	requiredSubstrings := []string{
+		"zeroops_preview_consumed_total",
+		"zeroops_preview_created_total",
+		"zeroops_preview_consume_duration_seconds_bucket",
+		"zeroops_cloudflare_api_calls_total",
+		"zeroops_deploy_run_terminal_total",
+		"zeroops_deploy_run_failures_total",
+		"zeroops_http_requests_total",
+	}
+	for _, sub := range requiredSubstrings {
+		if !strings.Contains(raw, sub) {
+			t.Fatalf("recording rules missing reference to %s", sub)
+		}
+	}
+}
+
+func TestPrometheusAlertRulesReferenceRecordingRules(t *testing.T) {
+	cm := loadConfigMap(t, "prometheus-alert-rules.yaml")
+	raw := cm.Data["rules.yaml"]
+	if raw == "" {
+		t.Fatal("rules.yaml missing from prometheus-alert-rules configmap")
+	}
+
+	var rules promRulesFile
+	if err := yaml.Unmarshal([]byte(raw), &rules); err != nil {
+		t.Fatalf("unmarshal embedded alert rules: %v", err)
+	}
+
+	for _, group := range rules.Groups {
+		for _, rule := range group.Rules {
+			if rule.Alert == "" {
+				continue
+			}
+			if rule.Expr == "" {
+				t.Fatalf("alert %s has empty expr", rule.Alert)
+			}
 		}
 	}
 }
