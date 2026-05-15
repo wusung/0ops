@@ -3,16 +3,22 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
 force="false"
+verify_only="false"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force) force="true"; shift ;;
+    --verify-only) verify_only="true"; shift ;;
     --) shift; break ;;
     -*) die "unknown flag: $1" ;;
     *) break ;;
   esac
 done
 
-[[ $# -eq 1 ]] || die "usage: $0 [--force] <TASK_ID>"
+if [[ "$verify_only" == "true" && "$force" == "true" ]]; then
+  die "--verify-only conflicts with --force"
+fi
+
+[[ $# -eq 1 ]] || die "usage: $0 [--force | --verify-only] <TASK_ID>"
 task_id="$1"
 
 # 1. Existence
@@ -20,7 +26,13 @@ task_exists "$task_id" || die "task not found: $task_id"
 task_title_value="$(task_title "$task_id")"
 
 # 2. Status / deps
-if [[ "$force" != "true" ]]; then
+if [[ "$verify_only" == "true" ]]; then
+  current_status="$(task_status "$task_id")"
+  case "$current_status" in
+    Pending|Failed) ;;
+    *) die "--verify-only requires status Pending or Failed for $task_id (got $current_status)" ;;
+  esac
+elif [[ "$force" != "true" ]]; then
   current_status="$(task_status "$task_id")"
   [[ "$current_status" == "Pending" ]] || die "status not Pending for $task_id (got $current_status); use --force to override"
   check_dependencies_done "$task_id"
@@ -31,7 +43,10 @@ worktree_path="$(task_worktree_path "$task_id")"
 branch_name="$(task_branch_name "$task_id")"
 mode="fresh"
 
-if [[ -d "$worktree_path" ]]; then
+if [[ "$verify_only" == "true" ]]; then
+  [[ -d "$worktree_path" ]] || die "--verify-only requires existing worktree at $worktree_path"
+  mode="verify_only"
+elif [[ -d "$worktree_path" ]]; then
   if [[ "$force" == "true" ]]; then
     git worktree remove --force "$worktree_path"
     git branch -D "$branch_name" 2>/dev/null || true
@@ -48,22 +63,26 @@ else
   mode="fresh"
 fi
 
-# 4. Compose prompt
-prompt_path="$(task_prompt_path "$task_id")"
-mkdir -p "$(dirname "$prompt_path")"
-if [[ "$mode" == "resume" ]]; then
-  bash "$TASK_LIB_DIR/prompt.sh" --resume "$task_id" >"$prompt_path"
-else
-  bash "$TASK_LIB_DIR/prompt.sh" "$task_id" >"$prompt_path"
+# 4. Compose prompt (skipped in verify-only mode — agent is not invoked)
+prompt_path=""
+if [[ "$verify_only" != "true" ]]; then
+  prompt_path="$(task_prompt_path "$task_id")"
+  mkdir -p "$(dirname "$prompt_path")"
+  if [[ "$mode" == "resume" ]]; then
+    bash "$TASK_LIB_DIR/prompt.sh" --resume "$task_id" >"$prompt_path"
+  else
+    bash "$TASK_LIB_DIR/prompt.sh" "$task_id" >"$prompt_path"
+  fi
 fi
-prompt_text="$(<"$prompt_path")"
 
 printf 'TASK_ID=%s\n' "$task_id"
 printf 'TITLE=%s\n' "$task_title_value"
 printf 'WORKTREE=%s\n' "$worktree_path"
 printf 'BRANCH=%s\n' "$branch_name"
 printf 'MODE=%s\n' "$mode"
-printf 'PROMPT_FILE=%s\n' "$prompt_path"
+if [[ -n "$prompt_path" ]]; then
+  printf 'PROMPT_FILE=%s\n' "$prompt_path"
+fi
 
 # Debug short-circuit (used by tests to avoid invoking real agent)
 if [[ "${TASK_RUN_ONE_PREFLIGHT_ONLY:-0}" == "1" ]]; then
@@ -71,13 +90,16 @@ if [[ "${TASK_RUN_ONE_PREFLIGHT_ONLY:-0}" == "1" ]]; then
   exit 0
 fi
 
-# 5. Invoke agent inside the worktree
-mapfile -d '' -t agent_argv < <(build_agent_command "$prompt_text")
-( cd "$worktree_path" && "${agent_argv[@]}" ) || {
-  printf 'AGENT_FAILED=%s\n' "$task_id"
-  mark_task_failed "$task_id"
-  die "agent exited non-zero for $task_id"
-}
+# 5. Invoke agent inside the worktree (skipped in verify-only mode)
+if [[ "$verify_only" != "true" ]]; then
+  prompt_text="$(<"$prompt_path")"
+  mapfile -d '' -t agent_argv < <(build_agent_command "$prompt_text")
+  ( cd "$worktree_path" && "${agent_argv[@]}" ) || {
+    printf 'AGENT_FAILED=%s\n' "$task_id"
+    mark_task_failed "$task_id"
+    die "agent exited non-zero for $task_id"
+  }
+fi
 
 # 6. Verify (run inside the worktree)
 verify_failed=0
