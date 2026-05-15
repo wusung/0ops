@@ -18,6 +18,15 @@
   2. `mark_task_failed` 若 staged diff 為空就跳過 commit、正常返回。
   3. 所有 `bash <runner> | tee log` 形式呼叫前 `set -o pipefail`（或棄 pipe 直接 `>(tee log)` 結構）。
 
+## L004｜`gh pr merge` 在 worktree 內呼叫 → server merge 後 gh local cleanup 失敗 → runner 誤報 Failed
+
+- **情境**：M3.1 / M4.1 兩次踩到。runner step 8d `( cd "$worktree_path" && gh pr merge $num --merge --delete-branch )`。gh 先 call GitHub API 完成 server-side merge，再嘗試 `git checkout main` 做 local cleanup（清掉 task branch）；但 main 已被主 worktree 佔住 → `'main' is already used by worktree` → gh exit 非 0。runner 視為 merge 失敗 → mark_task_failed → 又一個 stale chore commit 到本機 main（同 L003 模式）。
+- **錯誤**：cd 到 worktree 對 `gh pr merge $num` 沒必要（PR 編號定位），反而引入 local branch 衝突；且 gh 非 0 退出不等於 merge 失敗。
+- **規則**：
+  1. step 8d 必須從主 repo root 呼叫（`cd "$TASK_REPO_ROOT"`），不要 cd 到 worktree。
+  2. gh pr merge 退出非 0 時，先 `gh pr view $num --json mergedAt` 校驗 server 端，`mergedAt` 非空就視同 merge 成功（純 log 警告）；只有 mergedAt 為空才走 mark_task_failed。
+  3. push / pr create / checks 可保留在 worktree 內（不會觸發 local branch 操作）；只 merge 那一步要避開 worktree cwd。
+
 ## L003｜runner 從本機 main 開 worktree → stale chore 進 PR → CI 不派發
 
 - **情境**：M2.8 / M3.1 兩次失敗各自留下 `chore(task-runner): mark <ID> failed` commit 在本機 main，未 push。M2.8 之後另一次 task-run 成功並 merge 至 origin/main，但本機 main 仍帶兩筆舊 chore。對 M3.1 跑 `task-rerun` 時 worktree 從本機 main HEAD 開分支，PR 帶上這兩筆 stale chore → 與 origin/main `tasks/task-status.md` 同列三方衝突 → CI 不派發 → runner appear-timeout 後死。
