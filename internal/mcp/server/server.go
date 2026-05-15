@@ -148,6 +148,18 @@ type redeployInput struct {
 	PreviewID string `json:"preview_id"`
 }
 
+type deleteAppPreviewInput struct {
+	TeamSlug string `json:"team_slug"`
+	AppSlug  string `json:"app_slug"`
+	Confirm  string `json:"confirm"`
+}
+
+type deleteAppInput struct {
+	TeamSlug  string `json:"team_slug"`
+	AppSlug   string `json:"app_slug"`
+	PreviewID string `json:"preview_id"`
+}
+
 func registerTools(srv *mcp.Server, reg *appmcp.Registry) {
 	appmcp.AddTool(srv, reg, &mcp.Tool{
 		Name:        "list_teams",
@@ -455,6 +467,42 @@ func registerTools(srv *mcp.Server, reg *appmcp.Registry) {
 		out, err := backendclient.New(host, token).Redeploy(ctx, input.TeamSlug, dto.ConfirmRedeployRequest{PreviewID: input.PreviewID})
 		if err != nil {
 			return nil, dto.RedeployResponse{}, err
+		}
+		return nil, out, nil
+	})
+
+	appmcp.AddTool(srv, reg, &mcp.Tool{
+		Name:        "delete_app_preview",
+		Description: "ALWAYS call this BEFORE delete_app. Returns a PlanPreview (action_summary, side_effects, expires_at) for permanently deleting an app and its Kubernetes resources. Show the user the action_summary and the FULL side_effects list, including that the ArgoCD prune step is irreversible, then obtain explicit approval before calling delete_app with the returned preview_id.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input deleteAppPreviewInput) (*mcp.CallToolResult, dto.PreviewResponse, error) {
+		if input.TeamSlug == "" || input.AppSlug == "" || input.Confirm == "" {
+			return nil, dto.PreviewResponse{}, fmt.Errorf("team_slug, app_slug and confirm are required")
+		}
+		host, token, err := resolveBackendAuth()
+		if err != nil {
+			return nil, dto.PreviewResponse{}, err
+		}
+		out, err := backendclient.New(host, token).PreviewDeleteApp(ctx, input.TeamSlug, input.AppSlug, dto.AppDeleteRequest{Confirm: input.Confirm})
+		if err != nil {
+			return nil, dto.PreviewResponse{}, err
+		}
+		return nil, out, nil
+	})
+
+	appmcp.AddTool(srv, reg, &mcp.Tool{
+		Name:        "delete_app",
+		Description: "Confirm delete_app using a preview_id returned by delete_app_preview. Idempotent on the same preview_id. NEVER call this tool without a fresh, user-approved preview_id; the backend will reject otherwise. The app row, its domain bindings, and the Kubernetes workload are destroyed; persistent volumes are pruned by default.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input deleteAppInput) (*mcp.CallToolResult, dto.AppDeleteResponse, error) {
+		if input.TeamSlug == "" || input.AppSlug == "" || input.PreviewID == "" {
+			return nil, dto.AppDeleteResponse{}, fmt.Errorf("team_slug, app_slug and preview_id are required")
+		}
+		host, token, err := resolveBackendAuth()
+		if err != nil {
+			return nil, dto.AppDeleteResponse{}, err
+		}
+		out, err := backendclient.New(host, token).DeleteApp(ctx, input.TeamSlug, input.AppSlug, dto.ConfirmDeleteAppRequest{PreviewID: input.PreviewID})
+		if err != nil {
+			return nil, dto.AppDeleteResponse{}, err
 		}
 		return nil, out, nil
 	})

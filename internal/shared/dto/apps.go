@@ -53,3 +53,26 @@ type AppCreateResponse struct {
 	SubdomainURL  string `json:"subdomain_url"`
 	InitialDeploy bool   `json:"initial_deploy"`
 }
+
+// AppDeleteRequest is the delete_app preview payload. Confirm must equal
+// the path-derived app_slug as a typed-confirmation guard against
+// accidental deletion (delete-app-flow spec § 4.1 hard rule #3).
+type AppDeleteRequest struct {
+	Confirm string `json:"confirm"`
+}
+
+// ConfirmDeleteAppRequest confirms delete_app with a preview id.
+type ConfirmDeleteAppRequest struct {
+	PreviewID string `json:"preview_id"`
+}
+
+// AppDeleteResponse is the delete_app confirmation result. DeletedAt is
+// the timestamp when the app transitioned to status='deleting'; the row
+// itself is hard-deleted asynchronously by the cleanup_residue reconciler
+// once ArgoCD prune completes (spec § 5.3, § 6.2).
+type AppDeleteResponse struct {
+	AppID     string `json:"app_id"`
+	AppSlug   string `json:"app_slug"`
+	DeletedAt string `json:"deleted_at"`
+	TraceID   string `json:"trace_id"`
+}

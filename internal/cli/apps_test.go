@@ -231,6 +231,31 @@ func (f *cliFakeStore) InsertRedeployRun(_ context.Context, _ db.InsertRedeployR
 func (f *cliFakeStore) AppendWebhookAudit(_ context.Context, _, _ string, _, _ map[string]any) error {
 	return nil
 }
+
+func (f *cliFakeStore) ListAppDomainBindings(_ context.Context, _ string) ([]db.AppDomainBinding, error) {
+	return nil, nil
+}
+func (f *cliFakeStore) DeleteAppDomainBindings(_ context.Context, _ string) error { return nil }
+func (f *cliFakeStore) ListInFlightDeployRuns(_ context.Context, _ string) ([]db.InFlightDeployRun, error) {
+	return nil, nil
+}
+func (f *cliFakeStore) CancelDeployRun(_ context.Context, _, _ string) error { return nil }
+func (f *cliFakeStore) UpdateAppStatus(_ context.Context, appID, status string) error {
+	for idx := range f.apps {
+		if f.apps[idx].ID == appID {
+			s := status
+			f.apps[idx].Status = &s
+		}
+	}
+	return nil
+}
+func (f *cliFakeStore) EnqueueReconciliationJob(_ context.Context, _ db.ReconciliationJobInsert) (string, error) {
+	return "rj-cli", nil
+}
+func (f *cliFakeStore) AppendAuditLog(_ context.Context, _ db.AuditLogInsert) error { return nil }
+func (f *cliFakeStore) MarkReconciliationJobAttempt(_ context.Context, _, _ string, _ *time.Time, _ bool) error {
+	return nil
+}
 func (f cliFakeStore) IsToolGranted(_ context.Context, _ string, _ string, _ string) (bool, error) {
 	return true, nil
 }

@@ -77,6 +77,16 @@ type appsStore interface {
 	HasInFlightDeployRun(ctx context.Context, appID string) (bool, error)
 	InsertRedeployRun(ctx context.Context, params db.InsertRedeployRunParams) (db.InsertRedeployRunResult, error)
 	AppendWebhookAudit(ctx context.Context, teamID, action string, args map[string]any, result map[string]any) error
+
+	// M5.1 delete-app-flow
+	ListAppDomainBindings(ctx context.Context, appID string) ([]db.AppDomainBinding, error)
+	DeleteAppDomainBindings(ctx context.Context, appID string) error
+	ListInFlightDeployRuns(ctx context.Context, appID string) ([]db.InFlightDeployRun, error)
+	CancelDeployRun(ctx context.Context, runID, reason string) error
+	UpdateAppStatus(ctx context.Context, appID, status string) error
+	EnqueueReconciliationJob(ctx context.Context, in db.ReconciliationJobInsert) (string, error)
+	AppendAuditLog(ctx context.Context, in db.AuditLogInsert) error
+	MarkReconciliationJobAttempt(ctx context.Context, jobID, lastErr string, nextAt *time.Time, completed bool) error
 }
 
 // infraK3sClient provides K3s namespace management operations.
@@ -1288,6 +1298,12 @@ func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient 
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionCreateApp, next)
 		}).Post("/apps", createAppHandler(store, k3sClient, cfClient))
+		sr.With(func(next http.Handler) http.Handler {
+			return mw.CheckTokenScope(rbac.ActionDeleteApp, next)
+		}).Post("/apps/{app_slug}:preview-delete", previewDeleteAppHandler(store))
+		sr.With(func(next http.Handler) http.Handler {
+			return mw.CheckTokenScope(rbac.ActionDeleteApp, next)
+		}).Post("/apps/{app_slug}:delete", deleteAppHandler(store))
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionListApps, next)
 		}).Get("/repos/{app_slug}:inspect", inspectRepoHandler(store))

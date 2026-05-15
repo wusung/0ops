@@ -8,6 +8,8 @@ const (
 	ScopeAppsRead Scope = "apps:read"
 	// ScopeAppsWrite grants write access to apps.
 	ScopeAppsWrite Scope = "apps:write"
+	// ScopeAppsDelete grants delete access to apps (delete-app-flow spec § 1).
+	ScopeAppsDelete Scope = "apps:delete"
 	// ScopeTeamsRead grants read access to teams.
 	ScopeTeamsRead Scope = "teams:read"
 	// ScopeMembersManage grants management access to members.

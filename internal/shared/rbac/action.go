@@ -9,6 +9,9 @@ const (
 	ActionListApps Action = "list_apps"
 	// ActionCreateApp requires write access to create apps.
 	ActionCreateApp Action = "create_app"
+	// ActionDeleteApp requires admin role plus delete scope (delete-app-flow
+	// spec § 13 hard rule #2).
+	ActionDeleteApp Action = "delete_app"
 	// ActionRedeploy requires write access to trigger a redeploy.
 	ActionRedeploy Action = "redeploy"
 	// ActionListTeams requires read access to list teams.
@@ -39,6 +42,8 @@ func RequiredFor(action Action) Requirement {
 		return Requirement{MinRole: RoleViewer, RequiredScope: ScopeAppsRead}
 	case ActionCreateApp:
 		return Requirement{MinRole: RoleMember, RequiredScope: ScopeAppsWrite}
+	case ActionDeleteApp:
+		return Requirement{MinRole: RoleAdmin, RequiredScope: ScopeAppsDelete}
 	case ActionRedeploy:
 		return Requirement{MinRole: RoleMember, RequiredScope: ScopeAppsWrite}
 	case ActionListTeams:
