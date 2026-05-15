@@ -114,11 +114,14 @@ func (c *Client) EnsureNamespace(ctx context.Context, teamID, teamSlug, planTier
 		"metadata": map[string]any{
 			"name": nsName,
 			"labels": map[string]any{
-				"app.0ops.io/managed-by":    "0ops",
-				"app.0ops.io/team-id":       teamID,
-				"app.0ops.io/team-slug":     teamSlug,
-				"app.0ops.io/plan":          planTier,
-				"kubernetes.io/metadata.name": nsName,
+				"app.0ops.io/managed-by":               "0ops",
+				"app.0ops.io/team-id":                  teamID,
+				"app.0ops.io/team-slug":                teamSlug,
+				"app.0ops.io/plan":                     planTier,
+				"kubernetes.io/metadata.name":          nsName,
+				"pod-security.kubernetes.io/enforce":   "baseline",
+				"pod-security.kubernetes.io/warn":      "restricted",
+				"pod-security.kubernetes.io/audit":     "restricted",
 			},
 		},
 	}
@@ -126,6 +129,47 @@ func (c *Client) EnsureNamespace(ctx context.Context, teamID, teamSlug, planTier
 		return "", fmt.Errorf("ensure namespace %q: %w", nsName, err)
 	}
 
+	return nsName, nil
+}
+
+// EnsureTeamIsolation provisions a team namespace together with ResourceQuota,
+// LimitRange and NetworkPolicies in a single atomic operation. If any step
+// after namespace creation fails, the namespace is removed so the team is
+// never left in a partially-isolated state (spec § 15 hard rule #3).
+//
+// ImagePullSecret bootstrap is not part of this orchestration because the
+// GitHub App installation token wiring lands in M3.2; once available, call
+// PatchGHCRImagePullSecret in the same saga step that consumes the install
+// token (spec § 8.3).
+func (c *Client) EnsureTeamIsolation(ctx context.Context, teamID, teamSlug, planTier string) (string, error) {
+	if c.config.DisableNamespaceIsolation {
+		return fmt.Sprintf("team-%s", teamSlug), nil
+	}
+	if c.dynamicClient == nil {
+		return "", fmt.Errorf("k3s dynamic client not initialized")
+	}
+
+	nsName, err := c.EnsureNamespace(ctx, teamID, teamSlug, planTier)
+	if err != nil {
+		return "", err
+	}
+
+	rollback := func(step string, opErr error) error {
+		if delErr := c.DeleteNamespace(ctx, nsName); delErr != nil {
+			return fmt.Errorf("ensure team isolation %s: %w (rollback namespace %q failed: %v)", step, opErr, nsName, delErr)
+		}
+		return fmt.Errorf("ensure team isolation %s: %w", step, opErr)
+	}
+
+	if err := c.EnsureResourceQuota(ctx, nsName, planTier); err != nil {
+		return "", rollback("resourcequota", err)
+	}
+	if err := c.EnsureLimitRange(ctx, nsName); err != nil {
+		return "", rollback("limitrange", err)
+	}
+	if err := c.EnsureNetworkPolicy(ctx, nsName); err != nil {
+		return "", rollback("networkpolicy", err)
+	}
 	return nsName, nil
 }
 

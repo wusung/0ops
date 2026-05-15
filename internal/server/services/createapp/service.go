@@ -45,8 +45,12 @@ type Store interface {
 }
 
 // K3sClient captures the namespace provisioning calls used by create_app.
+// EnsureTeamIsolation must atomically provision the namespace together with
+// ResourceQuota, LimitRange, NetworkPolicy and PSA labels; partial state is
+// rolled back so create_app never observes a half-isolated team
+// (spec § 15 hard rule #3).
 type K3sClient interface {
-	EnsureNamespace(ctx context.Context, teamID, teamSlug, planTier string) (string, error)
+	EnsureTeamIsolation(ctx context.Context, teamID, teamSlug, planTier string) (string, error)
 }
 
 // CloudflareClient captures the route provisioning calls used by create_app.
@@ -184,7 +188,7 @@ func (s *Service) Confirm(ctx context.Context, teamID, actorUserID, teamSlug, pr
 	}
 
 	if s.k3sClient != nil {
-		if _, err := s.k3sClient.EnsureNamespace(ctx, teamID, teamSlug, s.planTier); err != nil {
+		if _, err := s.k3sClient.EnsureTeamIsolation(ctx, teamID, teamSlug, s.planTier); err != nil {
 			return ConfirmResult{}, rollback(err)
 		}
 	}

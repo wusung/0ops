@@ -66,8 +66,16 @@ func (f *fakeStore) DeleteAppByID(_ context.Context, appID string) error {
 
 type noopK3s struct{}
 
-func (noopK3s) EnsureNamespace(context.Context, string, string, string) (string, error) {
+func (noopK3s) EnsureTeamIsolation(context.Context, string, string, string) (string, error) {
 	return "team-free", nil
+}
+
+type failingK3s struct {
+	err error
+}
+
+func (f failingK3s) EnsureTeamIsolation(context.Context, string, string, string) (string, error) {
+	return "", f.err
 }
 
 type noopCF struct{}
@@ -278,6 +286,32 @@ func TestConfirmCreatesTunnelRouteAfterDomainRouting(t *testing.T) {
 	}
 	if cf.backendURL != tunnelBackendURL {
 		t.Fatalf("backendURL = %q, want %q", cf.backendURL, tunnelBackendURL)
+	}
+}
+
+func TestConfirmRollsBackAppWhenK3sIsolationFails(t *testing.T) {
+	now := time.Now().UTC()
+	store := &fakeStore{
+		preview: db.Preview{
+			ID:          "preview-1",
+			TeamID:      "team-1",
+			ActorUserID: "user-1",
+			Action:      previewAction,
+			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", RepoURL: "https://github.com/example/nextdemo", Ref: "main"}),
+			ExpiresAt:   now.Add(10 * time.Minute),
+		},
+	}
+
+	svc := New(store, failingK3s{err: errors.New("quota apply failed")}, noopCF{}, nil, nil, nil, "")
+	_, err := svc.Confirm(context.Background(), "team-1", "user-1", "team-slug", "preview-1", "trace-1")
+	if err == nil {
+		t.Fatal("Confirm() error = nil, want k3s isolation failure")
+	}
+	if store.deleteCalls != 1 {
+		t.Fatalf("DeleteAppByID calls = %d, want 1", store.deleteCalls)
+	}
+	if store.preview.ConsumedAt != nil {
+		t.Fatal("preview should not be consumed when k3s isolation fails")
 	}
 }
 
