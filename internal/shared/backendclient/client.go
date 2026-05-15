@@ -554,6 +554,85 @@ func (c *Client) GetGitHubInstallStatus(ctx context.Context, teamSlug string) (d
 	return out, nil
 }
 
+// AuditListParams collects the optional filters surfaced by the
+// /v1/teams/{slug}/audit endpoint.
+type AuditListParams struct {
+	Since    string
+	Until    string
+	Action   string
+	Actor    string
+	TraceID  string
+	PageSize int
+	Cursor   string
+}
+
+// ListAudit fetches a page of audit_log entries for a team
+// (audit-log spec § 6.1).
+//
+//nolint:revive // exported for public API
+func (c *Client) ListAudit(ctx context.Context, teamSlug string, params AuditListParams) (dto.ListAuditResponse, error) {
+	endpoint, err := url.Parse(c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/audit")
+	if err != nil {
+		return dto.ListAuditResponse{}, err
+	}
+	q := endpoint.Query()
+	if params.Since != "" {
+		q.Set("since", params.Since)
+	}
+	if params.Until != "" {
+		q.Set("until", params.Until)
+	}
+	if params.Action != "" {
+		q.Set("action", params.Action)
+	}
+	if params.Actor != "" {
+		q.Set("actor", params.Actor)
+	}
+	if params.TraceID != "" {
+		q.Set("trace_id", params.TraceID)
+	}
+	if params.PageSize > 0 {
+		q.Set("page_size", strconv.Itoa(params.PageSize))
+	}
+	if params.Cursor != "" {
+		q.Set("cursor", params.Cursor)
+	}
+	endpoint.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return dto.ListAuditResponse{}, err
+	}
+	if c.BearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.BearerToken)
+	}
+	res, err := c.do(req)
+	if err != nil {
+		return dto.ListAuditResponse{}, err
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		return dto.ListAuditResponse{}, decodeError(res)
+	}
+	var out dto.ListAuditResponse
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		return dto.ListAuditResponse{}, err
+	}
+	return out, nil
+}
+
+// GetAudit returns a single audit_log entry by id (audit-log spec § 7.1).
+//
+//nolint:revive // exported for public API
+func (c *Client) GetAudit(ctx context.Context, teamSlug string, id int64) (dto.AuditLogEntry, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/audit/" + strconv.FormatInt(id, 10)
+	var out dto.AuditLogEntry
+	if err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &out); err != nil {
+		return dto.AuditLogEntry{}, err
+	}
+	return out, nil
+}
+
 func (c *Client) httpClient() *http.Client {
 	if c.HTTP != nil {
 		return c.HTTP

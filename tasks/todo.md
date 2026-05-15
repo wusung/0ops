@@ -336,6 +336,46 @@
 4. **`internal/server/services/ratelimit/`（spec § 3 草案）** — 未引入；middleware + limiter 緊耦合，單套件結構更乾淨。abuse detector 引入後若邏輯量上升再評估拆包。
 5. **Spec § 8 metric 命名 `0ops_*`** — Prometheus exposition format 不允許 metric name 起手為 digit，已在 `docs/features/rate-limit-and-abuse/spec.md` § 1 implementation note 記錄；實作沿用專案 `zeroops_` prefix。
 
+### M5.2 — audit_log + audit CLI/MCP（2026-05-16）
+
+> 對應 spec：`docs/features/audit-log/spec.md`
+> 對應 task：`tasks/task-list.md` row M5.2
+> 對應 paths：`internal/server/services/audit/**`
+
+- [x] migration `00007_audit_log_partition.sql`：將 `audit_log` 重建為 `PARTITION BY RANGE (created_at)` 月份分區，PK 改為 `(id, created_at)`；新增 `source`/`outcome`/`http_status` 欄位（含 CHECK 限制 spec § 4.1 之 enum）；建 spec § 4.2 四條索引（team+created / team+action+created / team+actor+created / trace_id）；備份既有列、setval 序列；額外建 `audit_log_archive` 表（spec § 9.2 永久保留 delete_app 列）；種 9 個月分區（history + 2026-01 → 2026-08）
+- [x] `internal/server/services/audit/`：`log.go` Log(ctx, Entry)（redact + trace_id sentinel）/ `query.go` Query/Get + cursor pagination + ParsePageSize / `partition.go` Rollover + PartitionLabel / `redact.go` 大小寫不敏感子字串遮罩（spec § 8 + error-model § 9）/ `metrics.go` MetricObserver + NopObserver / `doc.go`
+- [x] `internal/server/db/audit.go`：`InsertAuditLog`（實作 audit.Writer）/ `ListAuditLog`（keyset cursor + actor uuid/github_login fallback + action prefix LIKE + trace_id 嚴格匹配 + cross-team 由 team_id 守備）/ `GetAuditLogByID`（team-scope）/ `CreateMonthlyPartition` / `ArchiveDeleteAppRows` / `DropMonthlyPartition` / `ListPartitionMonths`
+- [x] DTO `internal/shared/dto/audit.go`：`AuditLogEntry`（含 actor github_login + ActorUserID + redacted args/result + trace_id + http_status）+ `ListAuditResponse`
+- [x] HTTP：`GET /v1/teams/{slug}/audit` 與 `GET /v1/teams/{slug}/audit/{id}`；中間件採 `ActionListSelfAudit`（viewer + `audit:read`）為最低門檻，handler 內依 actor 過濾與角色升級至 admin（spec § 6.2）
+- [x] RBAC：新增 `ScopeAuditRead`、`ActionListAudit`（admin+ audit:read）、`ActionListSelfAudit`（viewer+ audit:read）；舊 token 不受影響
+- [x] backendclient：`ListAudit(AuditListParams)` / `GetAudit(id)`；CLI / MCP 共用
+- [x] CLI：`0ops audit list` 支援 `--since`（accept RFC3339 / `24h` / `7d`）/`--until`/`--action` (prefix)/`--actor`（github_login / uuid / `me`）/`--trace`/`--page-size`/`--cursor`/`--all`/`--output table|json|yaml`；`0ops audit get <id>`
+- [x] MCP：新增 read tool `query_audit_log`（不適用 lint R1/R2/R3，因非 write/preview）；既有 14 個 write/preview tool 仍通過 startup lint
+- [x] 高風險區覆蓋（AGENTS.md「Testing」段）：
+  - **redact**：args / result / 巢狀 map / list 元素 / case-insensitive 子字串（token / secret / signature / private_key / authorization / cookie / bearer）皆遮罩；非敏感欄位保留
+  - **idempotent retry**：query 採 cursor (created_at, id) 嚴格遞減鎖位，重打同 cursor 不會跳行；redact 為純函式無副作用
+  - **team 隔離**：`GetAuditLogByID` 一律帶 team_id；ListAuditLog where team_id；ADR-0001 enumeration 阻斷 cross-team id 探測
+  - **role / scope 權限矩陣**：viewer 帶 `audit:read` 只能查 `actor=me`；admin 帶 `audit:read` 才能查全 team；無 `audit:read` 一律 403 forbidden_scope；無 audit svc 註冊時 route 不存在（cmd/server 預設啟用）
+  - **trace_id 落地**：`TraceIDFromContext` 取 chi request id；missing 時填 32-zero sentinel（spec § 15 hard rule #3）；不會 silent drop
+- [x] 整合測試：
+  - `internal/server/services/audit/redact_test.go`：含敏感子字串大小寫敏感度、巢狀 map / list、未知型別 fallback
+  - `internal/server/services/audit/log_test.go`：redact 攔截 / trace sentinel / 非 user source + actor != nil validation 拒絕 / writer error 走 metric outcome `write_error` / TraceIDFromContext override + fallback
+  - `internal/server/services/audit/query_test.go`：default page size / since 預設 7d / clamp 200 / self scope 缺 actor 拒絕 / cross-actor Get → ErrForbidden / cursor roundtrip / ParsePageSize 邊界
+  - `internal/server/services/audit/partition_test.go`：rollover 創 lookahead + 落 retention 邊界 + create 錯誤傳導 + PartitionLabel roundtrip
+  - `internal/server/audit_handlers_test.go`：viewer 全 team 403 forbidden_role / viewer actor=me 200 + scope=self / admin 200 + 結構 / 缺 audit:read 403 forbidden_scope / GetAudit ErrNotFound 映射
+  - `internal/cli/audit_test.go`：table 輸出 + 過濾轉發 / json 輸出 roundtrip / `--since=24h` 規格化為 RFC3339 / `audit get <id>` 輸出 / 不支援 output format
+- [x] `cmd/server/main.go` 接入 `audit.NewService(repo, repo, NopObserver())`，並改用新 constructor `NewRouterWithRateLimitAndAudit`；新舊 constructor 共存，既有測試零變更
+- [x] `make test` 全綠（30 packages，含新增 audit service package）
+- [x] `make lint-compose` 通過
+- [x] dev DB smoke：通過 podman compose 對 postgres-17 真實庫驗證 migration 00001 → 00007 sequential apply 通過；audit_log 為 partitioned；spec § 4.2 四索引存在；source/outcome CHECK 生效；INSERT 自動 route 至 `audit_log_2026_05` 分區（驗收 spec § 11 partition 跨月行）；`audit_log_archive` 與 `audit_log_*` 分區皆建立
+
+**Out of scope / 風險回報**：
+1. **`migrations/00003_*.sql` duplicate version panic（M2 → M3.2 既有遺留）** — 直接執行 `make migrate` 會 panic；本任務之 schema 驗證採與 M3.2 / M4.1 相同的 `psql` sequential apply 路徑（已於 dev compose db 通過）。建議獨立任務 rename `00003_tool_grants_and_auth_status.sql` → `00004_*.sql`，後續 migration 順延一格。
+2. **既有 audit_log 寫入點（device login / member invite / member remove / redeploy webhook / github install / delete app / bootstrap owner）保留原 `INSERT INTO audit_log ...` 直 SQL 寫法** — 對新增的 `source`/`outcome`/`http_status` 欄位走 DEFAULT，不破壞 schema。完整改寫為 `audit.Service.Log()` 統一介面屬大範圍 refactor，超出 M5.2「補 Log/Query API + CLI/MCP + partition」範疇；下一 task 處理（建議：`M5.2.1 — adopt audit.Service across existing writers`）。spec § 11 之 「Webhook 寫入 source='webhook'」「Reconciler 寫入 source='reconciler'」驗證已透過 service unit test 覆蓋（fake writer 攔截 InsertRow.Source），現有 SQL 寫法之 source 由 DEFAULT 走 'user'，需於 M5.2.1 切換時補上正確 source 值。
+3. **Partition rollover background job（spec § 9.1 K8s CronJob）** — `audit.Rollover` Go API + maintainer 已 ready；K8s CronJob YAML 與 `0ops-ops audit-rollover` CLI 屬 ops 部署工件，超出 backend 範疇；建議獨立任務 `M5.4-adjacent — ops audit-rollover cron`。M5.2 之 migration 已預埋 9 個月分區，足夠 v1 觀察期。
+4. **「audit log 寫入失敗 reconciliation_job 重寫」（spec § 15 hard rule #10）** — service `Log()` 已回傳 error 不 silent；reconciliation_job 重寫鉤子需在所有 audit 寫入點都採 service 後再加，屬 M5.2.1 配套。
+5. **shared redactor 落於 `internal/server/observability/redaction.go`（error-model spec § 9.3）** — 該 package 之 observability skeleton 尚未實作。M5.2 redactor 暫居 `internal/server/services/audit/redact.go`；待 observability skeleton 落地後再 rehome；行為一致，僅 import path 變化。
+
 ## M3 — install / domain verify backlog
 
 ### M3.2 — GitHub App install/uninstall 流程（2026-05-15）
@@ -364,7 +404,7 @@
 
 ### docs/features 覆蓋補齊（追蹤缺漏項）
 
-- [ ] `docs/features/audit-log/spec.md`
+- [x] `docs/features/audit-log/spec.md`
 - [ ] `docs/features/auth-and-rbac/spec.md`
 - [ ] `docs/features/auth-login-flow/spec.md`
 - [ ] `docs/features/backend-ha-leader-election/spec.md`

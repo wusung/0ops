@@ -14,4 +14,7 @@ const (
 	ScopeTeamsRead Scope = "teams:read"
 	// ScopeMembersManage grants management access to members.
 	ScopeMembersManage Scope = "members:manage"
+	// ScopeAuditRead grants read access to audit_log entries
+	// (audit-log spec § 6.2).
+	ScopeAuditRead Scope = "audit:read"
 )

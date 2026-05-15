@@ -20,6 +20,7 @@ import (
 	"github.com/winshare/zeroops/internal/server/health"
 	ratelimit "github.com/winshare/zeroops/internal/server/middleware/ratelimit"
 	"github.com/winshare/zeroops/internal/server/observability"
+	"github.com/winshare/zeroops/internal/server/services/audit"
 	"github.com/winshare/zeroops/internal/server/services/cloudflare"
 	"github.com/winshare/zeroops/internal/server/services/k3s"
 	"github.com/winshare/zeroops/internal/shared"
@@ -86,7 +87,8 @@ func main() {
 	r.Method(http.MethodGet, "/metrics", metrics.Handler())
 
 	limiter := ratelimit.New(ratelimit.Config{Quotas: ratelimit.DefaultPlanQuotas()})
-	r.Mount("/", appserver.NewRouterWithRateLimit(repo, k3sClient, cfClient, limiter, metrics.RateLimitObserver()))
+	auditSvc := audit.NewService(repo, repo, audit.NopObserver())
+	r.Mount("/", appserver.NewRouterWithRateLimitAndAudit(repo, k3sClient, cfClient, limiter, metrics.RateLimitObserver(), auditSvc))
 
 	srv := &http.Server{
 		Addr:              addr,

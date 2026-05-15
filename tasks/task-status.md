@@ -21,7 +21,7 @@
 | M4.1  | Webhook auto/manual redeploy + replay protection | Done     | 2026-05-16     |
 | M4.2  | Rate limit (per-token / per-team) + 429     | Done     | 2026-05-16     |
 | M5.1  | delete_app 安全刪除 + 資源清理              | Done     | 2026-05-16     |
-| M5.2  | audit_log + audit CLI/MCP                   | Pending  | -              |
+| M5.2  | audit_log + audit CLI/MCP                   | Done     | 2026-05-16     |
 | M5.3  | reconciler GA + incident classification     | Pending  | -              |
 | M5.4  | Postgres HA + WAL archive + PITR 演練       | Pending  | -              |
 | M5.5  | Backend 2 replica + Leader election         | Pending  | -              |
