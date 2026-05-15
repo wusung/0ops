@@ -8,8 +8,8 @@ LDFLAGS := -s -w -X github.com/winshare/zeroops/internal/shared.Version=$(VERSIO
 SQLC_IMAGE ?= docker.io/sqlc/sqlc:1.31.1
 
 .PHONY: help dev dev-down dev-clean dev-logs dev-shell migrate migrate-down \
-        build-images lint-compose lint-docker lint-go test contract-test build tidy sqlc \
-        m2-2-e2e-validation m2-2-check \
+        build-images lint-compose lint-docker lint-go lint-prom-rules test contract-test build tidy sqlc \
+        m2-2-e2e-validation m2-2-check m2-6-promtool \
         task-list task-next task-run-all task-run task-rerun task-runner-test
 
 help:
@@ -64,6 +64,12 @@ lint-docker: ## 驗證 Dockerfile（需安裝 hadolint）
 
 lint-go: ## golangci-lint
 	golangci-lint run
+
+lint-prom-rules: m2-6-promtool ## 別名：跑 M2.6 promtool 驗證
+
+.PHONY: m2-6-promtool
+m2-6-promtool: ## 用 podman + prom/prometheus 跑 promtool check rules 驗證 observability ConfigMap rules
+	@bash tasks/m2-6-promtool-validate.sh
 
 test: ## go test ./...
 	go test ./...
