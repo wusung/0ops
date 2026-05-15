@@ -71,5 +71,65 @@ if [[ "${TASK_RUN_ONE_PREFLIGHT_ONLY:-0}" == "1" ]]; then
   exit 0
 fi
 
-# (steps 5+ added in Task 11 / Task 12)
-die "run-one.sh post-preflight stages not yet implemented"
+# 5. Invoke agent inside the worktree
+mapfile -d '' -t agent_argv < <(build_agent_command "$prompt_text")
+( cd "$worktree_path" && "${agent_argv[@]}" ) || {
+  printf 'AGENT_FAILED=%s\n' "$task_id"
+  mark_task_failed "$task_id"
+  die "agent exited non-zero for $task_id"
+}
+
+# 6. Verify (run inside the worktree)
+verify_failed=0
+
+# 6a. status diff for this task ID flipped to Done
+status_diff="$(git -C "$worktree_path" diff main -- tasks/task-status.md || true)"
+if [[ -z "$status_diff" ]] || ! grep -qE "^\+.*\b${task_id}\b.*\bDone\b" <<<"$status_diff"; then
+  printf 'VERIFY_FAILED=status\n' >&2
+  verify_failed=1
+fi
+
+# 6b. expected paths — at least one match (excluding status file)
+if [[ "$verify_failed" -eq 0 ]]; then
+  mapfile -t expected < <(task_expected_paths "$task_id")
+  matched=""
+  while IFS= read -r changed; do
+    [[ -n "$changed" ]] || continue
+    [[ "$changed" == "tasks/task-status.md" ]] && continue
+    if path_matches_glob "$changed" "${expected[@]}"; then
+      matched="$changed"
+      break
+    fi
+  done < <(cd "$worktree_path" && git_changed_paths_vs_main)
+  if [[ -z "$matched" ]]; then
+    printf 'VERIFY_FAILED=expected_paths\n' >&2
+    verify_failed=1
+  fi
+fi
+
+# 6c. make test
+if [[ "$verify_failed" -eq 0 ]]; then
+  if ! ( cd "$worktree_path" && make test ); then
+    printf 'VERIFY_FAILED=make_test\n' >&2
+    verify_failed=1
+  fi
+fi
+
+if [[ "$verify_failed" -ne 0 ]]; then
+  mark_task_failed "$task_id"
+  die "verify failed for $task_id (worktree preserved at $worktree_path)"
+fi
+printf 'VERIFY=ok\n'
+
+# 7. Commit on the task branch (inside worktree)
+mapfile -d '' -t commit_argv < <(build_commit_command "$task_id" "$task_title_value")
+( cd "$worktree_path" && git add -A && "${commit_argv[@]}" )
+printf 'COMMIT=%s\n' "$(git -C "$worktree_path" rev-parse HEAD)"
+
+# 8. Push / PR / merge / cleanup — implemented in Task 12
+if [[ "${TASK_SKIP_PUSH:-0}" == "1" ]]; then
+  printf 'SKIPPED=push_pr_merge\n'
+  exit 0
+fi
+
+die "run-one.sh push/PR/merge stages not yet implemented"
