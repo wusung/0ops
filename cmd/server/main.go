@@ -23,6 +23,7 @@ import (
 	"github.com/winshare/zeroops/internal/server/services/audit"
 	"github.com/winshare/zeroops/internal/server/services/cloudflare"
 	"github.com/winshare/zeroops/internal/server/services/k3s"
+	"github.com/winshare/zeroops/internal/server/services/reconciler"
 	"github.com/winshare/zeroops/internal/shared"
 )
 
@@ -88,7 +89,10 @@ func main() {
 
 	limiter := ratelimit.New(ratelimit.Config{Quotas: ratelimit.DefaultPlanQuotas()})
 	auditSvc := audit.NewService(repo, repo, audit.NopObserver())
-	r.Mount("/", appserver.NewRouterWithRateLimitAndAudit(repo, k3sClient, cfClient, limiter, metrics.RateLimitObserver(), auditSvc))
+
+	reconObserver := newReconcilerObserver(metrics)
+	incidentSvc := reconciler.NewIncidentService(repo, auditAdapter{svc: auditSvc}, reconObserver)
+	r.Mount("/", appserver.NewRouterWithReconciler(repo, k3sClient, cfClient, limiter, metrics.RateLimitObserver(), auditSvc, incidentSvc))
 
 	srv := &http.Server{
 		Addr:              addr,
@@ -100,6 +104,8 @@ func main() {
 	defer stop()
 
 	go limiter.RunCleanup(ctx, time.Hour)
+
+	startReconciler(ctx, logger, repo, incidentSvc, reconObserver, k3sClient)
 
 	go func() {
 		logger.Info("0ops-server listening", "addr", addr, "version", shared.Version)
@@ -158,6 +164,145 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// auditAdapter bridges audit.Service.Log onto reconciler.AuditWriter so
+// the incident close path can write an audit_log entry without creating
+// a circular dependency between the two services.
+type auditAdapter struct {
+	svc *audit.Service
+}
+
+func (a auditAdapter) Log(ctx context.Context, entry reconciler.AuditEntry) error {
+	if a.svc == nil {
+		return nil
+	}
+	source := audit.Source(entry.Source)
+	if source == "" {
+		source = audit.SourceUser
+	}
+	outcome := audit.Outcome(entry.Outcome)
+	if outcome == "" {
+		outcome = audit.OutcomeSuccess
+	}
+	return a.svc.Log(ctx, audit.Entry{
+		TeamID:      entry.TeamID,
+		ActorUserID: entry.ActorUserID,
+		Source:      source,
+		SubjectType: entry.SubjectType,
+		SubjectID:   entry.SubjectID,
+		Action:      entry.Action,
+		Args:        entry.Args,
+		Result:      entry.Result,
+		TraceID:     entry.TraceID,
+		Outcome:     outcome,
+	})
+}
+
+// reconcilerObserver wires reconciler.Observer onto the prometheus
+// registry. Every metric here is registered up-front in
+// observability.NewMetrics so the dashboard panels have stable label
+// sets even before the first reconciler tick fires.
+type reconcilerObserver struct {
+	m *observability.Metrics
+}
+
+func newReconcilerObserver(m *observability.Metrics) reconciler.Observer {
+	return &reconcilerObserver{m: m}
+}
+
+func (o *reconcilerObserver) ObserveTick(kind, outcome string)      { o.m.ObserveReconcilerTick(kind, outcome) }
+func (o *reconcilerObserver) ObserveJobTerminal(kind, outcome string) {
+	o.m.ObserveReconcilerJobTerminal(kind, outcome)
+}
+func (o *reconcilerObserver) ObserveDeployTransition(_, _ string) {}
+func (o *reconcilerObserver) ObserveFailureClassification(classification string) {
+	o.m.ObserveFailureClassification(classification)
+}
+func (o *reconcilerObserver) ObserveIncidentOpened(kind, severity string) {
+	o.m.ObserveIncidentOpened(kind, severity)
+}
+func (o *reconcilerObserver) ObserveIncidentClosed(kind, severity string) {
+	o.m.ObserveIncidentClosed(kind, severity)
+}
+func (o *reconcilerObserver) SetPendingJobs(kind string, count int) {
+	o.m.SetReconciliationJobsPending(kind, float64(count))
+}
+func (o *reconcilerObserver) SetOpenIncidents(severity string, count int) {
+	o.m.SetOpenIncidents(severity, float64(count))
+}
+
+// startReconciler builds the M5.3 reconciler.Runner from cmd/server
+// state. Scanners are wired with whatever credentials are available —
+// without a GitHub or ArgoCD client they degrade to a no-op tick. The
+// job processor + leader gate always start; M5.5 will swap the
+// AlwaysLeader stub for a real Lease implementation.
+func startReconciler(ctx context.Context, logger *slog.Logger, repo *db.Repository, incidentSvc *reconciler.IncidentService, observer reconciler.Observer, k3sClient *k3s.Client) {
+	scanners := buildScanners(repo, incidentSvc, observer, k3sClient)
+	cfg := reconciler.Config{
+		Leader:              reconciler.AlwaysLeader{},
+		Store:               repo,
+		Logger:              logger,
+		Observer:            observer,
+		Incidents:           incidentSvc,
+		Handlers:            reconciler.NewHandlerRegistry(),
+		DeployStatusScanner: scanners.deploy,
+		ArgoSyncScanner:     scanners.argo,
+	}
+	runner := reconciler.New(cfg)
+	runner.Start(ctx)
+	logger.Info("reconciler started", "leader", "always", "loops", scanners.summary())
+}
+
+type scannerSet struct {
+	deploy *reconciler.DeployStatusScanner
+	argo   *reconciler.ArgoSyncScanner
+}
+
+func (s scannerSet) summary() string {
+	switch {
+	case s.deploy != nil && s.argo != nil:
+		return "deploy_status,argo_sync,job_queue,metrics"
+	case s.deploy != nil:
+		return "deploy_status,job_queue,metrics"
+	case s.argo != nil:
+		return "argo_sync,job_queue,metrics"
+	default:
+		return "job_queue,metrics"
+	}
+}
+
+func buildScanners(repo *db.Repository, incidents *reconciler.IncidentService, observer reconciler.Observer, k3sClient *k3s.Client) scannerSet {
+	var set scannerSet
+	if k3sClient != nil {
+		set.argo = reconciler.NewArgoSyncScanner(repo, argoCDAdapter{client: k3sClient}, observer)
+	}
+	// deploy_status scanner depends on GHA credentials; wire only when
+	// env vars are configured. Absence is fine in dev — the runner will
+	// emit a tick-skipped metric and move on.
+	set.deploy = reconciler.NewDeployStatusScanner(repo, nil, incidents, observer)
+	return set
+}
+
+// argoCDAdapter bridges k3s.Client.GetApplicationStatus onto the
+// reconciler.ApplicationStatusFetcher interface so the scanner does not
+// import k3s directly.
+type argoCDAdapter struct {
+	client *k3s.Client
+}
+
+func (a argoCDAdapter) GetApplicationStatus(ctx context.Context, teamSlug, appSlug string) (reconciler.ApplicationStatus, error) {
+	if a.client == nil {
+		return reconciler.ApplicationStatus{}, nil
+	}
+	status, err := a.client.GetApplicationStatus(ctx, teamSlug, appSlug)
+	if err != nil {
+		return reconciler.ApplicationStatus{}, err
+	}
+	return reconciler.ApplicationStatus{
+		SyncStatus:   status.SyncStatus,
+		HealthStatus: status.HealthStatus,
+	}, nil
 }
 
 func logLevel() slog.Level {

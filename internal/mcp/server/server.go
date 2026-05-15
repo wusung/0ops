@@ -171,6 +171,15 @@ type queryAuditLogInput struct {
 	Cursor   string `json:"cursor,omitempty"`
 }
 
+type listIncidentsInput struct {
+	TeamSlug string `json:"team_slug"`
+	Status   string `json:"status,omitempty"`
+	Kind     string `json:"kind,omitempty"`
+	Severity string `json:"severity,omitempty"`
+	PageSize int    `json:"page_size,omitempty"`
+	Cursor   string `json:"cursor,omitempty"`
+}
+
 func registerTools(srv *mcp.Server, reg *appmcp.Registry) {
 	appmcp.AddTool(srv, reg, &mcp.Tool{
 		Name:        "list_teams",
@@ -586,6 +595,30 @@ func registerTools(srv *mcp.Server, reg *appmcp.Registry) {
 		out, err := backendclient.New(host, token).ConfirmGitHubUninstall(ctx, input.TeamSlug, input.PreviewID)
 		if err != nil {
 			return nil, dto.GitHubUninstallResponse{}, err
+		}
+		return nil, out, nil
+	})
+
+	appmcp.AddTool(srv, reg, &mcp.Tool{
+		Name:        "list_incidents",
+		Description: "List incidents for a team. Returns ID, kind, severity, opened_at, closed_at fields. Use this to surface failed_permanently / cleanup_residue_stuck / ghcr_refresh_failed incidents to operators. Read-only; the close action goes through the CLI per reconciler-and-incident spec § 9.3.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input listIncidentsInput) (*mcp.CallToolResult, dto.ListIncidentsResponse, error) {
+		if input.TeamSlug == "" {
+			return nil, dto.ListIncidentsResponse{}, fmt.Errorf("team_slug is required")
+		}
+		host, token, err := resolveBackendAuth()
+		if err != nil {
+			return nil, dto.ListIncidentsResponse{}, err
+		}
+		out, err := backendclient.New(host, token).ListIncidents(ctx, input.TeamSlug, backendclient.IncidentListParams{
+			Status:   input.Status,
+			Kind:     input.Kind,
+			Severity: input.Severity,
+			PageSize: input.PageSize,
+			Cursor:   input.Cursor,
+		})
+		if err != nil {
+			return nil, dto.ListIncidentsResponse{}, err
 		}
 		return nil, out, nil
 	})

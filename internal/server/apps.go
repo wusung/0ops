@@ -1207,13 +1207,13 @@ func logoutHandler(store appsStore) http.HandlerFunc {
 // NewRouter returns the HTTP router for the server.
 func NewRouter(store routerStore) http.Handler {
 	githubClient := newGitHubOAuthClient()
-	return newRouterFull(store, githubClient, nil, nil, nil, nil, nil)
+	return newRouterFull(store, githubClient, nil, nil, nil, nil, nil, nil)
 }
 
 // NewRouterWithInfra creates a router with infrastructure clients.
 func NewRouterWithInfra(store routerStore, k3sClient infraK3sClient, cfClient infraCloudflareClient) http.Handler {
 	githubClient := newGitHubOAuthClient()
-	return newRouterFull(store, githubClient, k3sClient, cfClient, nil, nil, nil)
+	return newRouterFull(store, githubClient, k3sClient, cfClient, nil, nil, nil, nil)
 }
 
 // NewRouterWithRateLimit creates a router with infrastructure clients and a
@@ -1229,12 +1229,12 @@ func NewRouterWithRateLimit(store routerStore, k3sClient infraK3sClient, cfClien
 			observerFn(string(scope), string(cat), string(plan))
 		})
 	}
-	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer, nil)
+	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer, nil, nil)
 }
 
 //nolint:revive // exported for public API
 func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient, k3sClient infraK3sClient, cfClient infraCloudflareClient) http.Handler {
-	return newRouterFull(store, githubClient, k3sClient, cfClient, nil, nil, nil)
+	return newRouterFull(store, githubClient, k3sClient, cfClient, nil, nil, nil, nil)
 }
 
 // NewRouterWithAudit composes the full router with an explicit audit
@@ -1245,7 +1245,7 @@ func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient,
 //nolint:revive // exported for public API
 func NewRouterWithAudit(store routerStore, k3sClient infraK3sClient, cfClient infraCloudflareClient, auditSvc auditQueryService) http.Handler {
 	githubClient := newGitHubOAuthClient()
-	return newRouterFull(store, githubClient, k3sClient, cfClient, nil, nil, auditSvc)
+	return newRouterFull(store, githubClient, k3sClient, cfClient, nil, nil, auditSvc, nil)
 }
 
 // NewRouterWithRateLimitAndAudit is the production constructor used by
@@ -1261,10 +1261,26 @@ func NewRouterWithRateLimitAndAudit(store routerStore, k3sClient infraK3sClient,
 			observerFn(string(scope), string(cat), string(plan))
 		})
 	}
-	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer, auditSvc)
+	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer, auditSvc, nil)
 }
 
-func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient infraK3sClient, cfClient infraCloudflareClient, limiter *ratelimit.Limiter, observer ratelimit.Observer, auditSvc auditQueryService) http.Handler {
+// NewRouterWithReconciler is the production constructor used by
+// cmd/server starting at M5.3: it adds incidents endpoints on top of
+// the M4.2 + M5.2 stack.
+//
+//nolint:revive // exported for public API
+func NewRouterWithReconciler(store routerStore, k3sClient infraK3sClient, cfClient infraCloudflareClient, limiter *ratelimit.Limiter, observerFn func(scope, category, plan string), auditSvc auditQueryService, incidentSvc incidentService) http.Handler {
+	githubClient := newGitHubOAuthClient()
+	var observer ratelimit.Observer
+	if observerFn != nil {
+		observer = ratelimit.ObserverFunc(func(scope ratelimit.Scope, cat ratelimit.Category, plan ratelimit.Plan) {
+			observerFn(string(scope), string(cat), string(plan))
+		})
+	}
+	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer, auditSvc, incidentSvc)
+}
+
+func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient infraK3sClient, cfClient infraCloudflareClient, limiter *ratelimit.Limiter, observer ratelimit.Observer, auditSvc auditQueryService, incidentSvc incidentService) http.Handler {
 	if argoClient, ok := k3sClient.(k3sArgoCDClient); ok && argoClient != nil {
 		newArgoCDStatusProvider = func() argoCDStatusProvider {
 			return k3sArgoCDStatusProvider{client: argoClient}
@@ -1397,6 +1413,17 @@ func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient 
 			sr.With(func(next http.Handler) http.Handler {
 				return mw.CheckTokenScope(rbac.ActionListSelfAudit, next)
 			}).Get("/audit/{id}", getAuditHandler(auditSvc))
+		}
+		if incidentSvc != nil {
+			sr.With(func(next http.Handler) http.Handler {
+				return mw.CheckTokenScope(rbac.ActionListIncidents, next)
+			}).Get("/incidents", listIncidentsHandler(incidentSvc))
+			sr.With(func(next http.Handler) http.Handler {
+				return mw.CheckTokenScope(rbac.ActionListIncidents, next)
+			}).Get("/incidents/{id}", getIncidentHandler(incidentSvc))
+			sr.With(func(next http.Handler) http.Handler {
+				return mw.CheckTokenScope(rbac.ActionCloseIncident, next)
+			}).Post("/incidents/{id}:close", closeIncidentHandler(incidentSvc))
 		}
 	})
 

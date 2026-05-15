@@ -633,6 +633,73 @@ func (c *Client) GetAudit(ctx context.Context, teamSlug string, id int64) (dto.A
 	return out, nil
 }
 
+// IncidentListParams carries the read-side filters for ListIncidents
+// (reconciler-and-incident spec § 9.3 surface).
+type IncidentListParams struct {
+	Status   string // "open" | "closed" | "all"
+	Kind     string
+	Severity string
+	PageSize int
+	Cursor   string
+}
+
+// ListIncidents queries the team incidents page (reconciler spec § 9.3).
+//
+//nolint:revive // exported for public API
+func (c *Client) ListIncidents(ctx context.Context, teamSlug string, params IncidentListParams) (dto.ListIncidentsResponse, error) {
+	endpoint, err := url.Parse(c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/incidents")
+	if err != nil {
+		return dto.ListIncidentsResponse{}, err
+	}
+	q := endpoint.Query()
+	if params.Status != "" {
+		q.Set("status", params.Status)
+	}
+	if params.Kind != "" {
+		q.Set("kind", params.Kind)
+	}
+	if params.Severity != "" {
+		q.Set("severity", params.Severity)
+	}
+	if params.PageSize > 0 {
+		q.Set("page_size", strconv.Itoa(params.PageSize))
+	}
+	if params.Cursor != "" {
+		q.Set("cursor", params.Cursor)
+	}
+	endpoint.RawQuery = q.Encode()
+	var out dto.ListIncidentsResponse
+	if err := c.doJSON(ctx, http.MethodGet, endpoint.String(), nil, &out); err != nil {
+		return dto.ListIncidentsResponse{}, err
+	}
+	return out, nil
+}
+
+// GetIncident loads one incident by id.
+//
+//nolint:revive // exported for public API
+func (c *Client) GetIncident(ctx context.Context, teamSlug, id string) (dto.Incident, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/incidents/" + url.PathEscape(id)
+	var out dto.Incident
+	if err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &out); err != nil {
+		return dto.Incident{}, err
+	}
+	return out, nil
+}
+
+// CloseIncident closes an incident with the supplied note. Admin role
+// + incidents:write scope required.
+//
+//nolint:revive // exported for public API
+func (c *Client) CloseIncident(ctx context.Context, teamSlug, id string, req dto.CloseIncidentRequest) (dto.Incident, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/incidents/" + url.PathEscape(id) + ":close"
+	var out dto.Incident
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, req, &out); err != nil {
+		return dto.Incident{}, err
+	}
+	return out, nil
+}
+
 func (c *Client) httpClient() *http.Client {
 	if c.HTTP != nil {
 		return c.HTTP
