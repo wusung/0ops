@@ -97,3 +97,26 @@ task_expected_paths() {
   [[ -n "$row" ]] || die "task not found: $1"
   _split_cell "$(task_field "$row" 6)"
 }
+
+# --- executability ---
+
+check_dependencies_done() {
+  local task_id="$1" dep
+  while IFS= read -r dep; do
+    [[ -n "$dep" ]] || continue
+    if [[ "$(task_status "$dep")" != "Done" ]]; then
+      die "dependency not done: $dep for $task_id"
+    fi
+  done < <(task_dependencies "$task_id")
+}
+
+task_is_executable() {
+  local task_id="$1" current_status dep
+  current_status="$(task_status "$task_id")"
+  [[ "$current_status" == "Pending" ]] || return 1
+  while IFS= read -r dep; do
+    [[ -n "$dep" ]] || continue
+    [[ "$(task_status "$dep")" == "Done" ]] || return 1
+  done < <(task_dependencies "$task_id")
+  return 0
+}
