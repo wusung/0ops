@@ -193,11 +193,27 @@ if [[ "${TASK_SKIP_CI_WAIT:-0}" != "1" ]]; then
 fi
 
 # 8d. Merge
+# Run from main repo root, NOT from the worktree. `gh pr merge --delete-branch`
+# triggers a local `git checkout main` for post-merge cleanup; if invoked from
+# inside the task worktree, git refuses with `'main' is already used by
+# worktree at <main repo>` and gh exits non-zero AFTER the server-side merge
+# has already happened. The server merge succeeded but the runner would
+# wrongly treat it as failure.
 mapfile -d '' -t merge_argv < <(build_merge_command "$pr_number")
-( cd "$worktree_path" && "${merge_argv[@]}" ) || {
-  mark_task_failed "$task_id"; die "gh pr merge failed for $task_id"
-}
-printf 'MERGED=%s\n' "$pr_url"
+if ( cd "$TASK_REPO_ROOT" && "${merge_argv[@]}" ); then
+  printf 'MERGED=%s\n' "$pr_url"
+else
+  # gh exited non-zero. Server-side may have merged anyway — verify before
+  # flipping the task to Failed, so a benign local-cleanup error doesn't
+  # poison main with a chore commit (lessons L003 / L004).
+  merged_at="$(gh pr view "$pr_number" --json mergedAt --jq '.mergedAt // ""' 2>/dev/null || true)"
+  if [[ -n "$merged_at" ]]; then
+    printf 'MERGED=%s (note: gh local cleanup failed; server-side merged at %s)\n' "$pr_url" "$merged_at"
+  else
+    mark_task_failed "$task_id"
+    die "gh pr merge failed for $task_id (PR not merged on server)"
+  fi
+fi
 
 # 8e. Cleanup: remove worktree + sync main
 git worktree remove "$worktree_path"
