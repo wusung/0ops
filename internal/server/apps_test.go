@@ -40,6 +40,20 @@ type fakeStore struct {
 	previews          map[string]db.Preview
 	deliveries        map[string]struct{}
 	lastCallbackEvent json.RawMessage
+	// M4.1 webhook-and-redeploy bookkeeping (defaults zero-valued so old
+	// tests continue to work without extra setup).
+	auditEntries      []fakeAuditEntry
+	redeployRuns      []db.InsertRedeployRunParams
+	inFlightAppIDs    map[string]bool
+}
+
+// fakeAuditEntry records calls to AppendWebhookAudit so push-handler tests
+// can assert audit side-effects without a real DB.
+type fakeAuditEntry struct {
+	TeamID string
+	Action string
+	Args   map[string]any
+	Result map[string]any
 }
 
 type mockGitHubOAuthClient struct {
@@ -394,6 +408,76 @@ func (f *fakeStore) SetTeamGitHubInstall(_ context.Context, teamID, _ string, in
 		f.team.GithubInstallID = &v
 	}
 	return nil
+}
+
+func (f *fakeStore) FindLiveAppsByRepoAndBranch(_ context.Context, teamID, repoURL, branch string) ([]db.App, error) {
+	if teamID != f.team.ID {
+		return nil, nil
+	}
+	normalized := strings.TrimSuffix(strings.TrimRight(strings.TrimSpace(repoURL), "/"), ".git")
+	out := make([]db.App, 0)
+	for _, app := range f.apps {
+		if app.Status == nil || *app.Status != "live" {
+			continue
+		}
+		if app.RepoURL == nil || strings.TrimSuffix(strings.TrimRight(strings.TrimSpace(*app.RepoURL), "/"), ".git") != normalized {
+			continue
+		}
+		if app.RepoDefaultBranch == nil || strings.TrimSpace(*app.RepoDefaultBranch) != strings.TrimSpace(branch) {
+			continue
+		}
+		out = append(out, app)
+	}
+	return out, nil
+}
+
+func (f *fakeStore) HasInFlightDeployRun(_ context.Context, appID string) (bool, error) {
+	if f.inFlightAppIDs == nil {
+		return false, nil
+	}
+	return f.inFlightAppIDs[appID], nil
+}
+
+func (f *fakeStore) InsertRedeployRun(_ context.Context, params db.InsertRedeployRunParams) (db.InsertRedeployRunResult, error) {
+	f.redeployRuns = append(f.redeployRuns, params)
+	id := "redeploy-run-" + strconv.Itoa(len(f.redeployRuns))
+	source := params.Source
+	if source == "" {
+		source = "user"
+	}
+	f.deploys = append(f.deploys, db.DeployRun{
+		ID:        id,
+		TeamID:    params.TeamID,
+		AppID:     params.AppID,
+		AppSlug:   f.appSlugByID(params.AppID),
+		Status:    "queued",
+		TraceID:   strPtrOrNil(params.TraceID),
+		CommitSHA: strPtrOrNil(params.CommitSHA),
+		Ref:       strPtrOrNil(params.Ref),
+	})
+	return db.InsertRedeployRunResult{DeployRunID: id}, nil
+}
+
+func (f *fakeStore) AppendWebhookAudit(_ context.Context, teamID, action string, args map[string]any, result map[string]any) error {
+	f.auditEntries = append(f.auditEntries, fakeAuditEntry{TeamID: teamID, Action: action, Args: args, Result: result})
+	return nil
+}
+
+func (f *fakeStore) appSlugByID(appID string) string {
+	for _, app := range f.apps {
+		if app.ID == appID {
+			return app.Slug
+		}
+	}
+	return ""
+}
+
+func strPtrOrNil(s string) *string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	v := s
+	return &v
 }
 
 func (f *fakeStore) PauseTeamApps(_ context.Context, teamID string) (int64, error) {

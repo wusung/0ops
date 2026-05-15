@@ -337,6 +337,23 @@ func (f *mcpFakeStore) PauseTeamApps(_ context.Context, _ string) (int64, error)
 func (f *mcpFakeStore) ApplyDeployCallback(_ context.Context, _ db.DeployCallbackParams) error {
 	return nil
 }
+
+func (f *mcpFakeStore) FindLiveAppsByRepoAndBranch(_ context.Context, _, _, _ string) ([]db.App, error) {
+	return nil, nil
+}
+
+func (f *mcpFakeStore) HasInFlightDeployRun(_ context.Context, _ string) (bool, error) {
+	return false, nil
+}
+
+func (f *mcpFakeStore) InsertRedeployRun(_ context.Context, _ db.InsertRedeployRunParams) (db.InsertRedeployRunResult, error) {
+	return db.InsertRedeployRunResult{}, nil
+}
+
+func (f *mcpFakeStore) AppendWebhookAudit(_ context.Context, _ string, _ string, _, _ map[string]any) error {
+	return nil
+}
+
 func (f mcpFakeStore) IsToolGranted(_ context.Context, _ string, _ string, _ string) (bool, error) {
 	return true, nil
 }

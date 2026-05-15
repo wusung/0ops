@@ -136,6 +136,18 @@ type uninstallGitHubAppInput struct {
 	PreviewID string `json:"preview_id"`
 }
 
+type redeployPreviewInput struct {
+	TeamSlug  string  `json:"team_slug"`
+	AppSlug   string  `json:"app_slug"`
+	Ref       *string `json:"ref,omitempty"`
+	CommitSHA *string `json:"commit_sha,omitempty"`
+}
+
+type redeployInput struct {
+	TeamSlug  string `json:"team_slug"`
+	PreviewID string `json:"preview_id"`
+}
+
 func registerTools(srv *mcp.Server, reg *appmcp.Registry) {
 	appmcp.AddTool(srv, reg, &mcp.Tool{
 		Name:        "list_teams",
@@ -406,6 +418,45 @@ func registerTools(srv *mcp.Server, reg *appmcp.Registry) {
 			return nil, nil, err
 		}
 		return nil, map[string]string{"status": "removed"}, nil
+	})
+
+	appmcp.AddTool(srv, reg, &mcp.Tool{
+		Name:        "redeploy_preview",
+		Description: "ALWAYS call this BEFORE redeploy. Returns a PlanPreview (action_summary, side_effects, expires_at) for triggering a redeploy of an existing app. Show the user the action_summary and the FULL side_effects list, then obtain explicit approval before calling redeploy with the returned preview_id.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input redeployPreviewInput) (*mcp.CallToolResult, dto.PreviewResponse, error) {
+		if input.TeamSlug == "" || input.AppSlug == "" {
+			return nil, dto.PreviewResponse{}, fmt.Errorf("team_slug and app_slug are required")
+		}
+		host, token, err := resolveBackendAuth()
+		if err != nil {
+			return nil, dto.PreviewResponse{}, err
+		}
+		out, err := backendclient.New(host, token).PreviewRedeploy(ctx, input.TeamSlug, input.AppSlug, dto.RedeployRequest{
+			Ref:       input.Ref,
+			CommitSHA: input.CommitSHA,
+		})
+		if err != nil {
+			return nil, dto.PreviewResponse{}, err
+		}
+		return nil, out, nil
+	})
+
+	appmcp.AddTool(srv, reg, &mcp.Tool{
+		Name:        "redeploy",
+		Description: "Confirm redeploy using a preview_id returned by redeploy_preview. Idempotent on the same preview_id. NEVER call this tool without a fresh, user-approved preview_id; the backend will reject otherwise.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input redeployInput) (*mcp.CallToolResult, dto.RedeployResponse, error) {
+		if input.TeamSlug == "" || input.PreviewID == "" {
+			return nil, dto.RedeployResponse{}, fmt.Errorf("team_slug and preview_id are required")
+		}
+		host, token, err := resolveBackendAuth()
+		if err != nil {
+			return nil, dto.RedeployResponse{}, err
+		}
+		out, err := backendclient.New(host, token).Redeploy(ctx, input.TeamSlug, dto.ConfirmRedeployRequest{PreviewID: input.PreviewID})
+		if err != nil {
+			return nil, dto.RedeployResponse{}, err
+		}
+		return nil, out, nil
 	})
 
 	appmcp.AddTool(srv, reg, &mcp.Tool{

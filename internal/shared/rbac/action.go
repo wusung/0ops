@@ -9,6 +9,8 @@ const (
 	ActionListApps Action = "list_apps"
 	// ActionCreateApp requires write access to create apps.
 	ActionCreateApp Action = "create_app"
+	// ActionRedeploy requires write access to trigger a redeploy.
+	ActionRedeploy Action = "redeploy"
 	// ActionListTeams requires read access to list teams.
 	ActionListTeams Action = "list_teams"
 	// ActionListMembers requires admin access to list members.
@@ -36,6 +38,8 @@ func RequiredFor(action Action) Requirement {
 	case ActionListApps:
 		return Requirement{MinRole: RoleViewer, RequiredScope: ScopeAppsRead}
 	case ActionCreateApp:
+		return Requirement{MinRole: RoleMember, RequiredScope: ScopeAppsWrite}
+	case ActionRedeploy:
 		return Requirement{MinRole: RoleMember, RequiredScope: ScopeAppsWrite}
 	case ActionListTeams:
 		return Requirement{RequiredScope: ScopeTeamsRead}

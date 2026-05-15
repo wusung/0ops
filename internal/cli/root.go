@@ -404,7 +404,95 @@ func newDeploysCommand() *cobra.Command {
 	logsCmd.Flags().BoolVar(&logFollow, "follow", false, "stream logs via SSE")
 	cmd.AddCommand(logsCmd)
 
+	var (
+		redeployRef       string
+		redeployCommitSHA string
+		redeployYes       bool
+		redeployDryRun    bool
+	)
+	redeployCmd := &cobra.Command{
+		Use:   "redeploy <app-slug>",
+		Short: "Trigger a redeploy via preview/confirm",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctxInfo, err := resolveAppsContext(teamSlug, baseURL, token)
+			if err != nil {
+				return err
+			}
+			appSlug := strings.TrimSpace(args[0])
+			if appSlug == "" {
+				return fmt.Errorf("app-slug is required")
+			}
+			req := dto.RedeployRequest{}
+			if strings.TrimSpace(redeployRef) != "" {
+				ref := strings.TrimSpace(redeployRef)
+				req.Ref = &ref
+			}
+			if strings.TrimSpace(redeployCommitSHA) != "" {
+				sha := strings.TrimSpace(redeployCommitSHA)
+				req.CommitSHA = &sha
+			}
+			client := backendclient.New(ctxInfo.Host, ctxInfo.BearerToken)
+			ctx := commandContext(cmd)
+			preview, err := client.PreviewRedeploy(ctx, ctxInfo.TeamSlug, appSlug, req)
+			if err != nil {
+				return err
+			}
+			if redeployDryRun {
+				return renderPreview(cmd, preview, outputFmt)
+			}
+			if !redeployYes {
+				ok, err := confirmAction(cmd, fmt.Sprintf("Redeploy app %q in team %q?", appSlug, ctxInfo.TeamSlug))
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return nil
+				}
+			}
+			out, err := client.Redeploy(ctx, ctxInfo.TeamSlug, dto.ConfirmRedeployRequest{PreviewID: preview.PreviewID})
+			if err != nil {
+				return err
+			}
+			return renderRedeploy(cmd, out, outputFmt)
+		},
+	}
+	redeployCmd.Flags().StringVar(&redeployRef, "ref", "", "git ref (branch/tag); defaults to app repo_default_branch")
+	redeployCmd.Flags().StringVar(&redeployCommitSHA, "commit-sha", "", "explicit commit sha; defaults to HEAD of ref")
+	redeployCmd.Flags().BoolVar(&redeployYes, "yes", false, "skip confirmation")
+	redeployCmd.Flags().BoolVar(&redeployDryRun, "dry-run", false, "preview only, do not confirm")
+	cmd.AddCommand(redeployCmd)
+
 	return cmd
+}
+
+func renderRedeploy(cmd *cobra.Command, out dto.RedeployResponse, outputFmt string) error {
+	switch strings.ToLower(outputFmt) {
+	case "json":
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(out)
+	case "yaml":
+		data, err := yaml.Marshal(out)
+		if err != nil {
+			return err
+		}
+		_, err = cmd.OutOrStdout().Write(data)
+		return err
+	case "table":
+		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+		_, _ = fmt.Fprintf(w, "deploy_run_id\t%s\n", out.DeployRunID)
+		_, _ = fmt.Fprintf(w, "app_id\t%s\n", out.AppID)
+		_, _ = fmt.Fprintf(w, "app_slug\t%s\n", out.AppSlug)
+		_, _ = fmt.Fprintf(w, "trace_id\t%s\n", out.TraceID)
+		_, _ = fmt.Fprintf(w, "commit_sha\t%s\n", out.CommitSHA)
+		_, _ = fmt.Fprintf(w, "ref\t%s\n", out.Ref)
+		_, _ = fmt.Fprintf(w, "source\t%s\n", out.Source)
+		_, _ = fmt.Fprintf(w, "subdomain_url\t%s\n", out.SubdomainURL)
+		return w.Flush()
+	default:
+		return fmt.Errorf("unsupported output format %q", outputFmt)
+	}
 }
 
 func newDomainsCommand() *cobra.Command {
