@@ -1,4 +1,11 @@
-# M0.1 — dev-environment scaffold
+# tasks/todo.md
+
+> 本檔為專案待辦與進度的單一事實來源。
+> 所有進度更新只在此檔案維護；其他文件可描述規格、流程、決策與計畫，但不得再承載 checkbox 狀態。
+
+## Milestone Backlog
+
+### M0.1 — dev-environment scaffold
 
 > 對應 milestone：**M0**（Module scaffold + dev env + ADR 定稿）
 > 對應 spec：`docs/features/dev-environment/spec.md`
@@ -82,7 +89,7 @@
 
 ---
 
-# M2 — gap remediation backlog
+### M2 — gap remediation backlog
 
 > 對應 milestone：**M2**（`create_app` + 兩階段 preview/confirm + idempotency + winshare 子網域 + observability GA + 隔離模型）
 > 對應 milestone 定義：`docs/0ops-plan-milestones.md`
@@ -232,3 +239,134 @@
 - [x] Grafana dashboard + burn-rate alert 可用
 - [ ] MCP `create_app_preview` / `create_app` description lint 合規
 - [ ] CLI 與 MCP 都各跑過一次端到端驗收
+
+## Milestone Supporting Work
+
+### docs/features 覆蓋補齊（追蹤缺漏項）
+
+- [ ] `docs/features/audit-log/spec.md`
+- [ ] `docs/features/auth-and-rbac/spec.md`
+- [ ] `docs/features/auth-login-flow/spec.md`
+- [ ] `docs/features/backend-ha-leader-election/spec.md`
+- [ ] `docs/features/custom-domain-and-verify/spec.md`
+- [ ] `docs/features/delete-app-flow/spec.md`
+- [ ] `docs/features/github-app-install-flow/spec.md`
+- [ ] `docs/features/mcp-tool-permissions/spec.md`
+- [ ] `docs/features/postgres-ha-and-dr/spec.md`
+- [ ] `docs/features/rate-limit-and-abuse/spec.md`
+- [ ] `docs/features/read-api-vertical-slice/spec.md`
+- [ ] `docs/features/secrets-management/spec.md`
+- [ ] `docs/features/shared-dto-and-contract/spec.md`
+- [ ] `docs/features/webhook-and-redeploy/spec.md`
+
+## Migrated Todo Sources
+
+> 本區集中管理原先散落於 docs/ 的 checkbox。來源文件已移除 checkbox，僅保留說明文字。
+> 規則：進度只在 `tasks/todo.md` 更新；其他文件不得再新增 checkbox。
+
+### 治理與決策待辦
+
+#### docs/0ops-business-plan.md
+
+- [ ] 公司法律主體
+- [ ] 領投人選與時程
+- [ ] Open source 範圍（v1 全閉源 → v2 部分開源 vs v1 即 OSS core）
+- [ ] 商業 managed cloud 上線時程（建議與 v2 Web UI 同步）
+- [ ] 對 AI CLI 廠商的合作 outreach 順序
+
+#### docs/0ops-plan-milestones.md
+
+- [ ] Repo 主機位置（自建 git server、GitHub org、其他）
+- [ ] **Copilot CLI / Codex CLI 與官方 Go SDK 相容性矩陣**：M0 spike 驗證 tool registry、preview/confirm、streaming fallback
+- [ ] **Copilot CLI 是否原生支援 MCP**（影響 skill pack 形式：MCP 共用 / 退路 wrap CLI）
+- [ ] **Codex / Copilot skill metadata 精確格式**（v1 起手時驗證）
+- [ ] Backend 是否需要 SSE → MCP streaming（官方 Go SDK 若支援不足，則改分頁拉取）
+
+### 執行計畫遷移待辦
+
+> 詳細 step-by-step 執行內容保留在來源 plan 文件。
+> `tasks/todo.md` 只追蹤 task-group 層級狀態，不再鏡像每個 `Run test` / `Commit` 子步驟。
+
+#### docs/admin-user-provisioning/draft/2026-05-11-plan.md
+
+- 內容與 `docs/admin-user-provisioning/release/2026-05-11-plan.md` 相同。
+- 進度只追蹤 release 版本，避免 draft/release 雙重維護。
+
+#### docs/admin-user-provisioning/release/2026-05-11-plan.md
+
+- [ ] DB schema + query groundwork
+- [ ] Bootstrap owner one-shot flow
+- [ ] Members list/invite/remove API with RBAC + preview/confirm
+- [ ] CLI members subcommands
+- [ ] MCP members tools
+- [ ] End-to-end verification and docs alignment
+
+#### docs/db-foundation/draft/2026-05-10-plan.md
+
+- [x] DB foundation delivered: pgx + sqlc + repository smoke test + goose create runbook
+- [x] M0.2：`internal/server/db/`（pgx + sqlc 架接）+ `goose create` 之開發 workflow runbook
+- [ ] Post-delivery targeted verification refresh
+- [ ] Repo-wide verification refresh
+- [ ] Generated/tracked files review
+
+#### docs/features/build-pipeline-and-callback/draft/2026-05-13-plan.md
+
+- [ ] Callback HMAC validation coverage
+- [ ] Callback timestamp window coverage
+- [ ] Webhook dedup coverage
+- [ ] Deploy status normalization coverage
+- [ ] Failure classification validation
+- [ ] Workflow YAML and GitOps script assets
+- [ ] E2E acceptance script and Makefile target
+- [ ] Final verification bundle
+
+#### docs/features/create-app-flow/draft/2025-01-15-plan.md
+
+- [x] Action/service skeleton and argument validation
+- [x] SideEffect definitions and coverage
+- [x] `deploy_run` state machine groundwork
+- [x] Precheck flow
+- [x] Execute saga structure
+- [x] Handler delegation to service
+- [x] Idempotent replay integration coverage
+- [x] M2.1 — create_app saga pattern + state machine
+- [ ] Full-suite verification refresh
+
+#### docs/gitops-render-and-argocd/draft/2026-05-13-plan.md
+
+- [x] GitOps render output contract
+- [x] Git push path and failure compensation
+- [x] ArgoCD sync status transitions
+- [x] Focused verification and repo checks
+- [x] Docs alignment note
+
+## Governance Guide
+
+> 本區不是進度追蹤，不用 checkbox。
+> 作用是把執行工作時必須套用的治理規則集中放在同一份檔案，避免與 backlog 混淆。
+
+### docs/adr-reading-strategy.md
+
+- 修改涉及的模組或概念是否已在 ADR 明確提及
+- 修改是否違反 TL;DR 的前三項決策；若無明確提及，改為 **Read**
+- Context 中提及的問題是否仍然適用
+- Decision 中的選項取捨是否影響本次修改
+- Consequences 中列舉的限制是否與本次修改衝突；若超出預期，改為 **Deep**
+- Consequences 中列舉的長期影響是否已納入本次修改評估
+- Revisit Triggers 中是否有會被本次修改觸發的條件
+- Open Questions 是否暗示未來不確定性會影響本次設計
+- 若需變更已決策項，應新增 ADR，而非直接修改既有決策
+
+### 執行順序
+
+- 識別相關 ADR
+- 執行讀取
+- 記錄發現
+- 發現違反時停止擴寫實作，先回到 ADR decision / consequences
+
+### 交付前檢查
+
+- 涉及新 API 或 schema 時，確認 ADR 深度足夠
+- 做架構決策檢查
+- 做文件同步檢查
+- 做測試完整性檢查
