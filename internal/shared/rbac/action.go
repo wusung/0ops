@@ -27,6 +27,12 @@ const (
 	// ActionManageGithubApp requires owner role to install or uninstall the
 	// GitHub App for a team (github-app-install-flow spec § 14 hard rule #2).
 	ActionManageGithubApp Action = "manage_github_app"
+	// ActionListAudit requires admin role + audit:read scope to query the
+	// team's full audit_log (audit-log spec § 6.2).
+	ActionListAudit Action = "list_audit"
+	// ActionListSelfAudit requires viewer role + audit:read scope to query
+	// audit_log restricted to the calling actor (audit-log spec § 6.2).
+	ActionListSelfAudit Action = "list_self_audit"
 )
 
 // Requirement couples minimum role with required scope.
@@ -58,6 +64,10 @@ func RequiredFor(action Action) Requirement {
 		return Requirement{MinRole: RoleAdmin, RequiredScope: ScopeMembersManage}
 	case ActionManageGithubApp:
 		return Requirement{MinRole: RoleOwner, RequiredScope: ScopeMembersManage}
+	case ActionListAudit:
+		return Requirement{MinRole: RoleAdmin, RequiredScope: ScopeAuditRead}
+	case ActionListSelfAudit:
+		return Requirement{MinRole: RoleViewer, RequiredScope: ScopeAuditRead}
 	default:
 		return Requirement{}
 	}

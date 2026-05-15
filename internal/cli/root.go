@@ -37,6 +37,7 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(newMembersCommand())
 	root.AddCommand(newAuthCommand())
 	root.AddCommand(newAdminCommand())
+	root.AddCommand(newAuditCommand())
 	return root
 }
 

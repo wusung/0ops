@@ -1207,13 +1207,13 @@ func logoutHandler(store appsStore) http.HandlerFunc {
 // NewRouter returns the HTTP router for the server.
 func NewRouter(store routerStore) http.Handler {
 	githubClient := newGitHubOAuthClient()
-	return newRouterFull(store, githubClient, nil, nil, nil, nil)
+	return newRouterFull(store, githubClient, nil, nil, nil, nil, nil)
 }
 
 // NewRouterWithInfra creates a router with infrastructure clients.
 func NewRouterWithInfra(store routerStore, k3sClient infraK3sClient, cfClient infraCloudflareClient) http.Handler {
 	githubClient := newGitHubOAuthClient()
-	return newRouterFull(store, githubClient, k3sClient, cfClient, nil, nil)
+	return newRouterFull(store, githubClient, k3sClient, cfClient, nil, nil, nil)
 }
 
 // NewRouterWithRateLimit creates a router with infrastructure clients and a
@@ -1229,15 +1229,42 @@ func NewRouterWithRateLimit(store routerStore, k3sClient infraK3sClient, cfClien
 			observerFn(string(scope), string(cat), string(plan))
 		})
 	}
-	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer)
+	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer, nil)
 }
 
 //nolint:revive // exported for public API
 func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient, k3sClient infraK3sClient, cfClient infraCloudflareClient) http.Handler {
-	return newRouterFull(store, githubClient, k3sClient, cfClient, nil, nil)
+	return newRouterFull(store, githubClient, k3sClient, cfClient, nil, nil, nil)
 }
 
-func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient infraK3sClient, cfClient infraCloudflareClient, limiter *ratelimit.Limiter, observer ratelimit.Observer) http.Handler {
+// NewRouterWithAudit composes the full router with an explicit audit
+// query service wired in (audit-log spec § 6.1). cmd/server uses this
+// to plumb the audit Repository through; tests reach for the existing
+// constructors when audit is out of scope.
+//
+//nolint:revive // exported for public API
+func NewRouterWithAudit(store routerStore, k3sClient infraK3sClient, cfClient infraCloudflareClient, auditSvc auditQueryService) http.Handler {
+	githubClient := newGitHubOAuthClient()
+	return newRouterFull(store, githubClient, k3sClient, cfClient, nil, nil, auditSvc)
+}
+
+// NewRouterWithRateLimitAndAudit is the production constructor used by
+// cmd/server: it combines the rate-limit middleware and the audit
+// query service in a single router (M4.2 + M5.2).
+//
+//nolint:revive // exported for public API
+func NewRouterWithRateLimitAndAudit(store routerStore, k3sClient infraK3sClient, cfClient infraCloudflareClient, limiter *ratelimit.Limiter, observerFn func(scope, category, plan string), auditSvc auditQueryService) http.Handler {
+	githubClient := newGitHubOAuthClient()
+	var observer ratelimit.Observer
+	if observerFn != nil {
+		observer = ratelimit.ObserverFunc(func(scope ratelimit.Scope, cat ratelimit.Category, plan ratelimit.Plan) {
+			observerFn(string(scope), string(cat), string(plan))
+		})
+	}
+	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer, auditSvc)
+}
+
+func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient infraK3sClient, cfClient infraCloudflareClient, limiter *ratelimit.Limiter, observer ratelimit.Observer, auditSvc auditQueryService) http.Handler {
 	if argoClient, ok := k3sClient.(k3sArgoCDClient); ok && argoClient != nil {
 		newArgoCDStatusProvider = func() argoCDStatusProvider {
 			return k3sArgoCDStatusProvider{client: argoClient}
@@ -1363,6 +1390,14 @@ func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient 
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionListMembers, next)
 		}).Get("/github/install-status", githubInstallStatusHandler(githubSvc))
+		if auditSvc != nil {
+			sr.With(func(next http.Handler) http.Handler {
+				return mw.CheckTokenScope(rbac.ActionListSelfAudit, next)
+			}).Get("/audit", listAuditHandler(auditSvc))
+			sr.With(func(next http.Handler) http.Handler {
+				return mw.CheckTokenScope(rbac.ActionListSelfAudit, next)
+			}).Get("/audit/{id}", getAuditHandler(auditSvc))
+		}
 	})
 
 	return r

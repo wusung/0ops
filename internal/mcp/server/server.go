@@ -160,6 +160,17 @@ type deleteAppInput struct {
 	PreviewID string `json:"preview_id"`
 }
 
+type queryAuditLogInput struct {
+	TeamSlug string `json:"team_slug"`
+	Since    string `json:"since,omitempty"`
+	Until    string `json:"until,omitempty"`
+	Action   string `json:"action,omitempty"`
+	Actor    string `json:"actor,omitempty"`
+	TraceID  string `json:"trace_id,omitempty"`
+	PageSize int    `json:"page_size,omitempty"`
+	Cursor   string `json:"cursor,omitempty"`
+}
+
 func registerTools(srv *mcp.Server, reg *appmcp.Registry) {
 	appmcp.AddTool(srv, reg, &mcp.Tool{
 		Name:        "list_teams",
@@ -575,6 +586,32 @@ func registerTools(srv *mcp.Server, reg *appmcp.Registry) {
 		out, err := backendclient.New(host, token).ConfirmGitHubUninstall(ctx, input.TeamSlug, input.PreviewID)
 		if err != nil {
 			return nil, dto.GitHubUninstallResponse{}, err
+		}
+		return nil, out, nil
+	})
+
+	appmcp.AddTool(srv, reg, &mcp.Tool{
+		Name:        "query_audit_log",
+		Description: "Query the team audit_log. Returns a page of redacted audit entries (action, actor, outcome, preview_id, trace_id) for the given team. Admin role required for full-team queries; viewers may filter actor=me. Read-only.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input queryAuditLogInput) (*mcp.CallToolResult, dto.ListAuditResponse, error) {
+		if input.TeamSlug == "" {
+			return nil, dto.ListAuditResponse{}, fmt.Errorf("team_slug is required")
+		}
+		host, token, err := resolveBackendAuth()
+		if err != nil {
+			return nil, dto.ListAuditResponse{}, err
+		}
+		out, err := backendclient.New(host, token).ListAudit(ctx, input.TeamSlug, backendclient.AuditListParams{
+			Since:    input.Since,
+			Until:    input.Until,
+			Action:   input.Action,
+			Actor:    input.Actor,
+			TraceID:  input.TraceID,
+			PageSize: input.PageSize,
+			Cursor:   input.Cursor,
+		})
+		if err != nil {
+			return nil, dto.ListAuditResponse{}, err
 		}
 		return nil, out, nil
 	})
