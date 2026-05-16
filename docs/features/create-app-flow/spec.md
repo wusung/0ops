@@ -113,6 +113,9 @@ type AppCreateLastResult struct {
 9. 回 PlanPreview
 ```
 
+> **Dev bypass**：step 2 之 install check 透過 env `GITHUB_APP_DISABLE_INSTALL_CHECK=true`
+> 可關閉，用於 `make dev`（compose.yaml 預設 `true`）。production 必留空；同 `K3S_DISABLE_ISOLATION` / `CF_DISABLE_TUNNEL` 模式。
+
 ### 5.2 5 項 side_effects
 
 | Effect | Reversible | Description | Resource |

@@ -43,6 +43,11 @@ services:
       OPS_CALLBACK_SECRET: ${OPS_CALLBACK_SECRET:-dev-callback-secret-change-me}
       GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID}
       GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET}
+      # Dev bypass: skip create_app preview's GitHub App install check so the
+      # make-dev walkthrough works without a real GitHub App installation.
+      # Spec docs/features/create-app-flow/spec.md § 5.1 step 2 / § 15 hard
+      # rule #7 — production must leave this unset.
+      GITHUB_APP_DISABLE_INSTALL_CHECK: ${GITHUB_APP_DISABLE_INSTALL_CHECK:-true}
     ports:
       - "${OPS_HOST_PORT:-8080}:8080"
     volumes:

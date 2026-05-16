@@ -788,12 +788,13 @@ func newCLIFakeStore() (*cliFakeStore, string) {
 		panic(err)
 	}
 	baseToken := db.CliToken{ID: "token-1", OwnerUserID: "user-1", TeamID: "team-1", TokenHash: auth.HashBearerToken(parsed.Secret), Scopes: []string{"apps:read", "apps:write", "teams:read", "members:manage"}}
+	defaultInstallID := int64(99999)
 	return &cliFakeStore{
 		token: baseToken,
 		tokens: map[string]db.CliToken{
 			baseToken.ID: baseToken,
 		},
-		team: db.Team{ID: "team-1", Slug: "acme", Name: "Acme", Plan: "starter"},
+		team: db.Team{ID: "team-1", Slug: "acme", Name: "Acme", Plan: "starter", GithubInstallID: &defaultInstallID},
 		role: "admin", members: true,
 		apps: []db.App{
 			{ID: "1", TeamID: "team-1", Slug: "alpha", Name: strPtr("Alpha"), CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},

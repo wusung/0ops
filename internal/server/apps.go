@@ -343,6 +343,23 @@ func previewCreateAppHandler(store appsStore) http.HandlerFunc {
 			return
 		}
 
+		// Spec docs/features/create-app-flow/spec.md § 5.1 step 2 + § 15
+		// hard rule #7: team without GitHub App install must fail at preview
+		// (not at confirm, which is the irreversible saga boundary). Dev knob
+		// GITHUB_APP_DISABLE_INSTALL_CHECK mirrors K3S_DISABLE_ISOLATION /
+		// CF_DISABLE_TUNNEL for `make dev` walkthroughs.
+		if !githubInstallCheckDisabled() {
+			team, err := store.GetTeamByID(r.Context(), auth.TeamID(r.Context()))
+			if err != nil {
+				apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to load team", nil)
+				return
+			}
+			if team.GithubInstallID == nil {
+				apperror.Write(w, "github_app_not_installed", apperror.ClassUnprocessable, "team has no GitHub App installation; run `0ops teams github install`", map[string]any{"team_slug": auth.TeamSlug(r.Context())})
+				return
+			}
+		}
+
 		if _, err := store.GetTeamAppBySlug(r.Context(), auth.TeamID(r.Context()), req.Slug); err == nil {
 			apperror.Write(w, "slug_taken", apperror.ClassConflict, "app slug already exists", map[string]any{"slug": req.Slug})
 			return
@@ -1627,6 +1644,10 @@ func callbackBaseURL() string {
 		base = "http://localhost:8080"
 	}
 	return strings.TrimRight(base, "/")
+}
+
+func githubInstallCheckDisabled() bool {
+	return strings.EqualFold(strings.TrimSpace(os.Getenv("GITHUB_APP_DISABLE_INSTALL_CHECK")), "true")
 }
 
 func newRandomToken() (string, error) {
