@@ -4,7 +4,7 @@
 # build dev:      automatically via compose (target=dev)
 
 # --- deps：拉模組，最大化快取 ---
-FROM golang:1.25-alpine AS deps
+FROM golang:1.26-alpine AS deps
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -21,7 +21,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     -o /out/0ops-server ./cmd/server
 
 # --- dev：熱重載（air），bind-mount source via compose ---
-FROM golang:1.25-alpine AS dev
+FROM golang:1.26-alpine AS dev
 RUN go install github.com/air-verse/air@v1.62.0
 WORKDIR /app
 EXPOSE 8080

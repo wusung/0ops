@@ -6,7 +6,7 @@
 # entrypoint:      goose -dir /migrations postgres <DATABASE_URL> <subcommand>
 
 # --- builder：拉 pinned goose binary ---
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 WORKDIR /src
 ENV CGO_ENABLED=0 GOOS=linux GOFLAGS="-trimpath"
 RUN --mount=type=cache,target=/go/pkg/mod \
