@@ -345,7 +345,12 @@ phase_callback() {
     return 0
   fi
 
-  local run_id="m2-8-e2e-fake-run"
+  # deploy_run.id is a uuid column; a non-UUID literal triggers SQLSTATE
+  # 22P02 (invalid_text_representation) inside ApplyDeployCallback before
+  # the handler can map ErrNoRows → 404. Use a syntactically valid UUID
+  # that is guaranteed not to exist so the path resolves to
+  # deploy_run_not_found (404), which is the value this phase asserts.
+  local run_id="00000000-0000-0000-0000-000000000000"
   local ts
   ts="$(date -u +%s)"
   local body
