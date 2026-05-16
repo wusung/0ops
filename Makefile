@@ -112,6 +112,20 @@ m5-4-pitr-drill: ## 跑 local PITR drill（podman compose；spec § 8.3 + § 16 
 sqlc: ## 產生 sqlc 程式碼
 	podman run --rm --userns=keep-id -v $(CURDIR):/src -w /src $(SQLC_IMAGE) generate
 
+## --- dev helpers ---
+
+SEED_DB_URL ?= postgres://ops:ops_dev_pw@127.0.0.1:15432/ops?sslmode=disable
+SEED_TEAM   ?=
+SEED_LOGIN  ?=
+
+seed-cli-token: ## 直接在 dev DB 寫 pat cli_token；用 TEAM=<slug> LOGIN=<github_login>
+	@test -n "$(SEED_TEAM)" || (echo "usage: make seed-cli-token TEAM=<team-slug> LOGIN=<github-login>" >&2; exit 1)
+	@test -n "$(SEED_LOGIN)" || (echo "usage: make seed-cli-token TEAM=<team-slug> LOGIN=<github-login>" >&2; exit 1)
+	@go run ./cmd/devtools/seed-cli-token \
+	    "--database-url=$(SEED_DB_URL)" \
+	    "--team-slug=$(SEED_TEAM)" \
+	    "--github-login=$(SEED_LOGIN)"
+
 ## --- task runner ---
 
 task-list: ## 列出所有 task 與狀態

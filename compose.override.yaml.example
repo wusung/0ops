@@ -17,4 +17,5 @@ services:
   #
   # db:
   #   ports:
-  #     - "5432:5432"  # 暴露 db 給本機 psql / GUI（注意 .env password 為 dev 預設）
+  #     - "15432:5432"  # 暴露 db 給本機 psql / GUI（host:15432 避開常見的 5432 衝突；
+  #                       Makefile 之 `seed-cli-token` target 之 SEED_DB_URL 預設指向此 port）
