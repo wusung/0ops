@@ -48,6 +48,8 @@ services:
       # Spec docs/features/create-app-flow/spec.md § 5.1 step 2 / § 15 hard
       # rule #7 — production must leave this unset.
       GITHUB_APP_DISABLE_INSTALL_CHECK: ${GITHUB_APP_DISABLE_INSTALL_CHECK:-true}
+      K3S_DISABLE_ISOLATION: ${K3S_DISABLE_ISOLATION:-true}
+      CF_DISABLE_TUNNEL: ${CF_DISABLE_TUNNEL:-true}
     ports:
       - "${OPS_HOST_PORT:-8080}:8080"
     volumes:
