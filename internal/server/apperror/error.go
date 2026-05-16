@@ -20,6 +20,8 @@ const (
 	ClassNotFound Class = "not_found"
 	// ClassConflict indicates a conflict error.
 	ClassConflict Class = "conflict"
+	// ClassUnprocessable indicates a semantically invalid request (HTTP 422).
+	ClassUnprocessable Class = "unprocessable"
 	// ClassTooManyRequests indicates a rate-limited error.
 	ClassTooManyRequests Class = "too_many_requests"
 	// ClassInternal indicates an internal error.
@@ -61,6 +63,8 @@ func Status(class Class) int {
 		return http.StatusNotFound
 	case ClassConflict:
 		return http.StatusConflict
+	case ClassUnprocessable:
+		return http.StatusUnprocessableEntity
 	case ClassTooManyRequests:
 		return http.StatusTooManyRequests
 	case ClassInternal:

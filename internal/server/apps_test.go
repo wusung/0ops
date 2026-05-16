@@ -1092,6 +1092,79 @@ func TestAppsPreviewCreateAndCreate(t *testing.T) {
 	}
 }
 
+// TestAppsPreviewCreateRequiresGitHubInstall guards spec
+// docs/features/create-app-flow/spec.md § 5.1 step 2 and § 15 hard rule #7:
+// when team.github_install_id IS NULL, preview must fail 422
+// github_app_not_installed instead of reaching confirm.
+func TestAppsPreviewCreateRequiresGitHubInstall(t *testing.T) {
+	store, token := newFakeStore()
+	store.team.GithubInstallID = nil
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	reqBody := `{"slug":"nextdemo","repo_url":"https://github.com/example/nextdemo","ref":"main"}`
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/teams/"+store.team.Slug+"/apps:preview", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("preview request error = %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("preview status = %d, want 422; body = %s", resp.StatusCode, string(body))
+	}
+
+	var envelope struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
+		t.Fatalf("decode error envelope: %v", err)
+	}
+	if envelope.Error.Code != "github_app_not_installed" {
+		t.Fatalf("error.code = %q, want github_app_not_installed", envelope.Error.Code)
+	}
+}
+
+// TestAppsPreviewCreateBypassEnvAllowsMissingInstall guards the dev knob
+// GITHUB_APP_DISABLE_INSTALL_CHECK=true, which keeps `make dev` walkthroughs
+// working when no real GitHub App is installed.
+func TestAppsPreviewCreateBypassEnvAllowsMissingInstall(t *testing.T) {
+	t.Setenv("GITHUB_APP_DISABLE_INSTALL_CHECK", "true")
+	store, token := newFakeStore()
+	store.team.GithubInstallID = nil
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	reqBody := `{"slug":"nextdemo","repo_url":"https://github.com/example/nextdemo","ref":"main"}`
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/teams/"+store.team.Slug+"/apps:preview", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("preview request error = %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("preview status = %d, want 200; body = %s", resp.StatusCode, string(body))
+	}
+}
+
 func TestAppsCreateConfirmIdempotentReplay(t *testing.T) {
 	store, token := newFakeStore()
 	srv := httptest.NewServer(NewRouter(store))
@@ -1411,10 +1484,11 @@ func newFakeStore() (*fakeStore, string) {
 		TokenHash:   auth.HashBearerToken(parsed.Secret),
 		Scopes:      []string{"apps:read", "apps:write", "teams:read", "members:manage"},
 	}
+	defaultInstallID := int64(99999)
 	return &fakeStore{
 		token:   baseToken,
 		tokens:  map[string]db.CliToken{baseToken.ID: baseToken},
-		team:    db.Team{ID: "team-1", Slug: "acme", Name: "Acme", Plan: "starter"},
+		team:    db.Team{ID: "team-1", Slug: "acme", Name: "Acme", Plan: "starter", GithubInstallID: &defaultInstallID},
 		role:    "admin",
 		members: true,
 		apps: []db.App{
