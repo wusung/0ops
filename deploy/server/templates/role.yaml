@@ -1,0 +1,34 @@
+{{- /*
+Spec § 14 hard rule #2: Lease 必使用 K8s Lease object；本 Role 把權限
+縮窄到 coordination.k8s.io/leases 且 resourceName 限定到單一 Lease，
+backend SA 不能影響其他 Lease object。
+*/ -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ printf "%s-lease" .Values.serviceAccount.name | quote }}
+  namespace: {{ .Values.leaderElection.namespace | quote }}
+  labels:
+    app: ops-server
+    app.0ops.io/managed-by: 0ops
+rules:
+  # client-go leaderelection requires: get/list/watch to observe the
+  # Lease object; create when it does not yet exist; update / patch to
+  # renew the holder identity + renewTime.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    resourceNames:
+      - {{ .Values.leaderElection.leaseName | quote }}
+    verbs:
+      - get
+      - watch
+      - update
+      - patch
+  # create + list cannot be filtered by resourceName per K8s RBAC; we
+  # grant the minimal pair separately so the SA can bootstrap the
+  # Lease the first time the deployment starts.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs:
+      - create
+      - list

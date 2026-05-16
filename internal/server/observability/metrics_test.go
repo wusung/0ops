@@ -132,3 +132,47 @@ func TestM2_5CloudflareTunnelMetricsExpose(t *testing.T) {
 		t.Fatalf("metrics output missing tunnel connectors_ready gauge: %s", body)
 	}
 }
+
+// M5.5 backend-ha-leader-election spec § 8.1: pod_name-labelled leader metrics.
+func TestM5_5LeaderMetricsExpose(t *testing.T) {
+	metrics := NewMetrics()
+	metrics.SetLeaderStatus("ops-server-7b9d-abc12", true)
+	metrics.ObserveLeaderHandover("ops-server-7b9d-abc12")
+	metrics.ObserveLeaseRenew("ops-server-7b9d-abc12", "acquired")
+	metrics.ObserveLeaseRenew("ops-server-7b9d-abc12", "lost")
+	metrics.ObserveLeaseRenew("ops-server-7b9d-abc12", "slow_acquire")
+
+	metricsRec := httptest.NewRecorder()
+	metrics.Handler().ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+
+	body := metricsRec.Body.String()
+	if !strings.Contains(body, `zeroops_leader_status{pod_name="ops-server-7b9d-abc12"} 1`) {
+		t.Fatalf("metrics output missing leader_status gauge: %s", body)
+	}
+	if !strings.Contains(body, `zeroops_leader_handover_total{pod_name="ops-server-7b9d-abc12"} 1`) {
+		t.Fatalf("metrics output missing leader_handover_total counter: %s", body)
+	}
+	if !strings.Contains(body, `zeroops_leader_lease_renew_total{outcome="acquired",pod_name="ops-server-7b9d-abc12"} 1`) {
+		t.Fatalf("metrics output missing lease_renew_total acquired: %s", body)
+	}
+	if !strings.Contains(body, `zeroops_leader_lease_renew_total{outcome="lost",pod_name="ops-server-7b9d-abc12"} 1`) {
+		t.Fatalf("metrics output missing lease_renew_total lost: %s", body)
+	}
+	if !strings.Contains(body, `zeroops_leader_lease_renew_total{outcome="slow_acquire",pod_name="ops-server-7b9d-abc12"} 1`) {
+		t.Fatalf("metrics output missing lease_renew_total slow_acquire: %s", body)
+	}
+}
+
+func TestM5_5SetLeaderStatusFalseClearsGauge(t *testing.T) {
+	metrics := NewMetrics()
+	metrics.SetLeaderStatus("ops-server-7b9d-abc12", true)
+	metrics.SetLeaderStatus("ops-server-7b9d-abc12", false)
+
+	metricsRec := httptest.NewRecorder()
+	metrics.Handler().ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+
+	body := metricsRec.Body.String()
+	if !strings.Contains(body, `zeroops_leader_status{pod_name="ops-server-7b9d-abc12"} 0`) {
+		t.Fatalf("leader_status must reset to 0 after SetLeaderStatus(false): %s", body)
+	}
+}

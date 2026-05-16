@@ -45,15 +45,33 @@
 
 ```
 0ops/
-└── internal/
-    └── server/
-        └── leaderelection/
-            ├── leader.go              # Leader 介面 + IsLeader() + OnGain / OnLost callback
-            ├── lease.go               # K8s Lease 實作（client-go）
-            ├── identity.go            # pod name + UUID identity 產生
-            ├── metrics.go
-            └── doc.go
+├── internal/
+│   └── server/
+│       └── leader/                   # 套件名 leader（M5.5 落地對齊 tasks/task-list.md Expected Paths）
+│           ├── doc.go                # 套件概述 + ADR-0008 引用
+│           ├── leader.go             # Leader 介面 + AlwaysLeader 實作
+│           ├── identity.go           # PodIdentity()：POD_NAME / hostname + 8-char uuid 後綴
+│           ├── lease.go              # LeaseLeader：client-go leaderelection.RunOrDie
+│           └── metrics.go            # Observer 介面 + NopObserver + PrometheusProvider（client-go MetricsProvider 橋接）
+├── cmd/
+│   └── server/
+│       └── leader.go                 # buildLeader(mode, identity, ...) + reconcilerLeaderGate + metricsLeaderObserver
+└── deploy/
+    └── server/                       # M5 chart：Deployment replicas=2 + Lease RBAC
+        ├── Chart.yaml
+        ├── values.yaml
+        ├── chart_test.go             # 渲染期硬閘（spec § 14 #1/#5/#7）+ 預設 values 守備
+        └── templates/
+            ├── deployment.yaml       # replicas/strategy/preStop/probes/OPS_LEADER_MODE=lease
+            ├── service.yaml          # ClusterIP 8080
+            ├── serviceaccount.yaml   # backend SA
+            ├── role.yaml             # coordination.k8s.io/leases verbs，resourceName 限定到 leaseName
+            └── rolebinding.yaml      # SA ↔ Role binding
 ```
+
+> 早期 spec draft 列 `internal/server/leaderelection/`；M5.5 落地對齊
+> `tasks/task-list.md` row M5.5 Expected Paths（`internal/server/leader/**`、
+> `deploy/server/**`），harness verify 契約以 task-list 為準。
 
 ## 4. Leader 介面
 
@@ -147,7 +165,14 @@ func RunOrDie(ctx context.Context, k8s *kubernetes.Clientset, identity string, o
 | Webhook endpoint | 兩 pod 都接（`POST /webhooks/github` / `/internal/deploy-runs/.../callback`）|
 | `/metrics` / `/healthz` / `/readyz` | 兩 pod 都暴露 |
 
-### 5.3 OnGain / OnLost callback
+### 5.3 OnGain / OnLost callback（M5.5 落地：Pull-not-Push）
+
+M5.5 落地時 reconciler runner 已是 IsLeader() pull gate（spec § 5 圖示與
+`internal/server/services/reconciler/runner.go` 之 `skipped_not_leader`
+metric）；leader 套件不再 spawn / cancel 背景 ctx，僅由 Observer
+callback 推 metric / log，背景 goroutine 自己 poll IsLeader()
+決定該 tick 是否動工。下面 callback 範例代表「最小應做事」而非要求
+push 模型。
 
 ```go
 // main.go (節錄)
@@ -261,16 +286,22 @@ spec:
 
 ### 8.1 例外加 label
 
-ADR-0006 § 4 第 2 點：`{route, method, status, team_bucket}` 為固定 label set；本 spec 對 backend HA 相關 metric 增加 `pod_name` label：
+ADR-0006 § 4 第 2 點：`{route, method, status, team_bucket}` 為固定 label set；本 spec 對 backend HA 相關 metric 增加 `pod_name` label。
+M5.5 落地時所有 metric 命名統一採專案既有 `zeroops_` 前綴（與 `internal/server/observability/metrics.go` 22+ 條現役 metric 對齊）：
 
-| Metric | 加 `pod_name` |
-|---|---|
-| `0ops_leader_status`（gauge 0/1） | 是 |
-| `0ops_leader_handover_total`（counter） | 是 |
-| `0ops_leader_lease_renew_total{outcome}` | 是 |
-| `0ops_sse_active_connections`（gauge） | 是 |
+| Metric | 加 `pod_name` | M5.5 範圍 |
+|---|---|---|
+| `zeroops_leader_status`（gauge 0/1） | 是 | 是 |
+| `zeroops_leader_handover_total`（counter） | 是 | 是 |
+| `zeroops_leader_lease_renew_total{pod_name, outcome}` | 是 | 是（outcome ∈ {acquired, lost, slow_acquire}，由 client-go MetricsProvider 經 `leader.PrometheusProvider` 橋接） |
+| `zeroops_sse_active_connections`（gauge） | 是 | 否（屬 `read-api-vertical-slice` § 4.4 之 SSE 計收，M5.5 不引入） |
 
 > `pod_name` cardinality：v1 = 2 pod；HPA 後可能達 5–10；可控。其他既有 metric **不**加 `pod_name`，避免 cardinality 爆炸。
+>
+> `lease_renew_total` 的 `pod_name` 在 v1 落地為空字串 / `unknown`：client-go 的
+> `MetricsProvider.NewLeaderMetric()` 為 process-global onlyOnce 結構，
+> 不會在每次 On/Off/Slowpath 呼叫帶 identity；HA 儀表板可改 join
+> `zeroops_leader_status` 取得 pod-level 視角。
 
 ## 9. 與其他 spec 接合點
 
