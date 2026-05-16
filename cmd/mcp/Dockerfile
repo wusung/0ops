@@ -2,7 +2,7 @@
 # 0ops-mcp — multi-stage：deps → builder → runtime (distroless nonroot)
 # build: podman build --target runtime -f cmd/mcp/Dockerfile -t localhost/0ops-mcp:runtime .
 
-FROM golang:1.25-alpine AS deps
+FROM golang:1.26-alpine AS deps
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \

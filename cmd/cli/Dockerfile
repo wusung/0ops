@@ -2,7 +2,7 @@
 # 0ops CLI — multi-stage：deps → builder → runtime (distroless nonroot)
 # build: podman build --target runtime -f cmd/cli/Dockerfile -t localhost/0ops-cli:runtime .
 
-FROM golang:1.25-alpine AS deps
+FROM golang:1.26-alpine AS deps
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
