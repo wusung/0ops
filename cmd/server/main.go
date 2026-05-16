@@ -18,6 +18,7 @@ import (
 	appserver "github.com/winshare/zeroops/internal/server"
 	"github.com/winshare/zeroops/internal/server/db"
 	"github.com/winshare/zeroops/internal/server/health"
+	"github.com/winshare/zeroops/internal/server/leader"
 	ratelimit "github.com/winshare/zeroops/internal/server/middleware/ratelimit"
 	"github.com/winshare/zeroops/internal/server/observability"
 	"github.com/winshare/zeroops/internal/server/services/audit"
@@ -112,7 +113,24 @@ func main() {
 
 	go limiter.RunCleanup(ctx, time.Hour)
 
-	startReconciler(ctx, logger, repo, incidentSvc, reconObserver, k3sClient)
+	leaderMode := envOr("OPS_LEADER_MODE", "always")
+	identity := leader.PodIdentity()
+	ldr, runLeader, err := buildLeader(leaderMode, identity, metrics, os.Getenv("OPS_LEADER_KUBECONFIG"))
+	if err != nil {
+		logger.Error("leader bootstrap failed", "err", err, "mode", leaderMode)
+		os.Exit(1)
+	}
+	if runLeader != nil {
+		go runLeader(ctx)
+		logger.Info("leader election started", "mode", leaderMode, "identity", identity)
+	} else {
+		// AlwaysLeader path: seed leader_status=1 so /metrics reflects
+		// the v1 single-replica reality even before any reconciler tick.
+		metrics.SetLeaderStatus(identity, true)
+		logger.Info("leader election bypassed", "mode", leaderMode, "identity", identity)
+	}
+
+	startReconciler(ctx, logger, repo, incidentSvc, reconObserver, k3sClient, ldr)
 
 	go func() {
 		logger.Info("0ops-server listening", "addr", addr, "version", shared.Version)
@@ -242,12 +260,12 @@ func (o *reconcilerObserver) SetOpenIncidents(severity string, count int) {
 // startReconciler builds the M5.3 reconciler.Runner from cmd/server
 // state. Scanners are wired with whatever credentials are available —
 // without a GitHub or ArgoCD client they degrade to a no-op tick. The
-// job processor + leader gate always start; M5.5 will swap the
-// AlwaysLeader stub for a real Lease implementation.
-func startReconciler(ctx context.Context, logger *slog.Logger, repo *db.Repository, incidentSvc *reconciler.IncidentService, observer reconciler.Observer, k3sClient *k3s.Client) {
+// job processor + leader gate always start; the gate is driven by the
+// supplied leader.Leader (AlwaysLeader in dev, LeaseLeader in M5+ prod).
+func startReconciler(ctx context.Context, logger *slog.Logger, repo *db.Repository, incidentSvc *reconciler.IncidentService, observer reconciler.Observer, k3sClient *k3s.Client, ldr leader.Leader) {
 	scanners := buildScanners(repo, incidentSvc, observer, k3sClient)
 	cfg := reconciler.Config{
-		Leader:              reconciler.AlwaysLeader{},
+		Leader:              reconcilerLeaderGate{l: ldr},
 		Store:               repo,
 		Logger:              logger,
 		Observer:            observer,
@@ -258,7 +276,7 @@ func startReconciler(ctx context.Context, logger *slog.Logger, repo *db.Reposito
 	}
 	runner := reconciler.New(cfg)
 	runner.Start(ctx)
-	logger.Info("reconciler started", "leader", "always", "loops", scanners.summary())
+	logger.Info("reconciler started", "identity", ldr.Identity(), "loops", scanners.summary())
 }
 
 type scannerSet struct {

@@ -38,6 +38,9 @@ type Metrics struct {
 	incidentsOpened     *prometheus.CounterVec
 	incidentsClosed     *prometheus.CounterVec
 	incidentsOpen       *prometheus.GaugeVec
+	leaderStatus        *prometheus.GaugeVec
+	leaderHandover      *prometheus.CounterVec
+	leaderLeaseRenew    *prometheus.CounterVec
 }
 
 // NewMetrics creates the default HTTP metrics registry.
@@ -153,6 +156,18 @@ func NewMetrics() *Metrics {
 			Name: "zeroops_incident_open",
 			Help: "Currently open incidents, grouped by severity.",
 		}, []string{"severity"}),
+		leaderStatus: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "zeroops_leader_status",
+			Help: "1 when the labelled pod currently holds the backend Lease, 0 otherwise (backend-ha-leader-election spec § 8.1).",
+		}, []string{"pod_name"}),
+		leaderHandover: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zeroops_leader_handover_total",
+			Help: "Leader handover events observed by the labelled pod (OnNewLeader differing from prior leader, backend-ha-leader-election spec § 8.1).",
+		}, []string{"pod_name"}),
+		leaderLeaseRenew: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zeroops_leader_lease_renew_total",
+			Help: "Lease lifecycle events surfaced by client-go's MetricsProvider, labelled by pod_name and outcome (acquired / lost / slow_acquire).",
+		}, []string{"pod_name", "outcome"}),
 	}
 	reg.MustRegister(
 		m.httpTotal,
@@ -178,6 +193,9 @@ func NewMetrics() *Metrics {
 		m.incidentsOpened,
 		m.incidentsClosed,
 		m.incidentsOpen,
+		m.leaderStatus,
+		m.leaderHandover,
+		m.leaderLeaseRenew,
 	)
 	return m
 }
@@ -401,6 +419,44 @@ func (m *Metrics) ObserveIncidentClosed(kind, severity string) {
 		severity = "medium"
 	}
 	m.incidentsClosed.WithLabelValues(kind, severity).Inc()
+}
+
+// SetLeaderStatus sets the leader_status gauge for the labelled pod
+// (1 = currently holds the Lease, 0 = follower). Spec § 8.1.
+func (m *Metrics) SetLeaderStatus(podName string, on bool) {
+	if podName == "" {
+		podName = "unknown"
+	}
+	v := 0.0
+	if on {
+		v = 1.0
+	}
+	m.leaderStatus.WithLabelValues(podName).Set(v)
+}
+
+// ObserveLeaderHandover increments the leader_handover counter for
+// the labelled pod. Spec § 8.1 — emitted once per OnNewLeader event
+// that reports an identity different from the previously observed
+// holder.
+func (m *Metrics) ObserveLeaderHandover(podName string) {
+	if podName == "" {
+		podName = "unknown"
+	}
+	m.leaderHandover.WithLabelValues(podName).Inc()
+}
+
+// ObserveLeaseRenew increments the lease_renew counter for the
+// labelled pod and outcome. Spec § 8.1 — outcome is one of
+// {acquired, lost, slow_acquire}; fed by client-go's MetricsProvider
+// via leader.PrometheusProvider.
+func (m *Metrics) ObserveLeaseRenew(podName, outcome string) {
+	if podName == "" {
+		podName = "unknown"
+	}
+	if outcome == "" {
+		outcome = "unknown"
+	}
+	m.leaderLeaseRenew.WithLabelValues(podName, outcome).Inc()
 }
 
 // SetOpenIncidents sets the current number of open incidents grouped

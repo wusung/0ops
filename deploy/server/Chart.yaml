@@ -1,0 +1,14 @@
+apiVersion: v2
+name: ops-server
+description: 0ops backend (HTTP API + reconciler) with K8s Lease leader election for M5 HA
+type: application
+version: 0.1.0
+appVersion: "0.5.5"
+home: https://github.com/winshare/zeroops
+keywords:
+  - 0ops
+  - backend
+  - leader-election
+  - ha
+maintainers:
+  - name: 0ops

@@ -24,5 +24,5 @@
 | M5.2  | audit_log + audit CLI/MCP                   | Done     | 2026-05-16     |
 | M5.3  | reconciler GA + incident classification     | Done     | 2026-05-16     |
 | M5.4  | Postgres HA + WAL archive + PITR 演練       | Done     | 2026-05-16     |
-| M5.5  | Backend 2 replica + Leader election         | Pending  | -              |
+| M5.5  | Backend 2 replica + Leader election         | Done     | 2026-05-16     |
 | M6    | Web UI (post-v1)                            | Pending  | -              |

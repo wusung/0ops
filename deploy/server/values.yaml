@@ -1,0 +1,72 @@
+# 0ops backend chart — values
+# Spec：docs/features/backend-ha-leader-election/spec.md
+#
+# Hard rules from spec § 14 enforced by templates / chart_test.go:
+#   #1  M5+ backend 必跑 leader election；replicas >= 2
+#   #2  Lease 必使用 K8s Lease object（Role 只允 coordination.k8s.io/leases，
+#       且 resourceName 限 0ops-backend-leader）
+#   #3  LeaseDuration / RenewDeadline / RetryPeriod 為 15s / 10s / 2s；變更需 ADR
+#   #4  ReleaseOnCancel: true（硬寫於 internal/server/leader.LeaseLeader.Run）
+#   #5  Production 必走 lease mode；dev compose 才走 always
+#   #7  preStop 必含 sleep ≥ 5s
+#   #10 同時刻單一 leader；多 leader 由 zeroops_leader_status sum>1 alert 偵測
+
+namespace: system-0ops
+
+image:
+  repository: ghcr.io/winshare/ops-server
+  tag: "dev"
+  pullPolicy: IfNotPresent
+
+# Hard rule #1：M5+ 必 ≥ 2；render-time guard 在 templates/deployment.yaml
+replicas: 2
+
+strategy:
+  maxSurge: 1
+  maxUnavailable: 0
+
+terminationGracePeriodSeconds: 60
+
+preStop:
+  # Hard rule #7：必 ≥ 5；render-time guard 在 templates/deployment.yaml
+  sleepSeconds: 5
+
+leaderElection:
+  # Hard rule #1 / #5：production 必 lease；render-time guard 在 templates/deployment.yaml
+  mode: lease
+  leaseName: 0ops-backend-leader
+  namespace: system-0ops
+
+service:
+  type: ClusterIP
+  port: 8080
+
+serviceAccount:
+  name: ops-server
+
+probes:
+  readiness:
+    path: /health
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    failureThreshold: 3
+  liveness:
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    failureThreshold: 3
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 1
+    memory: 512Mi
+
+# spec § 7.1: rolling update only requires that pods can be re-scheduled;
+# preferred anti-affinity keeps them on different nodes when possible
+# without making the deployment unschedulable on a single-node K3s.
+podAntiAffinityWeight: 100
+
+env: []

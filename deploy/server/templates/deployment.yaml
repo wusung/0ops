@@ -1,0 +1,104 @@
+{{- /* Spec § 14 hard rule #1：M5+ backend 必跑 leader election；replicas < 2 拒渲 */ -}}
+{{- if lt (int .Values.replicas) 2 }}
+{{- fail "ops-server backend chart requires replicas >= 2 — M5+ backend 必跑 leader election (spec § 14 hard rule #1)" }}
+{{- end }}
+{{- /* Spec § 14 hard rule #1 / #5：production 必走 lease mode */ -}}
+{{- if ne .Values.leaderElection.mode "lease" }}
+{{- fail "ops-server chart requires leaderElection.mode=lease for production — single-replica AlwaysLeader is dev-compose only (spec § 14 hard rule #1 / #5)" }}
+{{- end }}
+{{- /* Spec § 14 hard rule #7：preStop 必含 sleep ≥ 5s */ -}}
+{{- if lt (int .Values.preStop.sleepSeconds) 5 }}
+{{- fail "ops-server chart requires preStop.sleepSeconds >= 5 — preStop 必含 sleep ≥ 5s for endpoint drain (spec § 14 hard rule #7)" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ops-server
+  namespace: {{ .Values.namespace | quote }}
+  labels:
+    app: ops-server
+    app.0ops.io/managed-by: 0ops
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app: ops-server
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: {{ .Values.strategy.maxSurge }}
+      maxUnavailable: {{ .Values.strategy.maxUnavailable }}
+  template:
+    metadata:
+      labels:
+        app: ops-server
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name | quote }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: {{ .Values.podAntiAffinityWeight }}
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - { key: app, operator: In, values: [ops-server] }
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: ops-server
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: OPS_LEADER_MODE
+              value: {{ .Values.leaderElection.mode | quote }}
+            - name: OPS_LEADER_NAMESPACE
+              value: {{ .Values.leaderElection.namespace | quote }}
+            - name: OPS_LEADER_LEASE_NAME
+              value: {{ .Values.leaderElection.leaseName | quote }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            {{- with .Values.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readiness.path | quote }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.liveness.path | quote }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - "/bin/sh"
+                  - "-c"
+                  # Hard rule #7: sleep ≥ 5s 讓 ingress / Service 將該 pod 從
+                  # endpoints 移除後才停 SIGTERM；spec § 7.2 之 drain 行為由
+                  # backend graceful shutdown 自行處理（SIGTERM 後 release
+                  # lease + SSE end notify + in-flight HTTP drain）。
+                  - "sleep {{ .Values.preStop.sleepSeconds }}"
+          resources:
+            requests:
+              cpu: {{ .Values.resources.requests.cpu | quote }}
+              memory: {{ .Values.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.resources.limits.cpu | quote }}
+              memory: {{ .Values.resources.limits.memory | quote }}

@@ -461,6 +461,77 @@
 5. **wal-g / pgbackrest 替代 archive_command** — spec § 6.1 列為 v1.1 評估項；本任務沿用 `archive_command` + `wal-push.sh` 直推 R2，與 spec 一致。
 6. **`migrations/00003_*.sql` duplicate version panic（M2 遺留）** — 本任務不修；migration lint 的 grandfather floor=9 設計即建立在現狀之上，floor 提升前不會觸碰既有 8 支 migration。
 
+### M5.5 — Backend 2 replica + Leader election（2026-05-16）
+
+> 對應 spec：`docs/features/backend-ha-leader-election/spec.md`
+> 對應 task：`tasks/task-list.md` row M5.5
+> 對應 paths：`internal/server/leader/**`、`deploy/server/**`
+> 對應 ADR：ADR-0008 § 4 第 1/2/3/4 點
+
+- [x] `internal/server/leader/`：`doc.go`（package overview + ADR-0008 引用 + Pull-not-Push 模型說明）/ `identity.go`（`PodIdentity()`：優先 `POD_NAME` env → fallback hostname → `unknown`；UUID v4 尾綴 8 字元做 pod 重啟唯一性，spec § 4.2）/ `leader.go`（`Leader` 介面 `IsLeader() bool` + `Identity() string`；`AlwaysLeader{Name}`，spec § 4.3 v1 預設 mode；Identity() 空時 fallback `PodIdentity()`）/ `lease.go`（`LeaseLeader`，使用 `k8s.io/client-go/tools/leaderelection.RunOrDie`；Lock 為 `resourcelock.LeaseLock`；`LeaseDuration=15s / RenewDeadline=10s / RetryPeriod=2s` 預設 + 改變需 ADR；`ReleaseOnCancel: true` 硬寫 + 不經 Config 暴露；OnStartedLeading CompareAndSwap 真正 leader 轉變才 OnGained；OnStoppedLeading CompareAndSwap 真正 leader 轉變才 OnLost — client-go 即便沒先 OnStartedLeading 也會在 Run exit 呼 OnStoppedLeading，需防 phantom）/ `metrics.go`（`Observer` 介面：`OnGained(id) / OnLost(id) / OnNewLeader(currentID, newID) / OnLeaseRenew(outcome)` + `NopObserver`；`PrometheusProvider` 實作 `leaderelection.MetricsProvider` 將 client-go 內部 leader On/Off/Slowpath 映射到 OnLeaseRenew(acquired/lost/slow_acquire)）
+- [x] `internal/server/leader/` 測試（10 個 case set）：
+  - `identity_test.go`：POD_NAME 優先 / fallback hostname / 多次呼叫各帶不同 UUID 後綴
+  - `leader_test.go`：`AlwaysLeader.IsLeader()=true` / `Identity()` 非空 / 空 Name fallback PodIdentity()
+  - `metrics_test.go`：NopObserver zero-value safe / PrometheusProvider On→acquired / Off→lost / Slowpath→slow_acquire / nil Observer 不 panic
+  - `lease_test.go`：starts as follower / OnStartedLeading 翻 IsLeader 並 emit OnGained / 二次 OnStartedLeading idempotent（CompareAndSwap 防 phantom gain）/ OnStoppedLeading 翻回 false 並 emit OnLost / OnStoppedLeading 無前置 gain 不 emit phantom lost / OnNewLeader 同 identity 不 inc handover、不同 identity 才 inc / NewLeaseLeader 拒絕缺欄位 / LeaseDuration/RenewDeadline/RetryPeriod 預設 15s/10s/2s + ReleaseOnCancel=true / Run 在 ctx pre-cancelled 時立即退出且不留 leader 狀態
+- [x] `internal/server/observability/metrics.go`：新增 3 條 leader metric（spec § 8.1）：
+  - `zeroops_leader_status{pod_name}` gauge — `SetLeaderStatus(pod, on bool)`
+  - `zeroops_leader_handover_total{pod_name}` counter — `ObserveLeaderHandover(pod)`
+  - `zeroops_leader_lease_renew_total{pod_name, outcome}` counter — `ObserveLeaseRenew(pod, outcome)`（outcome ∈ {acquired, lost, slow_acquire}）
+- [x] `internal/server/observability/metrics_test.go`：新增 `TestM5_5LeaderMetricsExpose`（3 條 metric 寫入後 `/metrics` 渲出含 pod_name + outcome 三組值）+ `TestM5_5SetLeaderStatusFalseClearsGauge`（true→false reset 回 0）
+- [x] `cmd/server/leader.go`：`buildLeader(mode, identity, metrics, kubeconfigPath)` 解析 `OPS_LEADER_MODE`（預設 `always`；`always|lease` 兩值，其他值拒絕）+ `reconcilerLeaderGate{l: leader.Leader}` adapter（reconciler.Leader 介面只要 `IsLeader()`，避免 reconciler 套件 import cycle）+ `metricsLeaderObserver` 把 leader.Observer onto observability.Metrics（OnGained → SetLeaderStatus(true); OnLost → SetLeaderStatus(false); OnNewLeader → ObserveLeaderHandover; OnLeaseRenew → ObserveLeaseRenew("", outcome)）
+- [x] `cmd/server/main.go`：
+  - 啟動讀 `OPS_LEADER_MODE`，呼 `leader.PodIdentity()` 取得穩定 identity
+  - `buildLeader(...)` 失敗 fatal exit；mode=lease 走 `go runLeader(ctx)` 背景 goroutine（內部 `leaderelection.RunOrDie` + `ReleaseOnCancel=true` 在 ctx cancel 時立即 release）
+  - mode=always 路徑啟動時 seed `metrics.SetLeaderStatus(identity, true)`，讓 dev compose `/metrics` 一開機即看到 leader_status=1
+  - `startReconciler(..., ldr leader.Leader)`：reconciler.Config.Leader 由 `AlwaysLeader` stub 改成 `reconcilerLeaderGate{l: ldr}`
+  - mode=lease 時 `leaderelection.SetProvider(leader.PrometheusProvider{Observer: ...})` 註冊 client-go MetricsProvider（process-global onlyOnce，第二次 set 自動 no-op）
+- [x] `cmd/server/leader_test.go`：6 個 case set —
+  - `always` mode 回 `AlwaysLeader{}` + 不註冊 Run handle / IsLeader=true
+  - empty mode 預設 `always`
+  - 未知 mode（如 `master`）拒絕 + error 含 `OPS_LEADER_MODE`
+  - lease mode 無 kubeconfig + 無 InClusterConfig 時 fatal error（避免 prod 誤 fall back to AlwaysLeader）
+  - `reconcilerLeaderGate` 鏡像 leader.Leader.IsLeader() + 滿足 `reconciler.Leader` 介面
+  - `metricsLeaderObserver` 四個 callback 全鏈不 panic（feed metrics）
+- [x] `deploy/server/` Helm chart：
+  - `Chart.yaml`（name=`ops-server`，符合 K8s DNS-1035；appVersion=`0.5.5`；chart version `0.1.0`）
+  - `values.yaml`（replicas=2 / mode=lease / leaseName=`0ops-backend-leader` / namespace=`system-0ops` / strategy.maxSurge=1.maxUnavailable=0 / terminationGracePeriodSeconds=60 / preStop.sleepSeconds=5 / probes / podAntiAffinityWeight=100 preferred）
+  - `templates/{serviceaccount,role,rolebinding,deployment,service}.yaml`：deployment 走 RollingUpdate + preStop sleep + readiness/liveness `/health` + `OPS_LEADER_MODE=lease` + `POD_NAME` downward API + `OPS_LEADER_NAMESPACE` + `OPS_LEADER_LEASE_NAME`；role 限 `coordination.k8s.io/leases` 且 resourceName=leaseName + 額外 `create/list`（K8s RBAC 對 create/list 不支援 resourceName filter）
+  - Helm `fail` 渲染期硬閘（spec § 14）：
+    - hard rule #1：`replicas < 2` 拒渲（M5+ backend 必跑 leader election）
+    - hard rule #1+#5：`leaderElection.mode != "lease"` 拒渲（production 必跑 lease）
+    - hard rule #7：`preStop.sleepSeconds < 5` 拒渲（preStop 必含 sleep 5）
+  - `README.md`：TL;DR + 硬閘表 + dev vs production
+- [x] `deploy/server/chart_test.go`：3 個 test set — `TestChartFilesEnforceSpec`（substring matrix 守備 Chart.yaml / values.yaml / 5 templates 之 spec 必要欄位）/ `TestTemplateGuards`（Helm `fail` 三段條件文字 + spec § 14 hard rule reference）/ `TestValuesDefaultsMatchSpec`（replicas=2 / mode=lease / leaseName / namespace / sleepSeconds=5 / terminationGracePeriodSeconds=60）。`helm lint` 通過、`helm template` 渲出合法 YAML。
+- [x] `docs/features/backend-ha-leader-election/spec.md` § 3 改 `internal/server/leader/`（對齊 task-list Expected Paths 與本任務實作）+ § 8.1 metric 命名前綴 `0ops_` → `zeroops_`（對齊既有 metric naming convention）+ § 5.3 補註 Pull-not-Push 模型決定
+- [x] 高風險區覆蓋（AGENTS.md「Testing」段）：
+  - **preview/confirm 流程**：N/A（本任務不引入新 write/preview endpoint）
+  - **idempotent retry**：LeaseLeader callback 多次觸發 idempotent — `OnStartedLeading` 二次觸發 IsLeader 維持 true 不重複 inc handover（`TestLeaseLeaderOnStartedLeadingIdempotent`）；`OnStoppedLeading` 無前置 gain 不 emit phantom lost（`TestLeaseLeaderOnStoppedLeadingIdempotent`，防 client-go Run exit 時的 unconditional callback）；`OnNewLeader` 同 identity 不 inc 也不重複（`TestLeaseLeaderOnNewLeaderCountsOnlyForeignHandovers`）
+  - **team 隔離**：N/A（Lease 為全域 backend-leader，非 per-team）
+  - **role / scope 權限矩陣**：Lease RBAC 經 ServiceAccount；Role 用 `resourceNames: [<leaseName>]` 把 get/watch/update/patch 限定到單一 Lease（spec § 14 hard rule #2 縮窄）；`create`/`list` K8s RBAC 不支援 resourceName filter 分離為第二條 rule。`TestChartFilesEnforceSpec` 守備 `resourceNames:` 文字 + `.Values.leaderElection.leaseName` 變數引用
+  - **簽章 / webhook**：N/A
+  - **deploy 狀態 / reconciler 收斂**：reconciler.Config.Leader 替換為 `reconcilerLeaderGate`；既有 `reconciler/runner_test.go` 守備 leader gate false 走 `skipped_not_leader` metric 不變；`cmd/server/leader_test.go` 新增 `TestReconcilerLeaderGateMirrorsLeader` 守備 adapter 行為與滿足介面
+- [x] `make test` 全綠（37 packages，新增 `internal/server/leader` + `deploy/server` 兩 package）
+- [x] `make lint-compose` 通過（compose.yaml 不變，dev 預設 `OPS_LEADER_MODE=always`）
+- [x] Helm 渲染驗證：`helm lint deploy/server/` info-only（icon 建議），無 error；`helm template deploy/server/` 渲出 169 行合法 YAML（5 個 K8s resource）
+- [x] cmd/server 啟動順序：metrics → leader（決定 identity + mode=lease 開 Run goroutine）→ reconciler runner（pull IsLeader）→ HTTP server；shutdown 順序逆向（HTTP shutdown → ctx cancel → leader 因 `ReleaseOnCancel=true` 立即 release lease → reconciler runner ctx 結束 drain）
+
+**Out of scope / 風險回報**：
+1. **spec § 3 `internal/server/leaderelection/` 與 task-list `internal/server/leader/**` 命名差異** — task-list 為 harness verify 契約；spec § 3 為 draft；本任務對齊 task-list 並把 spec § 3 修齊。延續 M5.4 之 deploy/postgres 處理模式（spec draft vs task-list 衝突時 task-list 勝出）。
+2. **spec § 8.1 metric 命名前綴 `0ops_` vs 既有 `zeroops_`** — 全專案 metric 統一 `zeroops_` 前綴（既有 22+ metric 全部如此）；本任務採 `zeroops_leader_*` 並同步把 spec § 8.1 改齊。
+3. **chart resource name `ops-server` 而非 `0ops-server`** — Helm `helm lint` 對 K8s DNS-1035 強制（resource name 必須以字母開頭）；改採 `ops-server` 對齊 spec § 7.1 之 deployment YAML 範例（`metadata.name: ops-server`），同時與既有 backend binary 名 `0ops-server`（host）對映清楚。chart `name:` 同步為 `ops-server`。
+4. **`Subscribe() <-chan Event`（spec § 4.1）不引入** — reconciler 採 Pull `IsLeader()` 模型，Observer callback 已覆蓋 metric/log 需求；channel 為 dead weight；待未來 caller 真的需要 push 通知再加，本任務在 spec § 5.3 補註此 Pull-not-Push 決定。
+5. **SSE active connections metric（spec § 8.1）不在本任務範圍** — 該 metric 為 `read-api-vertical-slice` § 4.4 之 SSE 計收責任；本任務僅實作 leader 相關 3 條 metric。
+6. **HPA 不在本任務範圍** — spec § 1 + ADR-0008 OQ#2 明示 M6 後評估；本任務僅做手動 replicas=2。
+7. **完整 K8s e2e（兩 pod 真互競 lease、SIGTERM handover < 5s 實測）不在本任務範圍** — 需 staging K3s cluster + 真實 Lease object；本 PR 採 chart_test.go substring + helm lint/template + Go callback 單元測試覆蓋 spec § 10 之契約點；ops 在 v1 GA 前演練屬 K3s deploy 工件範疇（沿用 M5.4 PITR drill 對應 ops 排程模式）。
+8. **`leaderelection.SetProvider` 為 process-global onlyOnce** — client-go 設計如此；多次呼叫只有第一次生效。本任務在 `buildLeader` lease 路徑呼叫一次；cmd/server unit test 不依此 global state（避免 test pollution），改測 `metricsLeaderObserver` 直接驅動。
+9. **`lease_renew_total` 的 `pod_name` 在 v1 落地為空字串** — client-go 的 `MetricsProvider.NewLeaderMetric()` 為 process-global 結構，呼叫 On/Off/Slowpath 不會帶 identity。HA 儀表板可改 join `zeroops_leader_status` 取得 pod-level 視角；spec § 8.1 註記此限制。
+10. **dev compose smoke 受兩個 M2 遺留 infra 問題阻擋** —
+    - `migrations/00003_*.sql` duplicate version panic（M2.x→M5.x 既有遺留）→ `make migrate` 仍 panic
+    - go.mod 自 M3.1 起 `go 1.26.0`、但 `cmd/server/Dockerfile` builder 仍 pin `golang:1.25-alpine` → dev 容器 air rebuild 失敗 `go: go.mod requires go >= 1.26.0`
+    
+    兩者皆屬 infra 工件、與 M5.5 範圍正交。本任務沿用 M5.4 / M5.3 / M5.2 同處理模式：以 `go test ./...`（37 packages 全綠）+ `helm lint` + `helm template` 完整渲染驗證；compose smoke 為 ops 在處理上述 M2/M3.1 infra debt 後再跑。建議獨立任務 `M5.5-adjacent — bump Dockerfile builder to golang:1.26`（單行改、無功能影響）。
+
 ## M3 — install / domain verify backlog
 
 ### M3.2 — GitHub App install/uninstall 流程（2026-05-15）
