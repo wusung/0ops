@@ -35,6 +35,7 @@ import (
 	"github.com/winshare/zeroops/internal/server/services/githuboauth"
 	gitopssvc "github.com/winshare/zeroops/internal/server/services/gitops"
 	k3ssvc "github.com/winshare/zeroops/internal/server/services/k3s"
+	"github.com/winshare/zeroops/internal/server/services/localbuild"
 	workflowdispatch "github.com/winshare/zeroops/internal/server/services/workflowdispatch"
 	"github.com/winshare/zeroops/internal/shared/dto"
 	"github.com/winshare/zeroops/internal/shared/rbac"
@@ -65,6 +66,7 @@ type appsStore interface {
 	RevokePATByName(ctx context.Context, teamID, name string) error
 	CreateApp(ctx context.Context, params db.AppCreateParams) (db.AppCreateResult, error)
 	DeleteAppByID(ctx context.Context, appID string) error
+	GetAppRepoURLByTeamAndAppSlug(ctx context.Context, teamSlug, appSlug string) (string, error)
 	RegisterWebhookDelivery(ctx context.Context, provider, deliveryID string) (bool, error)
 	ApplyDeployCallback(ctx context.Context, params db.DeployCallbackParams) error
 	GetTeamByID(ctx context.Context, teamID string) (db.Team, error)
@@ -403,7 +405,7 @@ func createAppHandler(store appsStore, k3sClient infraK3sClient, cfClient infraC
 		if !decodeJSON(w, r, &req) {
 			return
 		}
-		service := createappsvc.New(store, k3sClient, cfClient, newGitOpsService(), newWorkflowDispatchClient(), newWorkflowDispatchTokenSigner(), callbackBaseURL())
+		service := createappsvc.New(store, k3sClient, cfClient, newGitOpsService(), newWorkflowDispatchClient(store), newWorkflowDispatchTokenSigner(), callbackBaseURL())
 		confirmResult, err := service.Confirm(
 			r.Context(),
 			auth.TeamID(r.Context()),
@@ -1619,12 +1621,40 @@ func newGitHubOAuthClient() githubOAuthClient {
 	return client
 }
 
-func newWorkflowDispatchClient() createappsvc.Dispatcher {
-	client, err := workflowdispatch.NewClientFromEnv(http.DefaultClient)
-	if err != nil {
-		return nil
+func newWorkflowDispatchClient(store appsStore) createappsvc.Dispatcher {
+	ghClient, _ := workflowdispatch.NewClientFromEnv(http.DefaultClient)
+	cfg := localbuild.LoadConfig()
+	if !cfg.IsUsable() {
+		// production path unchanged: nil-tolerant fallback when env not set.
+		if ghClient == nil {
+			return nil
+		}
+		return ghClient
 	}
-	return client
+	// dev path: route by repo_url scheme per ADR-0012 § 3.2.
+	cb := NewLocalCallbackClient(callbackBaseURL(), cfg.Secret)
+	localDispatcher := &localbuild.Dispatcher{
+		Pack:     localbuild.DefaultPack,
+		Callback: cb,
+		Lookup:   localbuild.RepoRootLookup{Store: store, Root: cfg.RepoRoot},
+		Registry: cfg.Registry,
+	}
+	var ghDispatcher createappsvc.Dispatcher
+	if ghClient != nil {
+		ghDispatcher = ghClient
+	}
+	return &createappsvc.RoutingDispatcher{
+		GitHubDispatcher: ghDispatcher,
+		LocalDispatcher:  localDispatcher,
+		Lookup:           store,
+	}
+}
+
+// NewLocalCallbackClient builds a localbuild.CallbackClient with the server's
+// default http.Client. Kept as a thin wrapper here so server boot does not
+// need to import net/http when wiring the dispatcher.
+func NewLocalCallbackClient(baseURL, secret string) *localbuild.CallbackClient {
+	return localbuild.NewCallbackClient(baseURL, secret, http.DefaultClient)
 }
 
 func newWorkflowDispatchTokenSigner() createappsvc.OpsTokenSigner {

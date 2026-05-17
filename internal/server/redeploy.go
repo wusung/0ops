@@ -14,6 +14,7 @@ import (
 	"github.com/winshare/zeroops/internal/server/auth"
 	"github.com/winshare/zeroops/internal/server/services/githubwebhook"
 	"github.com/winshare/zeroops/internal/server/services/redeploy"
+	workflowdispatch "github.com/winshare/zeroops/internal/server/services/workflowdispatch"
 	"github.com/winshare/zeroops/internal/shared/dto"
 )
 
@@ -46,8 +47,13 @@ var (
 )
 
 func resolveRedeployDispatcher() redeploy.Dispatcher {
-	d := newWorkflowDispatchClient()
-	if d == nil {
+	// redeploy intentionally bypasses the create_app RoutingDispatcher
+	// because the local file:// path is scoped to create_app per ADR-0012
+	// sub-spec § 2.2. Redeploying a file:// app is tracked as a follow-up;
+	// today it falls through to the production GHA dispatcher (nil in dev
+	// when env vars are unset, which the trigger handles gracefully).
+	d, err := workflowdispatch.NewClientFromEnv(http.DefaultClient)
+	if err != nil || d == nil {
 		return nil
 	}
 	return d
