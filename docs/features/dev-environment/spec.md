@@ -15,6 +15,8 @@
 - `0ops-server` 額外提供 `dev` stage，內含 `air` 熱重載；CLI 與 MCP 不提供 dev stage（CLI 互動式、MCP 為 stdio，皆 host 執行）
 - 提供 root `.dockerignore` 與 `.env.example`；`.env` 由貢獻者複製後填寫，禁止 commit
 - 開發 workflow 經 `Makefile` 收口；契約 target：`make dev` / `make dev-down` / `make migrate` / `make lint-compose` / `make lint-docker` / `make build-images`
+- 本地 repo 與本地 build pipeline（`file://` 入口 + `LocalBuildDispatcher`）見 sub-spec
+  [`local-file-repo.md`](local-file-repo.md)；ADR：[ADR-0012](../../adrs/0012-local-file-repo-dev-mode.md)
 
 ## 2. 範圍
 
