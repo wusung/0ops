@@ -85,7 +85,7 @@ func validateLocalRepoURL(repoURL string) error {
 		return ErrRepoPathInvalid
 	}
 	rel, err := filepath.Rel(rootResolved, resolved)
-	if err != nil || strings.HasPrefix(rel, "..") || rel == "." {
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return ErrRepoPathInvalid
 	}
 	return nil
