@@ -437,7 +437,7 @@ LLM 自行呈現給 user 並提示「可以追蹤 deploy_run_id」。
 | GitHub App 未綁 | mock team 無 install | 422 github_app_not_installed |
 | Repo 無 access | mock installation 不含該 repo | 403 github_repo_not_accessible |
 | Buildpack 偵測失敗 | mock empty result | 422 buildpack_detect_failed |
-| Slug 重複（preview）| 已存在 slug | 422 slug_taken |
+| Slug 重複（preview）| 已存在 slug | 409 slug_taken |
 | Slug 重複（precheck race）| preview OK，confirm 前另人建同 slug | 409 precondition_changed |
 | Reversible 全通 | mock 全 OK | last_result 正常；deploy_run 進 building |
 | GitOps push 失敗 | mock 5 次衝突 | compensate；undo R1+R2；rolled_back |
