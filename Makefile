@@ -109,6 +109,19 @@ m2-8-check: lint-go test ## M2.8 程式檢查（lint + 單元/契約測試）
 m5-4-pitr-drill: ## 跑 local PITR drill（podman compose；spec § 8.3 + § 16 hard rule #5）
 	@bash deploy/postgres/scripts/pitr-drill.sh
 
+## --- M5.6 local-file-repo dev mode（ADR-0012）---
+
+.PHONY: dev-example-init dev-create-example m5-6-local-build-e2e
+
+dev-example-init: ## 初始化 examples/node-demo 為 git repo（首次跑必要）
+	@bash examples/node-demo/bootstrap.sh
+
+dev-create-example: dev-example-init ## 跑一次 create_app at file:// → live（要求 compose healthy）
+	@bash tasks/local-build-e2e.sh
+
+m5-6-local-build-e2e: ## M5.6 端到端驗收腳本（compose 必須先 healthy）
+	@bash tasks/local-build-e2e.sh
+
 sqlc: ## 產生 sqlc 程式碼
 	podman run --rm --userns=keep-id -v $(CURDIR):/src -w /src $(SQLC_IMAGE) generate
 
