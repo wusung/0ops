@@ -1,0 +1,8 @@
+{
+  "name": "node-demo",
+  "version": "0.1.0",
+  "description": "0ops example app for local-file-repo dev mode (ADR-0012).",
+  "engines": { "node": "20.x" },
+  "scripts": { "start": "node index.js" },
+  "dependencies": { "express": "^4.19.2" }
+}
