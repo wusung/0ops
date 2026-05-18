@@ -34,3 +34,14 @@ func (c Config) IsUsable() bool {
 func envTrue(key string) bool {
 	return strings.EqualFold(strings.TrimSpace(os.Getenv(key)), "true")
 }
+
+// StubTokenSigner is a no-op OpsTokenSigner satisfying createapp's contract
+// when running the local build path. Production GHA dispatch requires a real
+// JWT signer (workflowdispatch.NewOpsTokenSignerFromEnv); LocalBuildDispatcher
+// never validates the ops_token because the callback comes from the server
+// itself, so an empty token is fine.
+type StubTokenSigner struct{}
+
+func (StubTokenSigner) Issue(_, _ string, _ []string) (string, error) {
+	return "", nil
+}

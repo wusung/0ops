@@ -65,10 +65,10 @@ func TestDispatcherHappyPath(t *testing.T) {
 			t.Errorf("events[%d]=%q want %q", i, events[i].Status, s)
 		}
 	}
-	// "pushing" event must carry the image_ref so the callback handler can
+	// "pushing" event must carry the image so the callback handler can
 	// persist app.image_ref before reconciler picks it up.
-	if events[1].ImageRef != "localhost:5000/0ops-apps/t/x:dr_1" {
-		t.Errorf("pushing event missing image_ref: %+v", events[1])
+	if events[1].Image != "localhost:5000/0ops-apps/t/x:dr_1" {
+		t.Errorf("pushing event missing image: %+v", events[1])
 	}
 }
 

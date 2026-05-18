@@ -9,23 +9,29 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
 
 // CallbackEvent mirrors the body shape accepted by the production callback
-// handler (internal/server/apps.go:applyDeployCallback). Per ADR-0012 § 4
-// the HMAC contract is shared with production; no dev-only fields.
+// handler (internal/server/apps.go::deployRunCallbackHandler). Field names
+// match the deployCallbackRequest schema so the same handler validates both
+// production GHA callbacks and dev LocalBuildDispatcher callbacks.
 type CallbackEvent struct {
+	RunID                 string  `json:"run_id"`
 	Status                string  `json:"status"`
-	ImageRef              string  `json:"image_ref,omitempty"`
+	TraceID               string  `json:"trace_id"`
+	Image                 string  `json:"image,omitempty"`
 	BuildMinutes          float64 `json:"build_minutes,omitempty"`
 	ErrorSummary          string  `json:"error_summary,omitempty"`
 	FailureClassification string  `json:"failure_classification,omitempty"`
+	OpsToken              string  `json:"ops_token,omitempty"`
 }
 
 // CallbackClient POSTs a CallbackEvent to the server's internal callback
-// endpoint with the same HMAC envelope production GHA uses.
+// endpoint with the same X-0ops-Timestamp / X-0ops-Signature envelope
+// production GHA dispatch uses (apps.go::validateDeployCallbackSignature).
 type CallbackClient struct {
 	baseURL string
 	secret  string
@@ -44,6 +50,7 @@ func NewCallbackClient(baseURL, secret string, c *http.Client) *CallbackClient {
 }
 
 func (c *CallbackClient) Send(ctx context.Context, runID string, ev CallbackEvent) error {
+	ev.RunID = runID
 	body, err := json.Marshal(ev)
 	if err != nil {
 		return err
@@ -53,11 +60,17 @@ func (c *CallbackClient) Send(ctx context.Context, runID string, ev CallbackEven
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Ops-Run-Id", runID)
+	timestamp := strconv.FormatInt(time.Now().UTC().Unix(), 10)
 	mac := hmac.New(sha256.New, []byte(c.secret))
-	mac.Write(body)
-	req.Header.Set("X-Ops-Signature", "hmac-sha256="+hex.EncodeToString(mac.Sum(nil)))
+	_, _ = mac.Write([]byte(timestamp))
+	_, _ = mac.Write([]byte("."))
+	_, _ = mac.Write(body)
+	signature := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-0ops-Timestamp", timestamp)
+	req.Header.Set("X-0ops-Signature", signature)
+	req.Header.Set("X-0ops-Delivery-ID", fmt.Sprintf("%s-%s-%s", runID, ev.Status, timestamp))
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return err

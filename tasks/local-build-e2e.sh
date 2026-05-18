@@ -38,8 +38,10 @@ go run ./cmd/cli admin bootstrap-owner \
   --github-login "$GITHUB_LOGIN" \
   --output json >/dev/null 2>&1 || log "  (already bootstrapped, continuing)"
 
-log "5. mint dev bearer via seed-cli-token"
-TOKEN="$(DATABASE_URL="$DATABASE_URL" go run ./cmd/devtools/seed-cli-token \
+log "5. mint dev bearer via seed-cli-token (inside server container to reach db DNS)"
+TOKEN="$(podman exec -e DATABASE_URL='postgres://ops:ops_dev_pw@db:5432/ops?sslmode=disable' \
+  0ops-server-1 \
+  go run ./cmd/devtools/seed-cli-token \
   --team-slug "$TEAM_SLUG" \
   --github-login "$GITHUB_LOGIN" \
   --name "m5.6-e2e" \

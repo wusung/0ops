@@ -16,10 +16,12 @@ func TestCallbackClientSignsAndPosts(t *testing.T) {
 	secret := "dev-callback-secret-change-me"
 	var gotBody []byte
 	var gotSig string
+	var gotTS string
 	var gotURL string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotBody, _ = io.ReadAll(r.Body)
-		gotSig = r.Header.Get("X-Ops-Signature")
+		gotSig = r.Header.Get("X-0ops-Signature")
+		gotTS = r.Header.Get("X-0ops-Timestamp")
 		gotURL = r.URL.Path
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -33,6 +35,9 @@ func TestCallbackClientSignsAndPosts(t *testing.T) {
 	if gotURL != "/internal/deploy-runs/dr_test/callback" {
 		t.Errorf("url=%q", gotURL)
 	}
+	if gotTS == "" {
+		t.Errorf("X-0ops-Timestamp missing")
+	}
 
 	var ev CallbackEvent
 	if err := json.Unmarshal(gotBody, &ev); err != nil {
@@ -41,10 +46,15 @@ func TestCallbackClientSignsAndPosts(t *testing.T) {
 	if ev.Status != "building" {
 		t.Errorf("status=%q", ev.Status)
 	}
+	if ev.RunID != "dr_test" {
+		t.Errorf("run_id=%q want dr_test", ev.RunID)
+	}
 
 	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(gotBody)
-	expected := "hmac-sha256=" + hex.EncodeToString(mac.Sum(nil))
+	_, _ = mac.Write([]byte(gotTS))
+	_, _ = mac.Write([]byte("."))
+	_, _ = mac.Write(gotBody)
+	expected := "sha256=" + hex.EncodeToString(mac.Sum(nil))
 	if gotSig != expected {
 		t.Errorf("sig mismatch:\n got %s\nwant %s", gotSig, expected)
 	}

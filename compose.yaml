@@ -73,6 +73,9 @@ services:
       LOCAL_REGISTRY: ${LOCAL_REGISTRY:-registry:5000}
       LOCAL_FILE_REPO_ROOT: /workspace/examples
       OPS_PUBLIC_BASE_URL: ${OPS_PUBLIC_BASE_URL:-http://server:8080}
+      # ADR-0012 LocalBuildDispatcher: pack exec'd inside the server
+      # container talks to the host podman daemon via the mounted socket.
+      DOCKER_HOST: unix:///var/run/podman/podman.sock
     ports:
       - "${OPS_HOST_PORT:-8080}:8080"
     volumes:

@@ -431,6 +431,7 @@ func createAppHandler(store appsStore, k3sClient infraK3sClient, cfClient infraC
 			case errors.Is(err, cloudflare.ErrRateLimited):
 				apperror.Write(w, "cloudflare_rate_limited", apperror.ClassTooManyRequests, "cloudflare rate limited", nil)
 			default:
+				slog.Error("create_app confirm failed", "err", err.Error(), "preview_id", req.PreviewID)
 				apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to create app", nil)
 			}
 			return
@@ -475,6 +476,7 @@ func deployRunCallbackHandler(store appsStore) http.HandlerFunc {
 			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "invalid json payload", nil)
 			return
 		}
+		slog.Info("callback received", "run_id", runID, "status", req.Status, "trace_id", trimStringPtr(req.TraceID))
 		timestamp := strings.TrimSpace(r.Header.Get("X-0ops-Timestamp"))
 		signature := strings.TrimSpace(r.Header.Get("X-0ops-Signature"))
 		if !validateCallbackTimestamp(timestamp, time.Now().UTC(), 5*time.Minute) {
@@ -482,15 +484,18 @@ func deployRunCallbackHandler(store appsStore) http.HandlerFunc {
 			return
 		}
 		if !validateDeployCallbackSignature(timestamp, body, signature, req.OpsToken) {
+			slog.Warn("callback rejected: invalid signature", "run_id", runID, "status", req.Status)
 			apperror.Write(w, "invalid_signature", apperror.ClassUnauthorized, "invalid callback signature", nil)
 			return
 		}
 		if strings.TrimSpace(req.RunID) != runID {
+			slog.Warn("callback rejected: run_id mismatch", "url_run_id", runID, "body_run_id", req.RunID)
 			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "run_id mismatch", nil)
 			return
 		}
 		status, ok := normalizeDeployStatus(req.Status)
 		if !ok {
+			slog.Warn("callback rejected: invalid status", "run_id", runID, "raw_status", req.Status)
 			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "invalid deploy status", map[string]any{"field": "status"})
 			return
 		}
@@ -1659,10 +1664,17 @@ func NewLocalCallbackClient(baseURL, secret string) *localbuild.CallbackClient {
 
 func newWorkflowDispatchTokenSigner() createappsvc.OpsTokenSigner {
 	signer, err := workflowdispatch.NewOpsTokenSignerFromEnv()
-	if err != nil {
-		return nil
+	if err == nil && signer != nil {
+		return signer
 	}
-	return signer
+	// Dev fallback: if the local build path is wired (ADR-0012), createapp
+	// requires a non-nil signer to satisfy its dispatcher guard, but the
+	// LocalBuildDispatcher never validates the ops_token. Use a stub so
+	// dev create_app does not error with "missing workflow token signer".
+	if localbuild.LoadConfig().IsUsable() {
+		return localbuild.StubTokenSigner{}
+	}
+	return nil
 }
 
 func callbackBaseURL() string {
@@ -1762,7 +1774,24 @@ func validateAppCreateRequest(w http.ResponseWriter, req dto.AppCreateRequest) b
 		return false
 	}
 	repoURL := strings.TrimSpace(req.RepoURL)
-	if !strings.HasPrefix(repoURL, "https://github.com/") && !strings.HasPrefix(repoURL, "git@github.com:") {
+	switch {
+	case strings.HasPrefix(repoURL, "file://"):
+		// ADR-0012 dev mode: file:// only valid when LOCAL_FILE_REPO_ENABLED
+		// is set and the path passes the LOCAL_FILE_REPO_ROOT whitelist.
+		if err := createappsvc.ValidateLocalRepoURL(repoURL); err != nil {
+			switch {
+			case errors.Is(err, createappsvc.ErrLocalFileRepoDisabled):
+				apperror.Write(w, "unsupported_repo_url", apperror.ClassUnprocessable, "file:// repo_url is disabled (set LOCAL_FILE_REPO_ENABLED=true in dev only)", map[string]any{"field": "repo_url"})
+			case errors.Is(err, createappsvc.ErrRepoPathNotFound):
+				apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "repo_url path not found", map[string]any{"field": "repo_url"})
+			default:
+				apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "repo_url path invalid", map[string]any{"field": "repo_url"})
+			}
+			return false
+		}
+	case strings.HasPrefix(repoURL, "https://github.com/"), strings.HasPrefix(repoURL, "git@github.com:"):
+		// allowed
+	default:
 		apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "unsupported repo_url", map[string]any{"field": "repo_url"})
 		return false
 	}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"strings"
 	"sync"
@@ -57,15 +58,21 @@ func (d *Dispatcher) WaitForIdle() { d.wg.Wait() }
 
 func (d *Dispatcher) run(ctx context.Context, payload workflowdispatch.ClientPayload) {
 	send := func(ev CallbackEvent) {
-		_ = d.Callback.Send(ctx, payload.RunID, ev)
+		ev.TraceID = payload.TraceID
+		ev.OpsToken = payload.OpsToken
+		if err := d.Callback.Send(ctx, payload.RunID, ev); err != nil {
+			slog.Error("localbuild callback send failed", "run_id", payload.RunID, "status", ev.Status, "err", err.Error())
+		}
 	}
 
+	slog.Info("localbuild dispatcher start", "run_id", payload.RunID, "image_ref", payload.ImageRef, "team", payload.TeamSlug, "app", payload.AppSlug)
 	send(CallbackEvent{Status: "building"})
 
 	var path, builder string
 	if d.Lookup != nil {
 		p, b, err := d.Lookup.ResolveLocalPath(ctx, payload.TeamSlug, payload.AppSlug)
 		if err != nil {
+			slog.Error("localbuild resolve local path failed", "run_id", payload.RunID, "err", err.Error())
 			send(CallbackEvent{
 				Status:                "failed",
 				FailureClassification: "build_error",
@@ -75,10 +82,13 @@ func (d *Dispatcher) run(ctx context.Context, payload workflowdispatch.ClientPay
 		}
 		path, builder = p, b
 	}
+	slog.Info("localbuild resolved path", "run_id", payload.RunID, "path", path, "builder", builder)
 
 	imageRef := payload.ImageRef
 	if d.Pack != nil {
+		slog.Info("localbuild pack start", "run_id", payload.RunID, "image_ref", imageRef)
 		if err := d.Pack(ctx, imageRef, path, builder); err != nil {
+			slog.Error("localbuild pack failed", "run_id", payload.RunID, "err", err.Error())
 			send(CallbackEvent{
 				Status:                "failed",
 				FailureClassification: "build_error",
@@ -86,16 +96,15 @@ func (d *Dispatcher) run(ctx context.Context, payload workflowdispatch.ClientPay
 			})
 			return
 		}
+		slog.Info("localbuild pack ok", "run_id", payload.RunID)
 	}
 
 	for _, s := range []string{"pushing", "rendering", "syncing", "live"} {
 		ev := CallbackEvent{Status: s}
 		if s == "pushing" {
-			ev.ImageRef = imageRef
+			ev.Image = imageRef
 		}
 		send(ev)
-		// Spacing makes the SSE log tail step through stages legibly; the
-		// deploy_run state machine itself does not require any pause.
 		time.Sleep(50 * time.Millisecond)
 	}
 }

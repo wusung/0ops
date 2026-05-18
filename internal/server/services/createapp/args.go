@@ -61,9 +61,15 @@ func validateRepoURL(repoURL string) error {
 	return nil
 }
 
-// validateLocalRepoURL enforces the file:// path safety rules from
+// ValidateLocalRepoURL enforces the file:// path safety rules from
 // ADR-0012 § 3.4: env gate, absolute path, in-root after symlink
-// resolution, exists on disk.
+// resolution, exists on disk. Exported so the HTTP handler in
+// internal/server/apps.go (validateAppCreateRequest) can apply the same
+// check before preview is persisted.
+func ValidateLocalRepoURL(repoURL string) error {
+	return validateLocalRepoURL(repoURL)
+}
+
 func validateLocalRepoURL(repoURL string) error {
 	if !localFileRepoEnabled() {
 		return ErrLocalFileRepoDisabled
