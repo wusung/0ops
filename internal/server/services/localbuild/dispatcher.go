@@ -34,11 +34,28 @@ type PackFunc func(ctx context.Context, imageRef, path, builder string) error
 // state is reported back via Callback.
 type Dispatcher struct {
 	Pack     PackFunc
+	Push     PushFunc
 	Callback CallbackSender
 	Lookup   AppLookup
 	Registry string
 
 	wg sync.WaitGroup
+}
+
+// rewriteImageRef replaces the production ghcr.io/winshare prefix that the
+// createapp orchestrator hard-codes (service.go:167) with the dev-local
+// registry. Per ADR-0012 § 3.5, only the registry prefix differs between
+// production and dev; the `<team>/<slug>:<runid>` suffix is preserved.
+func rewriteImageRef(imageRef, registry string) string {
+	if registry == "" {
+		return imageRef
+	}
+	for _, prefix := range []string{"ghcr.io/winshare/", "ghcr.io/"} {
+		if strings.HasPrefix(imageRef, prefix) {
+			return registry + "/" + strings.TrimPrefix(imageRef, prefix)
+		}
+	}
+	return imageRef
 }
 
 // Dispatch returns immediately; the build runs on a goroutine.
@@ -75,7 +92,7 @@ func (d *Dispatcher) run(ctx context.Context, payload workflowdispatch.ClientPay
 			slog.Error("localbuild resolve local path failed", "run_id", payload.RunID, "err", err.Error())
 			send(CallbackEvent{
 				Status:                "failed",
-				FailureClassification: "build_error",
+				FailureClassification: "build_compile_error",
 				ErrorSummary:          truncate(fmt.Sprintf("resolve local path: %v", err), 8192),
 			})
 			return
@@ -84,14 +101,14 @@ func (d *Dispatcher) run(ctx context.Context, payload workflowdispatch.ClientPay
 	}
 	slog.Info("localbuild resolved path", "run_id", payload.RunID, "path", path, "builder", builder)
 
-	imageRef := payload.ImageRef
+	imageRef := rewriteImageRef(payload.ImageRef, d.Registry)
 	if d.Pack != nil {
 		slog.Info("localbuild pack start", "run_id", payload.RunID, "image_ref", imageRef)
 		if err := d.Pack(ctx, imageRef, path, builder); err != nil {
 			slog.Error("localbuild pack failed", "run_id", payload.RunID, "err", err.Error())
 			send(CallbackEvent{
 				Status:                "failed",
-				FailureClassification: "build_error",
+				FailureClassification: "build_compile_error",
 				ErrorSummary:          truncate(err.Error(), 8192),
 			})
 			return
@@ -99,24 +116,40 @@ func (d *Dispatcher) run(ctx context.Context, payload workflowdispatch.ClientPay
 		slog.Info("localbuild pack ok", "run_id", payload.RunID)
 	}
 
-	for _, s := range []string{"pushing", "rendering", "syncing", "live"} {
-		ev := CallbackEvent{Status: s}
-		if s == "pushing" {
-			ev.Image = imageRef
+	send(CallbackEvent{Status: "pushing", Image: imageRef})
+
+	if d.Push != nil {
+		slog.Info("localbuild push start", "run_id", payload.RunID, "image_ref", imageRef)
+		if err := d.Push(ctx, imageRef); err != nil {
+			slog.Error("localbuild push failed", "run_id", payload.RunID, "err", err.Error())
+			send(CallbackEvent{
+				Status:                "failed",
+				FailureClassification: "registry_push_failed",
+				ErrorSummary:          truncate(err.Error(), 8192),
+			})
+			return
 		}
-		send(ev)
+		slog.Info("localbuild push ok", "run_id", payload.RunID)
+	}
+
+	for _, s := range []string{"rendering", "syncing", "live"} {
+		send(CallbackEvent{Status: s})
 		time.Sleep(50 * time.Millisecond)
 	}
 }
 
-// DefaultPack runs `pack build --publish <imageRef> --path <path> --builder <builder>`.
-// --publish makes pack push directly, eliminating the build → push race.
+// DefaultPack runs `pack build <imageRef> --path <path> --builder <builder>`.
+// Image is left in the host podman image store; DefaultPush pushes it to the
+// local registry afterwards. Earlier iterations passed --publish so pack
+// would push directly, but pack's lifecycle ephemeral container (spawned
+// outside the compose network) cannot reach `registry:5000` — see ADR-0012
+// M5.6.1 follow-up.
 func DefaultPack(ctx context.Context, imageRef, path, builder string) error {
 	if imageRef == "" || path == "" || builder == "" {
 		return errors.New("missing pack arguments")
 	}
 	var buf bytes.Buffer
-	cmd := exec.CommandContext(ctx, "pack", "build", "--publish", imageRef, "--path", path, "--builder", builder)
+	cmd := exec.CommandContext(ctx, "pack", "build", imageRef, "--path", path, "--builder", builder)
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
 	if err := cmd.Run(); err != nil {

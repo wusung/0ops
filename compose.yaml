@@ -70,22 +70,30 @@ services:
       OPS_ENV: ${OPS_ENV:-development}
       LOCAL_FILE_REPO_ENABLED: ${LOCAL_FILE_REPO_ENABLED:-true}
       LOCAL_BUILD_ENABLED: ${LOCAL_BUILD_ENABLED:-true}
-      LOCAL_REGISTRY: ${LOCAL_REGISTRY:-registry:5000}
+      # M5.6.1: LOCAL_REGISTRY is what the *host podman engine* sees when
+      # pushing — localhost:5000 maps to the registry container's published
+      # host port. Server-internal HTTP probes (none today) would use the
+      # compose DNS name `registry:5000` instead.
+      LOCAL_REGISTRY: ${LOCAL_REGISTRY:-localhost:5000}
       LOCAL_FILE_REPO_ROOT: /workspace/examples
       OPS_PUBLIC_BASE_URL: ${OPS_PUBLIC_BASE_URL:-http://server:8080}
       # ADR-0012 LocalBuildDispatcher: pack exec'd inside the server
       # container talks to the host podman daemon via the mounted socket.
-      DOCKER_HOST: unix:///var/run/podman/podman.sock
+      # Socket path must be IDENTICAL inside and outside the server
+      # container — pack mounts whatever DOCKER_HOST points to into the
+      # lifecycle ephemeral container (spawned by host podman) at the same
+      # path, so they have to agree.
+      DOCKER_HOST: unix:///run/user/${UID:-1000}/podman/podman.sock
     ports:
       - "${OPS_HOST_PORT:-8080}:8080"
     volumes:
       - .:/app:Z
       - go-mod-cache:/go/pkg/mod
       - ./examples:/workspace/examples:Z
-      # podman socket mount for LocalBuildDispatcher (`pack build --publish`).
-      # High-trust mount; ADR-0012 § 6 — production compose must NOT carry
-      # this.
-      - /run/user/${UID:-1000}/podman/podman.sock:/var/run/podman/podman.sock:Z
+      # podman socket mount for LocalBuildDispatcher. High-trust mount;
+      # ADR-0012 § 6 — production compose must NOT carry this. Path matches
+      # host so pack's lifecycle container sees the same socket via bind.
+      - /run/user/${UID:-1000}/podman/podman.sock:/run/user/${UID:-1000}/podman/podman.sock:Z
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
       interval: 10s
