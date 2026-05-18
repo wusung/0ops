@@ -427,7 +427,58 @@ create-app-flow 主 spec 不改邏輯，僅在 § 5.1 加一句指向本 sub-spe
 build-pipeline-and-callback 為 production GHA 規範；本 sub-spec **不修改** 任何 production 規約。
 LocalBuildDispatcher 為 dev-only 之替代 dispatcher，與 production GHA dispatcher 共用 `Dispatcher` 介面 + 共用 callback HMAC 簽章 + 共用 deploy_run state machine。
 
-## 15. 不可違反的硬性規則
+## 15. Host 環境前提（rootless podman + pack lifecycle）
+
+LocalBuildDispatcher 之 `pack build` 在 server 容器內 exec，pack 透過
+`DOCKER_HOST` 對 mounted host podman socket 起 lifecycle ephemeral
+container（buildpack 階段 detect / restore / analyze / build / export）。
+此 lifecycle container 由 host podman spawn，**不在** compose 之
+`0ops_default` network；socket 由 pack 自動 bind 至 lifecycle container 的
+`/var/run/docker.sock`。
+
+### 15.1 rootless podman 之 uid 不對稱
+
+rootless podman 採 user-namespace mapping：
+
+- host podman socket 屬主：host uid `$UID`（通常 1000），perms `srw-rw----`
+- server 容器內 process 為 root（uid 0），由 podman map 到 host uid 1000，可讀
+- pack 之 lifecycle container 內 process 為 `cnb`（uid 1000），由 host
+  podman 之 subuid map 到 host uid `100999`（不等於 host 1000）；對同一個
+  bind mount 之 socket，lifecycle 內看到 owner 為 nobody、無 r/w 權限
+
+結果：lifecycle 之 ANALYZING phase fail：
+
+```
+ERROR: failed to initialize analyzer: getting previous image:
+permission denied while trying to connect to the docker API at
+unix:///var/run/docker.sock
+```
+
+### 15.2 解法（dev only；production 不適用此節）
+
+採以下其一即可，**`make m5-6-podman-socket-loosen` 為預設選項**：
+
+| 方案 | 動作 | 持久性 | 風險 |
+|---|---|---|---|
+| **A. 鬆綁 socket perms** | `chmod 666 /run/user/$UID/podman/podman.sock` | podman.socket 重啟後重置 | 同機任何 local user 可控 podman daemon（dev 機器尚可接受） |
+| B. 使用 rootful socket | 啟 `sudo systemctl start podman.socket` 並改 compose mount 為 `/run/podman/podman.sock` | 持久 | 增加 host root daemon 維護面 |
+| C. server container `userns=keep-id` | compose 加 `userns_mode: keep-id` | 跟著 compose | server container 內 root 不再是 host uid 1000；其他 mount 需重審 |
+
+本 sub-spec 採 A：簡單、可重執行、與既有 compose 配置改動最小；風險僅限 dev
+host 之 local user 邊界，與「server container 已有 socket mount」之風險面
+相同。
+
+`tasks/local-build-e2e.sh` 之 preflight step 會 verify socket world-rw；
+不通則直接 `exit 1` 並印 `make m5-6-podman-socket-loosen` 指引（**不**自動
+chmod，避免無 host 寫權限的 CI runner 誤跑）。
+
+### 15.3 重執行頻率
+
+`podman.socket` 在 host 重開機 / `systemctl --user restart podman.socket`
+後重置 perms。實務上每次重啟 host 之後跑一次 `make m5-6-podman-socket-loosen`
+即可；E2E 腳本之 preflight 會在偵測到後 fail-fast 提示。
+
+## 16. 不可違反的硬性規則
 
 1. **production 必拒 file://**：`OPS_ENV=production` 與任一 `LOCAL_*_ENABLED=true` 並存 → server panic
 2. **路徑必須在白名單根目錄下**：跟 symlink 後再驗根目錄；任何 escape 一律 422

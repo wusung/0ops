@@ -111,7 +111,7 @@ m5-4-pitr-drill: ## 跑 local PITR drill（podman compose；spec § 8.3 + § 16 
 
 ## --- M5.6 local-file-repo dev mode（ADR-0012）---
 
-.PHONY: dev-example-init dev-create-example m5-6-local-build-e2e
+.PHONY: dev-example-init dev-create-example m5-6-local-build-e2e m5-6-podman-socket-loosen
 
 dev-example-init: ## 初始化 examples/node-demo 為 git repo（首次跑必要）
 	@bash examples/node-demo/bootstrap.sh
@@ -121,6 +121,12 @@ dev-create-example: dev-example-init ## 跑一次 create_app at file:// → live
 
 m5-6-local-build-e2e: ## M5.6 端到端驗收腳本（compose 必須先 healthy）
 	@bash tasks/local-build-e2e.sh
+
+m5-6-podman-socket-loosen: ## dev 機器一次性：把 rootless podman socket 改 0666 讓 pack lifecycle 可讀（ADR-0012 § 6.2 / sub-spec § 15）
+	@sock="/run/user/$$(id -u)/podman/podman.sock"; \
+	if [ ! -S "$$sock" ]; then echo "socket not found at $$sock — 先跑 systemctl --user start podman.socket" >&2; exit 1; fi; \
+	if [ "$$OPS_ENV" = "production" ]; then echo "refusing to loosen socket perms with OPS_ENV=production" >&2; exit 1; fi; \
+	chmod 666 "$$sock" && ls -la "$$sock" && echo "ok — pack lifecycle container 可讀 socket 至下次 podman.socket 重啟"
 
 sqlc: ## 產生 sqlc 程式碼
 	podman run --rm --userns=keep-id -v $(CURDIR):/src -w /src $(SQLC_IMAGE) generate

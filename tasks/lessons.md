@@ -55,3 +55,11 @@
 - **情境**：M5.6 加 examples/node-demo 並由 bootstrap.sh 跑 `git init` 產出 inner `.git/`。第一次 `git add examples/` 後外層把整個目錄當 gitlink，commit 留下空 submodule reference。
 - **解法**：bootstrap 是 dev runtime 步驟而非 outer commit 步驟；外層 `.gitignore` 排除 `examples/*/.git/` + `examples/*/node_modules/`，且 commit 前若 inner `.git/` 已存在需先移除。
 - **規則**：examples/ 樹下任何「在 dev 環境啟動時動態生成」的 git 物件，必須 .gitignore；outer commit 階段不可包含。對 e2e 腳本顯式呼叫 bootstrap 以維持 idempotent。
+
+## L008｜rootless podman + pack lifecycle 之 uid mapping 不對稱
+
+- **情境**：M5.6.1 完成 dispatcher split pack/push 後 e2e 揭露：pack `pack build` 在 server 容器內 exec OK，但 pack 起的 lifecycle ephemeral container（host podman spawn，不在 compose network 內）對 bind-mount 之 host podman socket 報 `permission denied`。
+- **根因**：rootless podman 對 lifecycle container 之 cnb user（container uid 1000）採 subuid 映射至 host uid `100999`，與 socket owner host uid 1000 不同；socket perms 預設 `0660` → lifecycle 內 process 既非 owner 也非 group，無 r/w。
+- **解法（M5.6.2 採行）**：文件化「dev 機器首次跑 `make m5-6-podman-socket-loosen` 把 socket 改 `0666`」；`tasks/local-build-e2e.sh` preflight 偵測 perms，0660 直接 fail-fast 並印指引。chmod 在 OPS_ENV=production 時 refuse 執行。
+- **不採行的替代**：rootful socket（增 host 維護面 + 需 sudo）；server container `userns=keep-id`（牽動其他 mount 的 uid 假設）。
+- **規則**：mount host high-trust resource 至 container 後若進一步被 pack/buildah/skopeo 等工具 re-bind 至 lifecycle ephemeral container，必須評估三層 uid mapping（host / 外層 container / lifecycle container）是否一致；不一致就要在 setup 文件中明示步驟，不要等 e2e 階段才發現。ADR-0012 § 6.2 / sub-spec § 15。
