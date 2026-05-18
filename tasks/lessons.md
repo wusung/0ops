@@ -35,3 +35,23 @@
   1. `run-one.sh` 開 worktree 前 `git fetch origin && git merge-base --is-ancestor HEAD origin/main`；若 HEAD 不在 origin/main ancestor 集合內，先停下，由人決定要同步還是從 `origin/main` 直接開分支。
   2. `mark_task_failed` 的 chore 紀錄改成 `.task-sessions/<ID>/status.md` sidecar，不在 main 落 commit，避免本機與 origin 漂移。
   3. CI appear-timeout 觸發前先 `gh pr view --json mergeable` 並把 `CONFLICTING` 顯式 log + 走獨立 fail path（不要與 `CI did not pass` 共用訊息）。
+
+## L005｜RoutingDispatcher vs 擴 ClientPayload — 介面契約優於 schema 擴張
+
+- **情境**：M5.6 引入 LocalBuildDispatcher 後，create_app confirm 階段需在 GHA 與本地 build 兩條路徑間分派。第一直覺是擴 `workflowdispatch.ClientPayload` 加 `RepoURL` 欄位讓 dispatcher 自行判斷。
+- **問題**：擴 payload 等於 production GHA 與 dev 共享 schema，未來只要任一 dispatcher 想看更多 context 就會持續擴。介面變寬，contract 變脆。
+- **解法**：新增 RoutingDispatcher 包兩個 sub-dispatcher，依 `payload.TeamSlug + payload.AppSlug` 反查 `db.GetAppRepoURLByTeamAndAppSlug` 來路由。
+- **規則**：dispatcher 介面契約穩定優先於 schema 擴張；分派邏輯放在 wrapping dispatcher 自己負責，避免 GHA 路徑被 dev 需求拉動。ADR-0012 § 3.2。
+
+## L006｜podman socket mount 屬 high-trust，server boot 必加 production panic
+
+- **情境**：M5.6 將 host podman socket 掛入 server 容器以跑 `pack build --publish`。若 production compose 模板誤抄此 mount，server 進程即取得 host root-equivalent 容器管控權。
+- **問題**：靠 CI lint 阻止「production chart 不含 LOCAL_*」是 best-effort；若 lint 漏網則直接失守。
+- **解法**：`internal/shared/runtime.AssertProductionSafe()` 在 `cmd/server/main.go` 啟動最前段檢查 `OPS_ENV=production + 任一 LOCAL_*_ENABLED=true 或 LOCAL_REGISTRY 非空` 立即 panic，配套單元測試與 boot integration 自我保護。
+- **規則**：dev 引入 high-trust 依賴時，production 防呆必須在 runtime（panic）+ test（panic 覆蓋）兩層；只在 lint 或 compose comment 註明不夠。ADR-0012 § 3.1 / hard rule #1。
+
+## L007｜examples/<dir> 內 `git init` 會被外層 git 偵測成 submodule
+
+- **情境**：M5.6 加 examples/node-demo 並由 bootstrap.sh 跑 `git init` 產出 inner `.git/`。第一次 `git add examples/` 後外層把整個目錄當 gitlink，commit 留下空 submodule reference。
+- **解法**：bootstrap 是 dev runtime 步驟而非 outer commit 步驟；外層 `.gitignore` 排除 `examples/*/.git/` + `examples/*/node_modules/`，且 commit 前若 inner `.git/` 已存在需先移除。
+- **規則**：examples/ 樹下任何「在 dev 環境啟動時動態生成」的 git 物件，必須 .gitignore；outer commit 階段不可包含。對 e2e 腳本顯式呼叫 bootstrap 以維持 idempotent。

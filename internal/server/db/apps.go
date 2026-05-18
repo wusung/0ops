@@ -270,6 +270,31 @@ WHERE team_id = $1
 	}, nil
 }
 
+// GetAppRepoURLByTeamAndAppSlug fetches only repo_url for an app, identified
+// by team slug + app slug. Used by localbuild.RoutingDispatcher (ADR-0012
+// § 3.2) to route between GitHub and Local dispatchers without expanding the
+// workflowdispatch.ClientPayload schema.
+func (r *Repository) GetAppRepoURLByTeamAndAppSlug(ctx context.Context, teamSlug, appSlug string) (string, error) {
+	var url pgtype.Text
+	err := r.pool.QueryRow(ctx, `
+SELECT a.repo_url
+  FROM app a
+  JOIN team t ON t.id = a.team_id
+ WHERE t.slug = $1 AND a.slug = $2
+ LIMIT 1
+`, teamSlug, appSlug).Scan(&url)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return "", err
+		}
+		return "", fmt.Errorf("query repo_url by team+app slug: %w", err)
+	}
+	if !url.Valid {
+		return "", nil
+	}
+	return url.String, nil
+}
+
 // CreateApp persists app/domain/deploy_run in one transaction for create_app.
 func (r *Repository) CreateApp(ctx context.Context, params AppCreateParams) (AppCreateResult, error) {
 	parsedTeamID, err := parseUUID(params.TeamID)

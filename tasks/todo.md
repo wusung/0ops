@@ -558,6 +558,20 @@
 
 ## Milestone Supporting Work
 
+### M5.6 — local-file-repo dev mode
+
+- [x] OPS_ENV runtime helper + production safety assertion
+- [x] file:// validator + LOCAL_FILE_REPO_ENABLED gate
+- [x] Inspector interface + LocalInspector + GitHubInspector stub
+- [x] examples/node-demo + bootstrap
+- [x] localbuild package: config + signed callback client
+- [x] LocalBuildDispatcher with pack-build + state chain
+- [x] RoutingDispatcher + GetAppRepoURLByTeamAndAppSlug + apps.go wiring
+- [x] compose registry + podman socket mount + Makefile targets
+- [x] tasks/local-build-e2e.sh acceptance script
+- [x] docs alignment + lessons capture（L005 / L006 / L007）
+- [ ] e2e 實跑驗證：留 user 在自己 dev host 跑 `make m5-6-local-build-e2e`；通過後將 tasks/task-status.md 之 M5.6 標 Done 並把 sub-spec status 從 draft → accepted
+
 ### docs/features 覆蓋補齊（追蹤缺漏項）
 
 - [x] `docs/features/audit-log/spec.md`

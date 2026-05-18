@@ -345,6 +345,10 @@ func (f *cliFakeStore) RevokePATByName(_ context.Context, teamID, name string) e
 	return pgx.ErrNoRows
 }
 
+func (f *cliFakeStore) GetAppRepoURLByTeamAndAppSlug(_ context.Context, _, _ string) (string, error) {
+	return "", nil
+}
+
 func (f *cliFakeStore) GetOrCreateUserAndPersonalTeam(ctx context.Context, githubLogin string) (string, string, string, error) {
 	return f.ResolveUserDefaultTeamByGithubLogin(ctx, githubLogin)
 }

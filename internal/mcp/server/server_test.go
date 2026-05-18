@@ -464,6 +464,10 @@ func (f *mcpFakeStore) RevokePATByName(_ context.Context, teamID, name string) e
 	return pgx.ErrNoRows
 }
 
+func (f *mcpFakeStore) GetAppRepoURLByTeamAndAppSlug(_ context.Context, _, _ string) (string, error) {
+	return "", nil
+}
+
 func newMCPFakeStore() (*mcpFakeStore, string) {
 	token, err := auth.NewBearerToken("device", "token-1")
 	if err != nil {

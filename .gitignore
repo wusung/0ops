@@ -37,3 +37,8 @@ coverage.*
 # OS junk
 .DS_Store
 Thumbs.db
+
+# Local example repos' own git dirs (initialized by examples/*/bootstrap.sh
+# per ADR-0012; the outer 0ops repo must not track these).
+examples/*/.git/
+examples/*/node_modules/

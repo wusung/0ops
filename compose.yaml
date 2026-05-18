@@ -30,6 +30,20 @@ services:
       db:
         condition: service_healthy
 
+  # Local image registry for ADR-0012 local-build dev path. Dev only;
+  # production never reaches this service. Server reaches it as
+  # `registry:5000` via compose DNS; host-side `pack push` (running through
+  # the mounted podman socket) reaches it as `localhost:5000`.
+  registry:
+    image: docker.io/library/registry:2
+    ports:
+      - "5000:5000"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:5000/v2/"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
   server:
     image: localhost/0ops-server:dev
     build:
@@ -50,11 +64,28 @@ services:
       GITHUB_APP_DISABLE_INSTALL_CHECK: ${GITHUB_APP_DISABLE_INSTALL_CHECK:-true}
       K3S_DISABLE_ISOLATION: ${K3S_DISABLE_ISOLATION:-true}
       CF_DISABLE_TUNNEL: ${CF_DISABLE_TUNNEL:-true}
+      # ADR-0012 local-file-repo dev mode. Production must leave OPS_ENV
+      # at production and the three LOCAL_* vars blank; server boot panics
+      # on conflict (internal/shared/runtime.AssertProductionSafe).
+      OPS_ENV: ${OPS_ENV:-development}
+      LOCAL_FILE_REPO_ENABLED: ${LOCAL_FILE_REPO_ENABLED:-true}
+      LOCAL_BUILD_ENABLED: ${LOCAL_BUILD_ENABLED:-true}
+      LOCAL_REGISTRY: ${LOCAL_REGISTRY:-registry:5000}
+      LOCAL_FILE_REPO_ROOT: /workspace/examples
+      OPS_PUBLIC_BASE_URL: ${OPS_PUBLIC_BASE_URL:-http://server:8080}
+      # ADR-0012 LocalBuildDispatcher: pack exec'd inside the server
+      # container talks to the host podman daemon via the mounted socket.
+      DOCKER_HOST: unix:///var/run/podman/podman.sock
     ports:
       - "${OPS_HOST_PORT:-8080}:8080"
     volumes:
       - .:/app:Z
       - go-mod-cache:/go/pkg/mod
+      - ./examples:/workspace/examples:Z
+      # podman socket mount for LocalBuildDispatcher (`pack build --publish`).
+      # High-trust mount; ADR-0012 § 6 — production compose must NOT carry
+      # this.
+      - /run/user/${UID:-1000}/podman/podman.sock:/var/run/podman/podman.sock:Z
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
       interval: 10s
@@ -64,6 +95,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      registry:
+        condition: service_healthy
 
 volumes:
   pgdata:

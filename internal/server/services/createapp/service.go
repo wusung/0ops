@@ -276,7 +276,14 @@ func validateRequest(req dto.AppCreateRequest) error {
 	if repoURL == "" {
 		return fmt.Errorf("repo_url is required")
 	}
-	if !strings.HasPrefix(repoURL, "https://github.com/") && !strings.HasPrefix(repoURL, "git@github.com:") {
+	switch {
+	case strings.HasPrefix(repoURL, "file://"):
+		if err := validateLocalRepoURL(repoURL); err != nil {
+			return err
+		}
+	case strings.HasPrefix(repoURL, "https://github.com/"), strings.HasPrefix(repoURL, "git@github.com:"):
+		// allowed
+	default:
 		return fmt.Errorf("unsupported repo_url")
 	}
 	if strings.TrimSpace(req.Ref) == "" {

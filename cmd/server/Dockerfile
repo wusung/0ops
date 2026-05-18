@@ -22,6 +22,15 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 # --- dev：熱重載（air），bind-mount source via compose ---
 FROM golang:1.26-alpine AS dev
+ARG PACK_VERSION=0.40.6
+# pack + git: ADR-0012 LocalBuildDispatcher exec's `pack build --publish`
+# inside this container; git is needed by LocalInspector (rev-parse HEAD,
+# default branch). Production runtime image does NOT include either —
+# only the dev stage does.
+RUN apk add --no-cache git curl ca-certificates \
+    && curl -fsSL "https://github.com/buildpacks/pack/releases/download/v${PACK_VERSION}/pack-v${PACK_VERSION}-linux.tgz" \
+    | tar -xzC /usr/local/bin pack \
+    && chmod +x /usr/local/bin/pack
 RUN go install github.com/air-verse/air@v1.62.0
 WORKDIR /app
 EXPOSE 8080

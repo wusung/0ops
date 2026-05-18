@@ -18,3 +18,15 @@ services:
   # db:
   #   ports:
   #     - "5432:5432"  # 暴露 db 給本機 psql / GUI（注意 .env password 為 dev 預設）
+  #
+  # registry:
+  #   ports:
+  #     - "15000:5000"  # host port 5000 被佔用時改 host 端 port；同步把
+  #                     # .env 之 LOCAL_REGISTRY 改為 host.containers.internal:15000
+  #                     # 或保留 registry:5000（server 內仍走 compose DNS）
+  #
+  # server:
+  #   volumes:
+  #     # rootful podman 路徑（非 rootless）。compose.yaml 預設假設 rootless 之
+  #     # /run/user/$UID/podman/podman.sock；若使用 rootful 改成下行：
+  #     - /run/podman/podman.sock:/var/run/podman/podman.sock:Z

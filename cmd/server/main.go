@@ -26,11 +26,16 @@ import (
 	"github.com/winshare/zeroops/internal/server/services/k3s"
 	"github.com/winshare/zeroops/internal/server/services/reconciler"
 	"github.com/winshare/zeroops/internal/shared"
+	"github.com/winshare/zeroops/internal/shared/runtime"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel()}))
 	slog.SetDefault(logger)
+
+	// Fail fast if any dev-only knob (file:// repo, local build pipeline)
+	// is enabled while OPS_ENV=production. Per ADR-0012 § 3.1.
+	runtime.AssertProductionSafe()
 
 	addr := envOr("OPS_LISTEN_ADDR", ":8080")
 	metrics := observability.NewMetrics()

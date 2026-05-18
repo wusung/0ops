@@ -690,6 +690,10 @@ func (f *fakeStore) ListAllUserGrants(_ context.Context, _ string, _ string) ([]
 	return []db.ToolGrant{}, nil
 }
 
+func (f *fakeStore) GetAppRepoURLByTeamAndAppSlug(_ context.Context, _, _ string) (string, error) {
+	return "", nil
+}
+
 func TestNewRouterListApps(t *testing.T) {
 	store, token := newFakeStore()
 	srv := httptest.NewServer(NewRouter(store))
