@@ -138,18 +138,27 @@ func (d *Dispatcher) run(ctx context.Context, payload workflowdispatch.ClientPay
 	}
 }
 
-// DefaultPack runs `pack build <imageRef> --path <path> --builder <builder>`.
-// Image is left in the host podman image store; DefaultPush pushes it to the
-// local registry afterwards. Earlier iterations passed --publish so pack
-// would push directly, but pack's lifecycle ephemeral container (spawned
-// outside the compose network) cannot reach `registry:5000` — see ADR-0012
-// M5.6.1 follow-up.
+// DefaultPack runs `pack build <imageRef> --path <path> --builder <builder>
+// --docker-host=inherit`. Image is left in the host podman image store;
+// DefaultPush pushes it to the local registry afterwards.
+//
+// --docker-host=inherit tells pack to bind the socket pointed to by
+// DOCKER_HOST into the lifecycle ephemeral container instead of pack's
+// hard-coded default `/var/run/docker.sock`. Without it, pack binds the
+// host docker daemon socket (root:docker 0660) which the lifecycle
+// container's mapped root cannot read; with it, pack binds the rootless
+// podman socket (already chmod 666 via `make m5-6-podman-socket-loosen`)
+// and the lifecycle container connects fine. Per ADR-0012 M5.6.x follow-up.
 func DefaultPack(ctx context.Context, imageRef, path, builder string) error {
 	if imageRef == "" || path == "" || builder == "" {
 		return errors.New("missing pack arguments")
 	}
 	var buf bytes.Buffer
-	cmd := exec.CommandContext(ctx, "pack", "build", imageRef, "--path", path, "--builder", builder)
+	cmd := exec.CommandContext(ctx, "pack", "build", imageRef,
+		"--path", path,
+		"--builder", builder,
+		"--docker-host=inherit",
+	)
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
 	if err := cmd.Run(); err != nil {
