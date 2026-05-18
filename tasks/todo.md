@@ -572,6 +572,24 @@
 - [x] docs alignment + lessons capture（L005 / L006 / L007）
 - [ ] e2e 實跑驗證：留 user 在自己 dev host 跑 `make m5-6-local-build-e2e`；通過後將 tasks/task-status.md 之 M5.6 標 Done 並把 sub-spec status 從 draft → accepted
 
+### M5.6.1 — split pack/push + rewrite imageRef to LOCAL_REGISTRY
+
+- [x] dispatcher 分 Pack / Push，DefaultPush 走 Docker-compat REST API
+- [x] `rewriteImageRef` 替換 ghcr.io 前綴為 LOCAL_REGISTRY
+- [x] failure_classification 對齊 callback handler allowlist
+- [x] socket path 一致性（server 容器與 host 同路徑 /run/user/$UID/podman/podman.sock）
+- [ ] e2e push → registry 跑通驗證（依賴 M5.6.2 socket perms setup）
+
+### M5.6.2 — rootless podman socket perms 文件化
+
+- [x] sub-spec § 15 加 host 環境前提段（uid mapping 解析 + 三方案 + 採行決策）
+- [x] ADR-0012 § 6.2 / § 9 補 podman socket perms 負面項與已決議
+- [x] `make m5-6-podman-socket-loosen` target（OPS_ENV=production 時 refuse）
+- [x] `tasks/local-build-e2e.sh` preflight：偵測 socket perms 0660 → fail-fast + 印指引
+- [x] examples/node-demo/README + .env.example 加首次 setup 步驟
+- [x] tasks/lessons.md L008 紀錄
+- [ ] e2e 實跑驗證：跑 `make m5-6-podman-socket-loosen && make m5-6-local-build-e2e` 至 `OK — ... image is present`
+
 ### docs/features 覆蓋補齊（追蹤缺漏項）
 
 - [x] `docs/features/audit-log/spec.md`

@@ -17,6 +17,33 @@ DATABASE_URL="${DATABASE_URL:-$DATABASE_URL_DEFAULT}"
 
 log() { echo "[e2e] $*" >&2; }
 
+log "0. preflight: podman socket perms (ADR-0012 § 6.2 / sub-spec § 15)"
+SOCK="/run/user/$(id -u)/podman/podman.sock"
+if [ ! -S "$SOCK" ]; then
+  echo "[e2e] socket missing at $SOCK — start it with: systemctl --user start podman.socket" >&2
+  exit 1
+fi
+SOCK_PERMS=$(stat -c '%a' "$SOCK")
+case "$SOCK_PERMS" in
+  666|777)
+    log "  socket perms=$SOCK_PERMS — pack lifecycle 可讀 OK"
+    ;;
+  *)
+    cat >&2 <<EOF
+[e2e] socket perms=$SOCK_PERMS at $SOCK — pack 的 lifecycle ephemeral container
+      在 rootless podman uid mapping 下無法讀此 socket，ANALYZING phase 會失敗。
+
+      在本機 dev 跑一次：
+
+          make m5-6-podman-socket-loosen
+
+      之後重跑 make m5-6-local-build-e2e。
+      （ADR-0012 § 6.2 / docs/features/dev-environment/local-file-repo.md § 15）
+EOF
+    exit 1
+    ;;
+esac
+
 log "1. compose up"
 podman compose up -d >/dev/null
 

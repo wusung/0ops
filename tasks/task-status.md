@@ -26,4 +26,6 @@
 | M5.4  | Postgres HA + WAL archive + PITR 演練       | Done     | 2026-05-16     |
 | M5.5  | Backend 2 replica + Leader election         | Done     | 2026-05-16     |
 | M5.6  | Local file repo + local build pipeline (dev mode) | Pending | -              |
+| M5.6.1 | Split pack/push + rewrite imageRef to LOCAL_REGISTRY | Pending | -              |
+| M5.6.2 | Document rootless podman socket perms + e2e preflight | Pending | -              |
 | M6    | Web UI (post-v1)                            | Failed  | -              |

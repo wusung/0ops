@@ -177,6 +177,12 @@ ADR-0005 為 production GHA dispatch + callback HMAC 之決策。本 ADR 在三�
 * podman socket mount 為 high-trust 介面；compose override 若被誤抄至 production 模板將顯著擴大攻擊面（mitigation：boot panic + lint：production chart 不得包含 LOCAL_* env）
 * 三個新 env 增加配置面；mitigation：sub-spec § 4 啟動硬性檢查、`.env.example` 註記只在 dev 啟用
 * `pack build` 首次需下載 paketo builder image（~600MB）；mitigation：在 README 註記首次成本，registry 為 cache
+* rootless podman + pack lifecycle 之 uid mapping 不對稱：lifecycle ephemeral
+  container（host podman 起，user namespace 之 cnb uid 1000 → host
+  100999）對 mounted socket（host uid 1000 owner）無 r/w 權限，導致
+  ANALYZING phase failure。Mitigation：sub-spec § 15 文件化 host setup 步驟
+  + `make m5-6-podman-socket-loosen` + e2e preflight fail-fast。風險面與
+  既有 socket mount 同層；M5.6.2 接受 chmod 666 為 dev-only 預設方案
 
 ### 6.3 待補
 
@@ -206,7 +212,7 @@ ADR-0005 為 production GHA dispatch + callback HMAC 之決策。本 ADR 在三�
 下列問題不阻擋本 ADR 通過，但需在 M3 規劃前敲定：
 
 1. **e2e CI 是否預設啟用**：本 ADR 採「CI matrix 預設 skip；`make m2-local-build-e2e` 觸發」；若 M3 要把 e2e 納入必跑，需評估 podman-in-podman 之 CI 成本
-2. **podman socket mount 之 rootless / rootful 兼容**：CI runner 多為 rootful；本機開發為 rootless；compose volume 路徑差異需在 README 註記，是否需 helper script 自動探測
+2. **podman socket mount 之 rootless / rootful 兼容**：CI runner 多為 rootful；本機開發為 rootless；compose volume 路徑差異需在 README 註記，是否需 helper script 自動探測（M5.6.2 已採 chmod 666 + e2e preflight 之手動 setup 解法；rootful socket 留作 future 替代）
 3. **paketo builder image cache**：是否在 compose 加 `pack-builder-cache` named volume，避免每次 `dev-clean` 後重抓 600MB
 4. **「對外可訪問」之 dev 體驗**：是否在 M3 引入 k3d + traefik 之 ADR-0013；本 ADR 已預留 image_ref schema 不變、state 不變之介面
 5. **多 example repo 與 paketo language 矩陣**：v1 先 Node；M2 後是否補 Python / Go / Static 對應 example，作為 paketo detector 之 regression fixture
@@ -217,3 +223,11 @@ ADR-0005 為 production GHA dispatch + callback HMAC 之決策。本 ADR 在三�
 > - 不引入 k3d；「live」= DB live + local registry image 存在，不對外可訪問
 > - 共用 callback HMAC 與 deploy_run state machine
 > - 路徑採白名單根目錄；symlink 解析後驗根
+>
+> 已決議（user 拍板，2026-05-19，M5.6.2）：
+> - rootless podman socket 之 uid mapping 不對稱由「文件化 chmod 666 +
+>   `make m5-6-podman-socket-loosen` + e2e preflight fail-fast」解決
+> - 不採 rootful socket（增 host 維護面）；不採 userns=keep-id（牽動其他 mount
+>   uid 假設）
+> - chmod 666 風險面與既有 socket mount 同層；只允許在 OPS_ENV != production
+>   的機器上執行
