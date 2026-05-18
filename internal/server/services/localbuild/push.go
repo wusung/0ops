@@ -59,9 +59,16 @@ func PushViaSocket(ctx context.Context, socketPath, imageRef string) error {
 	}
 	client := &http.Client{Transport: transport, Timeout: 5 * time.Minute}
 
-	// Docker-compat API expects image name in the URL path (not tag in query
-	// for podman; podman accepts both forms).
-	endpoint := fmt.Sprintf("http://d/v1.40/images/%s/push", url.PathEscape(imageRef))
+	// Use podman libpod endpoint (not docker-compat) because we need
+	// tlsVerify=false to talk to the dev `localhost:5000` registry over
+	// plain HTTP; docker-compat `/images/{name}/push` defaults to HTTPS
+	// with no override knob and returns 500 ("server gave HTTP response
+	// to HTTPS client") for HTTP registries.
+	q := url.Values{}
+	q.Set("destination", imageRef)
+	q.Set("tlsVerify", "false")
+	endpoint := fmt.Sprintf("http://d/v4.0.0/libpod/images/%s/push?%s",
+		url.PathEscape(imageRef), q.Encode())
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, nil)
 	if err != nil {
 		return err

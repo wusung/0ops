@@ -35,10 +35,12 @@ func TestPushViaSocket_Success(t *testing.T) {
 	var gotPath string
 	var gotRawPath string
 	var gotAuth string
+	var gotQuery string
 	socket := newUnixServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotRawPath = r.RequestURI
 		gotAuth = r.Header.Get("X-Registry-Auth")
+		gotQuery = r.URL.RawQuery
 		_, _ = fmt.Fprintln(w, `{"status":"Pushing"}`)
 		_, _ = fmt.Fprintln(w, `{"status":"Layer pushed"}`)
 		_, _ = fmt.Fprintln(w, `{"status":"Done"}`)
@@ -48,7 +50,7 @@ func TestPushViaSocket_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("push: %v", err)
 	}
-	if !strings.HasPrefix(gotPath, "/v1.40/images/") || !strings.HasSuffix(gotPath, "/push") {
+	if !strings.HasPrefix(gotPath, "/v4.0.0/libpod/images/") || !strings.HasSuffix(gotPath, "/push") {
 		t.Errorf("unexpected path %q", gotPath)
 	}
 	// Slashes inside imageRef must be percent-encoded on the wire so the
@@ -59,6 +61,14 @@ func TestPushViaSocket_Success(t *testing.T) {
 	}
 	if gotAuth == "" {
 		t.Errorf("X-Registry-Auth header missing")
+	}
+	// tlsVerify=false is mandatory for local HTTP registry, otherwise
+	// podman defaults to HTTPS and the push fails.
+	if !strings.Contains(gotQuery, "tlsVerify=false") {
+		t.Errorf("tlsVerify=false missing from query: %q", gotQuery)
+	}
+	if !strings.Contains(gotQuery, "destination=") {
+		t.Errorf("destination= missing from query: %q", gotQuery)
 	}
 }
 

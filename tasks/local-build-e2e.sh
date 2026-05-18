@@ -83,28 +83,38 @@ go run ./cmd/cli apps create \
   --host "$HOST" --team "$TEAM_SLUG" --token "$TOKEN" \
   --slug "$APP_SLUG" --repo-url "$REPO_URL" --ref main --yes
 
-log "7. poll deploy status until live or timeout (${TIMEOUT_SECS}s)"
+log "7. poll local registry until image appears or timeout (${TIMEOUT_SECS}s)"
+# deploys/status 在 K3S_DISABLE_ISOLATION=true 下會立即回 "live"
+# （ArgoCD fake 路徑；apps.go::getDeployStatusHandler），不反映 dispatcher
+# 真實進度。本 step 改 poll registry tag list 作為 push 完成之 truth source；
+# 同步 tail dispatcher 失敗 log 以早期捕捉 build/push 失敗。
+TAGS_URL="http://${REGISTRY_HOST}/v2/0ops-apps/${TEAM_SLUG}/${APP_SLUG}/tags/list"
 deadline=$(( $(date +%s) + TIMEOUT_SECS ))
 while :; do
-  status="$(go run ./cmd/cli deploys status "$APP_SLUG" \
-    --host "$HOST" --team "$TEAM_SLUG" --token "$TOKEN" --output json 2>/dev/null \
-    | jq -r .status 2>/dev/null || echo unknown)"
-  log "  status=$status"
-  case "$status" in
-    live) break ;;
-    failed|rolled_back|failed_permanently|canceled)
-      echo "terminal failure: $status" >&2; exit 1 ;;
-  esac
+  if curl -fsS "$TAGS_URL" 2>/dev/null | jq -e '.tags | length > 0' >/dev/null 2>&1; then
+    log "  image present in registry"
+    break
+  fi
+  if podman logs --tail 200 0ops-server-1 2>&1 | grep -q "\"localbuild .* failed\".*\"$APP_SLUG\""; then
+    echo "[e2e] dispatcher reported failure — full server log:" >&2
+    podman logs --tail 100 0ops-server-1 2>&1 | grep "$APP_SLUG" >&2
+    exit 1
+  fi
   if [ "$(date +%s)" -ge "$deadline" ]; then
-    echo "timeout waiting for live (last status=$status)" >&2; exit 1
+    echo "timeout waiting for image in registry at $TAGS_URL" >&2
+    exit 1
   fi
   sleep 3
 done
 
-log "8. verify image exists in local registry"
-TAGS_URL="http://${REGISTRY_HOST}/v2/0ops-apps/${TEAM_SLUG}/${APP_SLUG}/tags/list"
-if ! curl -fsS "$TAGS_URL" | jq -e '.tags | length > 0' >/dev/null; then
-  echo "image not found in registry at $TAGS_URL" >&2; exit 1
-fi
+log "8. confirm deploys status reports live"
+final_status="$(go run ./cmd/cli deploys status "$APP_SLUG" \
+  --host "$HOST" --team "$TEAM_SLUG" --token "$TOKEN" --output json 2>/dev/null \
+  | jq -r .status 2>/dev/null || echo unknown)"
+log "  status=$final_status"
+case "$final_status" in
+  live) ;;
+  *) echo "expected status=live after image present, got $final_status" >&2; exit 1 ;;
+esac
 
 log "OK — ${APP_SLUG} deploy_run reached live and image is present"
