@@ -1640,6 +1640,7 @@ func newWorkflowDispatchClient(store appsStore) createappsvc.Dispatcher {
 	cb := NewLocalCallbackClient(callbackBaseURL(), cfg.Secret)
 	localDispatcher := &localbuild.Dispatcher{
 		Pack:     localbuild.DefaultPack,
+		Push:     localbuild.DefaultPush,
 		Callback: cb,
 		Lookup:   localbuild.RepoRootLookup{Store: store, Root: cfg.RepoRoot},
 		Registry: cfg.Registry,

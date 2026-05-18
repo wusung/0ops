@@ -43,13 +43,24 @@ func (s stubLookup) ResolveLocalPath(_ context.Context, _, _ string) (string, st
 
 func TestDispatcherHappyPath(t *testing.T) {
 	rec := &recCallback{}
+	var packedRef, pushedRef string
 	d := &Dispatcher{
-		Pack:     func(_ context.Context, _, _, _ string) error { return nil },
+		Pack: func(_ context.Context, ref, _, _ string) error {
+			packedRef = ref
+			return nil
+		},
+		Push: func(_ context.Context, ref string) error {
+			pushedRef = ref
+			return nil
+		},
 		Callback: rec,
 		Lookup:   stubLookup{path: "/workspace/examples/node-demo", builder: "paketobuildpacks/builder-jammy-base"},
+		Registry: "localhost:5000",
 	}
 	if err := d.Dispatch(context.Background(), workflowdispatch.ClientPayload{
-		RunID: "dr_1", AppSlug: "x", TeamSlug: "t", ImageRef: "localhost:5000/0ops-apps/t/x:dr_1",
+		RunID: "dr_1", AppSlug: "x", TeamSlug: "t",
+		// orchestrator hard-codes ghcr.io; dispatcher must rewrite to LOCAL_REGISTRY.
+		ImageRef: "ghcr.io/winshare/0ops-apps/t/x:dr_1",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -65,10 +76,61 @@ func TestDispatcherHappyPath(t *testing.T) {
 			t.Errorf("events[%d]=%q want %q", i, events[i].Status, s)
 		}
 	}
-	// "pushing" event must carry the image so the callback handler can
-	// persist app.image_ref before reconciler picks it up.
-	if events[1].Image != "localhost:5000/0ops-apps/t/x:dr_1" {
-		t.Errorf("pushing event missing image: %+v", events[1])
+	wantRef := "localhost:5000/0ops-apps/t/x:dr_1"
+	if packedRef != wantRef {
+		t.Errorf("pack got ref %q want %q", packedRef, wantRef)
+	}
+	if pushedRef != wantRef {
+		t.Errorf("push got ref %q want %q", pushedRef, wantRef)
+	}
+	if events[1].Image != wantRef {
+		t.Errorf("pushing event missing rewritten image: %+v", events[1])
+	}
+}
+
+func TestDispatcherPushFailure(t *testing.T) {
+	rec := &recCallback{}
+	d := &Dispatcher{
+		Pack:     func(_ context.Context, _, _, _ string) error { return nil },
+		Push:     func(_ context.Context, _ string) error { return errors.New("registry refused: unauthorized") },
+		Callback: rec,
+		Lookup:   stubLookup{path: "/x", builder: "b"},
+		Registry: "localhost:5000",
+	}
+	_ = d.Dispatch(context.Background(), workflowdispatch.ClientPayload{
+		RunID: "dr_p", ImageRef: "ghcr.io/winshare/0ops-apps/t/x:dr_p",
+	})
+	d.WaitForIdle()
+
+	events := rec.snapshot()
+	if len(events) < 3 {
+		t.Fatalf("expected at least 3 events (building/pushing/failed), got %+v", events)
+	}
+	last := events[len(events)-1]
+	if last.Status != "failed" || last.FailureClassification != "registry_push_failed" {
+		t.Errorf("last event=%+v", last)
+	}
+	if !strings.Contains(last.ErrorSummary, "unauthorized") {
+		t.Errorf("error_summary=%q", last.ErrorSummary)
+	}
+}
+
+func TestRewriteImageRef(t *testing.T) {
+	cases := []struct {
+		in       string
+		registry string
+		want     string
+	}{
+		{"ghcr.io/winshare/0ops-apps/t/x:dr_1", "localhost:5000", "localhost:5000/0ops-apps/t/x:dr_1"},
+		{"ghcr.io/other/foo:1", "localhost:5000", "localhost:5000/other/foo:1"},
+		{"unrelated/foo:1", "localhost:5000", "unrelated/foo:1"},
+		{"ghcr.io/winshare/x:1", "", "ghcr.io/winshare/x:1"},
+	}
+	for _, tc := range cases {
+		got := rewriteImageRef(tc.in, tc.registry)
+		if got != tc.want {
+			t.Errorf("rewriteImageRef(%q, %q) = %q, want %q", tc.in, tc.registry, got, tc.want)
+		}
 	}
 }
 
@@ -89,7 +151,7 @@ func TestDispatcherBuildFailure(t *testing.T) {
 		t.Fatalf("expected at least 2 events, got %+v", events)
 	}
 	last := events[len(events)-1]
-	if last.Status != "failed" || last.FailureClassification != "build_error" {
+	if last.Status != "failed" || last.FailureClassification != "build_compile_error" {
 		t.Errorf("last event=%+v", last)
 	}
 	if !strings.Contains(last.ErrorSummary, "oom") {
@@ -109,7 +171,7 @@ func TestDispatcherLookupFailure(t *testing.T) {
 
 	events := rec.snapshot()
 	last := events[len(events)-1]
-	if last.Status != "failed" || last.FailureClassification != "build_error" {
+	if last.Status != "failed" || last.FailureClassification != "build_compile_error" {
 		t.Errorf("last event=%+v", last)
 	}
 }
