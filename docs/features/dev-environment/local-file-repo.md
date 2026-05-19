@@ -1,6 +1,6 @@
 # Feature Sub-Spec：local-file-repo（dev mode 本地 repo 與本地 build pipeline）
 
-> **狀態**：draft
+> **狀態**：accepted
 > **來源**：本 sub-spec 由 user 指示「`repo_url` 加上支援 `file:///` 寫法，可以測試」直接產出；
 > 上游主 spec 為 `docs/features/dev-environment/spec.md`；
 > 上游關聯 spec：`docs/features/create-app-flow/spec.md`、`docs/features/build-pipeline-and-callback/spec.md`、`docs/features/reconciler-and-incident/spec.md`

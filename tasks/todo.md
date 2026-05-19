@@ -570,7 +570,7 @@
 - [x] compose registry + podman socket mount + Makefile targets
 - [x] tasks/local-build-e2e.sh acceptance script
 - [x] docs alignment + lessons capture（L005 / L006 / L007）
-- [ ] e2e 實跑驗證：留 user 在自己 dev host 跑 `make m5-6-local-build-e2e`；通過後將 tasks/task-status.md 之 M5.6 標 Done 並把 sub-spec status 從 draft → accepted
+- [x] e2e 實跑驗證（2026-05-19）：rebuild image 後跑 make m5-6-local-build-e2e → `OK — node-demo-pass deploy_run reached live and image is present`；sub-spec status: draft → accepted
 
 ### M5.6.1 — split pack/push + rewrite imageRef to LOCAL_REGISTRY
 
@@ -578,7 +578,7 @@
 - [x] `rewriteImageRef` 替換 ghcr.io 前綴為 LOCAL_REGISTRY
 - [x] failure_classification 對齊 callback handler allowlist
 - [x] socket path 一致性（server 容器與 host 同路徑 /run/user/$UID/podman/podman.sock）
-- [ ] e2e push → registry 跑通驗證（依賴 M5.6.2 socket perms setup）
+- [x] e2e push → registry 跑通驗證（M5.6.3 修補後達成）
 
 ### M5.6.2 — rootless podman socket perms 文件化
 
@@ -588,7 +588,14 @@
 - [x] `tasks/local-build-e2e.sh` preflight：偵測 socket perms 0660 → fail-fast + 印指引
 - [x] examples/node-demo/README + .env.example 加首次 setup 步驟
 - [x] tasks/lessons.md L008 紀錄
-- [ ] e2e 實跑驗證：跑 `make m5-6-podman-socket-loosen && make m5-6-local-build-e2e` 至 `OK — ... image is present`
+- [x] e2e 實跑驗證（2026-05-19）：socket perms 0666 + DefaultPack `--docker-host=inherit` + libpod push 後跑通
+
+### M5.6.3 — dispatcher e2e 修補
+
+- [x] `DefaultPack` 加 `--docker-host=inherit`（避開 host docker.sock perms 衝突）
+- [x] `DefaultPush` 改用 podman libpod endpoint + `tlsVerify=false`（local HTTP registry）
+- [x] `tasks/local-build-e2e.sh` step 7 改 poll registry tag list 作 truth source（K3S_DISABLE_ISOLATION 之假 live 不可信）；step 8 才 confirm `deploys/status=live`
+- [x] e2e 實跑驗證（2026-05-19）：`OK — node-demo-pass ... image is present`；`curl /v2/_catalog` 列出 `0ops-apps/personal/node-demo-pass`
 
 ### docs/features 覆蓋補齊（追蹤缺漏項）
 
