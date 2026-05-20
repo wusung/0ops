@@ -8,9 +8,11 @@ const (
 	SourceKindUpload SourceKind = "upload"
 )
 
-// Source is a discriminated union representing the origin of application
-// source code. Exactly one of GitHub or Upload should be non-nil, selected
-// by the Type field.
+// Source is a discriminated union identifying where an app's code comes from.
+// Exactly one of GitHub or Upload must be non-nil — enforced by the server's
+// validation layer (see ADR-0013 §4.3 and the upcoming T11 normalization).
+// Constructing a Source with both set or neither set is invalid and will be
+// rejected with HTTP 422.
 type Source struct {
 	Type   SourceKind    `json:"type"`
 	GitHub *SourceGitHub `json:"github,omitempty"`
@@ -19,7 +21,11 @@ type Source struct {
 
 // SourceGitHub identifies a GitHub repository and ref.
 type SourceGitHub struct {
+	// URL is the canonical github.com URL of the repo.
 	URL string `json:"url"`
+	// Ref is a required branch, tag, or commit sha. Unlike SourceUpload.Ref
+	// (optional audit tag), Ref here drives the GHA workflow checkout and
+	// must not be omitted.
 	Ref string `json:"ref"`
 }
 
