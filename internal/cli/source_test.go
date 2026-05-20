@@ -1,6 +1,26 @@
 package cli
 
-import "testing"
+import (
+	"errors"
+	"strings"
+	"testing"
+)
+
+func TestWrapUploadError_PreservesUploadErrorChain(t *testing.T) {
+	in := &UploadError{HTTPStatus: 413, Code: "payload_too_large", Message: "too big"}
+	out := wrapUploadError(in)
+	var ue *UploadError
+	if !errors.As(out, &ue) {
+		t.Fatalf("expected errors.As to find *UploadError, got %T", out)
+	}
+	if ue.Code != "payload_too_large" {
+		t.Errorf("Code: got %q want %q", ue.Code, "payload_too_large")
+	}
+	// Friendly hint should be in the message.
+	if !strings.Contains(out.Error(), ".dockerignore") {
+		t.Errorf("expected friendly hint in error message, got %q", out.Error())
+	}
+}
 
 func TestClassifySource(t *testing.T) {
 	tests := []struct {

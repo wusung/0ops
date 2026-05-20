@@ -92,32 +92,6 @@ func sourceTestServer(t *testing.T, teamSlug string) (srv *httptest.Server, capt
 	return srv, captured
 }
 
-// runCreateCmd executes `0ops apps create` with the given extra args through
-// the sourceTestServer and returns (captured preview request, stderr, error).
-func runCreateCmd(t *testing.T, teamSlug, token string, srvURL string, extraArgs ...string) (captured *dto.AppCreateRequest, errOut string, execErr error) {
-	t.Helper()
-	var srv *httptest.Server
-	srv, captured = sourceTestServer(t, teamSlug)
-	if srvURL == "" {
-		srvURL = srv.URL
-	}
-
-	baseArgs := []string{
-		"apps", "create",
-		"--team", teamSlug,
-		"--host", srvURL,
-		"--token", token,
-		"--yes",
-		"--output", "json",
-	}
-	cmd := NewRootCommand()
-	cmd.SetArgs(append(baseArgs, extraArgs...))
-	var stdout, stderr bytes.Buffer
-	cmd.SetOut(&stdout)
-	cmd.SetErr(&stderr)
-	execErr = cmd.ExecuteContext(context.Background())
-	return captured, stderr.String(), execErr
-}
 
 // sourceTestToken returns a valid bearer token for tests that use
 // sourceTestServer (which doesn't validate auth — any non-empty token passes).
@@ -481,5 +455,43 @@ func TestAppsCreate_UploadError413(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), ".dockerignore") {
 		t.Errorf("expected '.dockerignore' hint in error, got: %v", err)
+	}
+}
+
+// TestAppsCreate_LocalPathEmptyDirectoryRejected verifies that a source
+// directory that packs to 0 entries (empty dir) is rejected before preview.
+// The upload completes (server returns 201 with a zero-entry tarball), then
+// the CLI fails before the preview request is made.
+func TestAppsCreate_LocalPathEmptyDirectoryRejected(t *testing.T) {
+	teamSlug := "test-team"
+	token := sourceTestToken()
+
+	// Use the standard test server. It returns 201 for uploads regardless of
+	// entry count, so the upload itself succeeds — the CLI guard fires after.
+	srv, _ := sourceTestServer(t, teamSlug)
+
+	// Empty directory — no files at all.
+	emptyDir := t.TempDir()
+
+	cmd := NewRootCommand()
+	cmd.SetArgs([]string{
+		"apps", "create",
+		"--team", teamSlug,
+		"--host", srv.URL,
+		"--token", token,
+		"--slug", "demo",
+		"--source", emptyDir,
+		"--yes",
+	})
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+
+	err := cmd.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected error for empty source directory, got nil")
+	}
+	if !strings.Contains(err.Error(), "empty") {
+		t.Errorf("expected 'empty' in error message, got: %v", err)
 	}
 }

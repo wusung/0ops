@@ -180,24 +180,15 @@ func newAppsCommand() *cobra.Command {
 			case sourceKindUnset:
 				// Only --repo-url set — deprecated legacy path.
 				fmt.Fprintln(cmd.ErrOrStderr(), "warning: --repo-url is deprecated, use --source")
-				if strings.TrimSpace(createRef) == "" {
-					return fmt.Errorf("--ref is required when using --repo-url")
-				}
 				request.RepoURL = strings.TrimSpace(createRepoURL)
 				request.Ref = strings.TrimSpace(createRef)
 
 			case sourceKindFileURL:
 				// ADR-0012 dev legacy path — server normalizes server-side.
-				if strings.TrimSpace(createRef) == "" {
-					return fmt.Errorf("--ref is required for file:// source")
-				}
 				request.RepoURL = strings.TrimSpace(createSource)
 				request.Ref = strings.TrimSpace(createRef)
 
 			case sourceKindGitHubURL:
-				if strings.TrimSpace(createRef) == "" {
-					return fmt.Errorf("--ref is required for github source")
-				}
 				request.Source = &dto.Source{
 					Type: dto.SourceKindGitHub,
 					GitHub: &dto.SourceGitHub{
@@ -239,6 +230,9 @@ func newAppsCommand() *cobra.Command {
 				})
 				if uploadErr != nil {
 					return wrapUploadError(uploadErr)
+				}
+				if packRes.EntryCount == 0 {
+					return fmt.Errorf("source directory %q is empty after packing (all files excluded by .dockerignore or git ls-files). Check your .dockerignore.", resolved)
 				}
 				fmt.Fprintf(cmd.ErrOrStderr(),
 					"Uploaded %d files (%d bytes, sha256=%s) → %s\n",
@@ -282,7 +276,8 @@ func newAppsCommand() *cobra.Command {
 	createCmd.Flags().StringVar(&createSource, "source", "",
 		"app source (local path, upload://<id>, github URL). Replaces --repo-url.")
 	createCmd.Flags().StringVar(&createRepoURL, "repo-url", "", "source repository URL (deprecated; use --source)")
-	createCmd.Flags().StringVar(&createRef, "ref", "main", "git ref (branch/tag); required for github/file sources")
+	createCmd.Flags().StringVar(&createRef, "ref", "main",
+		"git ref (branch/tag/sha) for github/file sources; optional audit tag for upload sources")
 	createCmd.Flags().StringVar(&createBuilder, "builder", "", "optional buildpack builder")
 	createCmd.Flags().BoolVar(&createYes, "yes", false, "skip confirmation")
 	createCmd.Flags().BoolVar(&createDryRun, "dry-run", false, "preview only, do not confirm")

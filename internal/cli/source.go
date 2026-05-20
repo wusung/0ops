@@ -51,21 +51,15 @@ func wrapUploadError(err error) error {
 	if errors.As(err, &ue) {
 		switch ue.Code {
 		case "payload_too_large":
-			return fmt.Errorf("upload too large (HTTP %d): %s. "+
-				"Add a .dockerignore to exclude vendor directories, "+
-				"or raise --upload-max-bytes if applicable.", ue.HTTPStatus, ue.Message)
+			return fmt.Errorf("upload too large; add a .dockerignore to exclude vendor directories or raise --upload-max-bytes: %w", ue)
 		case "team_quota_exceeded":
-			return fmt.Errorf("team upload quota exceeded (HTTP %d): %s. "+
-				"Wait for previous uploads to expire or upgrade your plan.", ue.HTTPStatus, ue.Message)
+			return fmt.Errorf("team upload quota exceeded; wait for previous uploads to expire or upgrade your plan: %w", ue)
 		case "unauthorized":
-			return fmt.Errorf("unauthorized (HTTP %d): %s. "+
-				"Run `0ops auth login` to refresh your token.", ue.HTTPStatus, ue.Message)
+			return fmt.Errorf("unauthorized; run `0ops auth login` to refresh your token: %w", ue)
 		case "unsupported_archive_format":
-			return fmt.Errorf("server rejected archive format (HTTP %d): %s. "+
-				"This is a CLI bug; please report.", ue.HTTPStatus, ue.Message)
+			return fmt.Errorf("server rejected archive format; this is a CLI bug, please report: %w", ue)
 		default:
-			return fmt.Errorf("upload failed (HTTP %d, code=%s): %s",
-				ue.HTTPStatus, ue.Code, ue.Message)
+			return fmt.Errorf("upload failed: %w", ue)
 		}
 	}
 	if errors.Is(err, ErrTarballTooLarge) {
