@@ -32,6 +32,7 @@ import (
 	ratelimit "github.com/winshare/zeroops/internal/server/middleware/ratelimit"
 	"github.com/winshare/zeroops/internal/server/services/cloudflare"
 	createappsvc "github.com/winshare/zeroops/internal/server/services/createapp"
+	"github.com/winshare/zeroops/internal/server/services/createapp/ingestion"
 	"github.com/winshare/zeroops/internal/server/services/githuboauth"
 	gitopssvc "github.com/winshare/zeroops/internal/server/services/gitops"
 	k3ssvc "github.com/winshare/zeroops/internal/server/services/k3s"
@@ -412,7 +413,7 @@ func previewCreateAppHandler(store appsStore) http.HandlerFunc {
 	}
 }
 
-func createAppHandler(store appsStore, k3sClient infraK3sClient, cfClient infraCloudflareClient, inspector createappsvc.Inspector) http.HandlerFunc {
+func createAppHandler(store appsStore, k3sClient infraK3sClient, cfClient infraCloudflareClient, inspector createappsvc.Inspector, uploadTokenSigner *ingestion.TokenSigner) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		outcome := "error"
 		idempotentReplay := false
@@ -422,7 +423,9 @@ func createAppHandler(store appsStore, k3sClient infraK3sClient, cfClient infraC
 		if !decodeJSON(w, r, &req) {
 			return
 		}
-		service := createappsvc.New(store, k3sClient, cfClient, newGitOpsService(), newWorkflowDispatchClient(store), newWorkflowDispatchTokenSigner(), callbackBaseURL()).WithInspector(inspector)
+		service := createappsvc.New(store, k3sClient, cfClient, newGitOpsService(), newWorkflowDispatchClient(store), newWorkflowDispatchTokenSigner(), callbackBaseURL()).
+			WithInspector(inspector).
+			WithUploadTokenSigner(uploadTokenSigner, "")
 		confirmResult, err := service.Confirm(
 			r.Context(),
 			auth.TeamID(r.Context()),
@@ -1368,6 +1371,15 @@ func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient 
 		)
 	}
 
+	// Extract upload fetch-token signer for createAppHandler (T14).
+	// archiveSigner is *ingestion.TokenSigner in production (has both Sign and
+	// Verify). Type-assert to get the full signer; nil when not wired (dev /
+	// non-ingestion routers — createApp will skip token signing for upload source).
+	var uploadTokenSigner *ingestion.TokenSigner
+	if ts, ok := archiveSigner.(*ingestion.TokenSigner); ok {
+		uploadTokenSigner = ts
+	}
+
 	r := chi.NewRouter()
 	r.Post("/v1/admin/bootstrap-owner", bootstrapOwnerHandler(store))
 	r.Post("/internal/deploy-runs/{run_id}/callback", deployRunCallbackHandler(store))
@@ -1420,7 +1432,7 @@ func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient 
 		}).Post("/apps:preview", previewCreateAppHandler(store))
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionCreateApp, next)
-		}).Post("/apps", createAppHandler(store, k3sClient, cfClient, uploadInspector))
+		}).Post("/apps", createAppHandler(store, k3sClient, cfClient, uploadInspector, uploadTokenSigner))
 		if uploadIngest != nil {
 			sr.With(func(next http.Handler) http.Handler {
 				return mw.CheckTokenScope(rbac.ActionCreateUpload, next)
@@ -1690,14 +1702,29 @@ func newGitHubOAuthClient() githubOAuthClient {
 func newWorkflowDispatchClient(store appsStore) createappsvc.Dispatcher {
 	ghClient, _ := workflowdispatch.NewClientFromEnv(http.DefaultClient)
 	cfg := localbuild.LoadConfig()
+
+	// Build upload dispatcher whenever a GitHub client is available (T14).
+	// This runs in both production and dev paths so upload-source payloads
+	// are always routed to the "deploy-app-from-upload" workflow when GHA
+	// credentials are configured.
+	var uploadDispatcher createappsvc.Dispatcher
+	if ghClient != nil {
+		uploadDispatcher = &createappsvc.UploadGHADispatcher{Client: ghClient}
+	}
+
 	if !cfg.IsUsable() {
-		// production path unchanged: nil-tolerant fallback when env not set.
-		if ghClient == nil {
+		// production path: RoutingDispatcher with GitHub + Upload arms.
+		if ghClient == nil && uploadDispatcher == nil {
 			return nil
 		}
-		return ghClient
+		return &createappsvc.RoutingDispatcher{
+			GitHubDispatcher: ghClient,
+			UploadDispatcher: uploadDispatcher,
+			Lookup:           store,
+		}
 	}
-	// dev path: route by repo_url scheme per ADR-0012 § 3.2.
+	// dev path: route by repo_url scheme per ADR-0012 § 3.2, now including
+	// the upload arm (T14).
 	cb := NewLocalCallbackClient(callbackBaseURL(), cfg.Secret)
 	localDispatcher := &localbuild.Dispatcher{
 		Pack:     localbuild.DefaultPack,
@@ -1713,6 +1740,7 @@ func newWorkflowDispatchClient(store appsStore) createappsvc.Dispatcher {
 	return &createappsvc.RoutingDispatcher{
 		GitHubDispatcher: ghDispatcher,
 		LocalDispatcher:  localDispatcher,
+		UploadDispatcher: uploadDispatcher,
 		Lookup:           store,
 	}
 }

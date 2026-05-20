@@ -28,6 +28,13 @@ type ClientPayload struct {
 	OpsToken    string `json:"ops_token,omitempty"`
 	CallbackURL string `json:"callback_url"`
 	TraceID     string `json:"trace_id"`
+
+	// T14: source routing fields. All omitempty for backward compat with
+	// existing workflows that do not yet consume these fields.
+	SourceKind string `json:"source_kind,omitempty"` // "github" | "upload" | "local"
+	UploadID   string `json:"upload_id,omitempty"`
+	FetchToken string `json:"fetch_token,omitempty"`
+	FetchURL   string `json:"fetch_url,omitempty"`
 }
 
 // Client sends repository_dispatch events to the 0ops repo.
@@ -78,13 +85,20 @@ func NewClientFromEnv(httpClient *http.Client) (*Client, error) {
 	}, nil
 }
 
-// Dispatch triggers repository_dispatch with event_type deploy-app.
+// Dispatch triggers the canonical "deploy-app" repository_dispatch event.
+// Kept for backward compatibility — callers that need a different event_type
+// (e.g. T15 "deploy-app-from-upload") should call DispatchEvent directly.
 func (c *Client) Dispatch(ctx context.Context, payload ClientPayload) error {
+	return c.DispatchEvent(ctx, "deploy-app", payload)
+}
+
+// DispatchEvent triggers repository_dispatch with a caller-specified event_type.
+func (c *Client) DispatchEvent(ctx context.Context, eventType string, payload ClientPayload) error {
 	if c == nil {
 		return nil
 	}
 	body, err := json.Marshal(map[string]any{
-		"event_type":     "deploy-app",
+		"event_type":     eventType,
 		"client_payload": payload,
 	})
 	if err != nil {

@@ -59,3 +59,67 @@ func TestClientDispatchPostsRepositoryDispatch(t *testing.T) {
 		t.Fatalf("payload = %#v", captured.Payload)
 	}
 }
+
+// TestClient_DispatchUsesDefaultEventType verifies that Dispatch() always
+// sends event_type="deploy-app" (backward compat guarantee after T14 refactor).
+func TestClient_DispatchUsesDefaultEventType(t *testing.T) {
+	t.Parallel()
+
+	var capturedEventType string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			EventType string `json:"event_type"`
+		}
+		data, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(data, &body)
+		capturedEventType = body.EventType
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(srv.Close)
+
+	client := &Client{
+		apiBaseURL: srv.URL,
+		owner:      "o",
+		repo:       "r",
+		token:      "t",
+		httpClient: srv.Client(),
+	}
+	if err := client.Dispatch(context.Background(), ClientPayload{RunID: "r1"}); err != nil {
+		t.Fatalf("Dispatch() error = %v", err)
+	}
+	if capturedEventType != "deploy-app" {
+		t.Fatalf("event_type = %q, want deploy-app", capturedEventType)
+	}
+}
+
+// TestClient_DispatchEventUsesCustomEventType verifies that DispatchEvent()
+// sends the caller-supplied event_type.
+func TestClient_DispatchEventUsesCustomEventType(t *testing.T) {
+	t.Parallel()
+
+	var capturedEventType string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			EventType string `json:"event_type"`
+		}
+		data, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(data, &body)
+		capturedEventType = body.EventType
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(srv.Close)
+
+	client := &Client{
+		apiBaseURL: srv.URL,
+		owner:      "o",
+		repo:       "r",
+		token:      "t",
+		httpClient: srv.Client(),
+	}
+	if err := client.DispatchEvent(context.Background(), "deploy-app-from-upload", ClientPayload{RunID: "r1"}); err != nil {
+		t.Fatalf("DispatchEvent() error = %v", err)
+	}
+	if capturedEventType != "deploy-app-from-upload" {
+		t.Fatalf("event_type = %q, want deploy-app-from-upload", capturedEventType)
+	}
+}
