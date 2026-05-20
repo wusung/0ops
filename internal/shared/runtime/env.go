@@ -1,6 +1,8 @@
 // Package runtime exposes process-wide environment kind detection and
 // production safety assertions. Introduced by ADR-0012 to gate dev-only
-// knobs (file:// repo, local build pipeline) out of production.
+// knobs (file:// repo, local build pipeline) out of production; extended
+// by ADR-0013 to require app-source ingestion env (APP_SOURCE_INGEST_ROOT,
+// OPS_BUILD_TOKEN_SECRET) when running in production.
 package runtime
 
 import (
@@ -37,10 +39,13 @@ func IsProduction() bool {
 	return CurrentEnv() == EnvProduction
 }
 
-// AssertProductionSafe panics when any LOCAL_* dev knob is enabled while
-// running in production. Called from server boot (cmd/server/main.go) to
-// fail fast rather than allowing a misconfigured deploy to silently expose
-// the file:// inspector or local build dispatcher. Per ADR-0012 § 3.1.
+// AssertProductionSafe panics when:
+//   - ADR-0012: LOCAL_FILE_REPO_ENABLED, LOCAL_BUILD_ENABLED, LOCAL_REGISTRY are set in production
+//   - ADR-0013: APP_SOURCE_INGEST_ROOT or OPS_BUILD_TOKEN_SECRET is unset in production
+//
+// Called from server boot (cmd/server/main.go) to fail fast rather than allow a
+// misconfigured deploy to silently expose dev-only knobs or run without an
+// ingestion store / build-token secret.
 func AssertProductionSafe() {
 	if !IsProduction() {
 		return
@@ -55,6 +60,14 @@ func AssertProductionSafe() {
 	}
 	if strings.TrimSpace(os.Getenv("LOCAL_REGISTRY")) != "" {
 		panic("runtime: LOCAL_REGISTRY must be unset when OPS_ENV=production (ADR-0012)")
+	}
+	for _, key := range []string{
+		"APP_SOURCE_INGEST_ROOT",
+		"OPS_BUILD_TOKEN_SECRET",
+	} {
+		if strings.TrimSpace(os.Getenv(key)) == "" {
+			panic(fmt.Sprintf("runtime: %s must be set when OPS_ENV=production (ADR-0013)", key))
+		}
 	}
 }
 
