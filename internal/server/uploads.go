@@ -444,7 +444,7 @@ func logArchiveFailedAudit(ctx context.Context, auditSvc uploadAuditWriter, uplo
 		Source:      audit.SourceSystem,
 		SubjectType: "upload",
 		SubjectID:   &subjID,
-		Action:      "app_source.upload.archive_read_failed",
+		Action:      "app_source.upload.archive_downloaded",
 		Args:        nil,
 		Result:      nil,
 		Outcome:     audit.OutcomeFailure,

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -1174,5 +1175,63 @@ func TestUploadsArchiveGetUnreachableWithoutSigner(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 404/405 (route not registered), got %d", resp.StatusCode)
+	}
+}
+
+func TestUploadsArchiveGetReadFailureEmitsFailureAudit(t *testing.T) {
+	store, signer, arc, fa, srv := newArchiveTestEnv(t)
+
+	// Seed the DB row so auth/lookup succeeds, but configure the archive reader
+	// to return an error when Archive() is called.
+	uploadID := "upl_readfail"
+	u := db.Upload{
+		ID: uploadID, TeamID: "team-1",
+		SizeBytes: 42, ArchiveFormat: "tar.zst", Status: "received",
+	}
+	store.seedUpload(u)
+	// Do NOT seed arc.contents — instead set an explicit error.
+	arc.err = errors.New("simulated disk failure")
+
+	tok := mintArchiveToken(t, signer, ingestion.TokenClaims{TeamID: "team-1", UploadID: uploadID})
+	req, _ := http.NewRequest(http.MethodGet, archiveGetURL(srv, uploadID), nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Handler must return 500 internal_error.
+	if resp.StatusCode != http.StatusInternalServerError {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 500; body: %s", resp.StatusCode, body)
+	}
+
+	// Failure audit must have been written with the unified action name.
+	if len(fa.entries) != 1 {
+		t.Fatalf("audit entries = %d, want 1", len(fa.entries))
+	}
+	entry := fa.entries[0]
+	if entry.Action != "app_source.upload.archive_downloaded" {
+		t.Errorf("audit action = %q, want app_source.upload.archive_downloaded", entry.Action)
+	}
+	if entry.Outcome != audit.OutcomeFailure {
+		t.Errorf("audit outcome = %q, want failure", entry.Outcome)
+	}
+	if entry.HTTPStatus == nil || *entry.HTTPStatus != http.StatusInternalServerError {
+		t.Errorf("audit HTTPStatus = %v, want 500", entry.HTTPStatus)
+	}
+	if entry.SubjectID == nil || *entry.SubjectID != uploadID {
+		t.Errorf("audit SubjectID = %v, want %q", entry.SubjectID, uploadID)
+	}
+
+	// DB row must remain untouched (still "received").
+	row, ok := store.uploadRows[0], len(store.uploadRows) > 0
+	if !ok {
+		t.Fatal("upload row missing from store")
+	}
+	if row.Status != "received" {
+		t.Errorf("upload status = %q, want received (DB untouched by failed read)", row.Status)
 	}
 }
