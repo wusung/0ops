@@ -24,20 +24,28 @@ type Inspector interface {
 }
 
 // NewInspector returns an Inspector that dispatches to the scheme-specific
-// implementation: file:// → local, otherwise → github. Either side may be
-// nil; nil-github returns an empty RepoMetadata (preserves pre-sub-spec
-// behaviour where inspect_repo was a stub), nil-local rejects file:// URLs.
-func NewInspector(github, local Inspector) Inspector {
-	return inspectorRouter{github: github, local: local}
+// implementation: upload:// → upload, file:// → local, otherwise → github.
+// Any side may be nil; nil-github returns an empty RepoMetadata (preserves
+// pre-sub-spec behaviour where inspect_repo was a stub), nil-local rejects
+// file:// URLs, nil-upload returns ErrUploadInspectionUnavailable.
+func NewInspector(github, local, upload Inspector) Inspector {
+	return inspectorRouter{github: github, local: local, upload: upload}
 }
 
 type inspectorRouter struct {
 	github Inspector
 	local  Inspector
+	upload Inspector
 }
 
 func (r inspectorRouter) Inspect(ctx context.Context, repoURL, ref string) (RepoMetadata, error) {
-	if strings.HasPrefix(repoURL, "file://") {
+	switch {
+	case strings.HasPrefix(repoURL, "upload://"):
+		if r.upload == nil {
+			return RepoMetadata{}, ErrUploadInspectionUnavailable
+		}
+		return r.upload.Inspect(ctx, repoURL, ref)
+	case strings.HasPrefix(repoURL, "file://"):
 		if r.local == nil {
 			return RepoMetadata{}, ErrLocalFileRepoDisabled
 		}
