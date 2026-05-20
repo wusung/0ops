@@ -844,6 +844,23 @@ func TestUploadsArchiveGetMalformedToken(t *testing.T) {
 	}
 }
 
+func TestUploadsArchiveGetEmptyBearerToken(t *testing.T) {
+	_, _, _, _, srv := newArchiveTestEnv(t)
+
+	req, _ := http.NewRequest(http.MethodGet, archiveGetURL(srv, "upl_x"), nil)
+	req.Header.Set("Authorization", "Bearer ") // prefix present, token empty
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for empty bearer token, got %d", resp.StatusCode)
+	}
+}
+
 func TestUploadsArchiveGetExpiredToken(t *testing.T) {
 	_, _, _, _, srv := newArchiveTestEnv(t)
 

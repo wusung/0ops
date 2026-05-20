@@ -409,7 +409,12 @@ func uploadArchiveHandler(store uploadArchiveStore, archive archiveReader, signe
 		if auditSvc != nil {
 			httpStatus := http.StatusOK
 			subjID := upload.ID
-			deployRunID := claims.DeployRunID
+			result := map[string]any{
+				"size_bytes": upload.SizeBytes,
+			}
+			if claims.DeployRunID != "" {
+				result["deploy_run_id"] = claims.DeployRunID
+			}
 			entry := audit.Entry{
 				TeamID:      upload.TeamID,
 				ActorUserID: nil, // workflow has no user actor
@@ -418,12 +423,9 @@ func uploadArchiveHandler(store uploadArchiveStore, archive archiveReader, signe
 				SubjectID:   &subjID,
 				Action:      "app_source.upload.archive_downloaded",
 				Args:        nil,
-				Result: map[string]any{
-					"size_bytes":    upload.SizeBytes,
-					"deploy_run_id": deployRunID,
-				},
-				Outcome:    audit.OutcomeSuccess,
-				HTTPStatus: &httpStatus,
+				Result:      result,
+				Outcome:     audit.OutcomeSuccess,
+				HTTPStatus:  &httpStatus,
 			}
 			if err := auditSvc.Log(ctx, entry); err != nil {
 				slog.Warn("uploads: archive download audit log failed",
