@@ -30,6 +30,40 @@ const (
 	ClassUnavailable Class = "unavailable"
 )
 
+// Source / upload validation codes used by the app-source-ingestion
+// feature (ADR-0013). String values are part of the stable API contract;
+// tests in error_test.go assert each constant matches its string key.
+const (
+	// CodeSourceRequired: no source provided (neither Source nor RepoURL).
+	CodeSourceRequired = "source_required"
+	// CodeSourceConflict: caller provided both Source and RepoURL; pick one.
+	CodeSourceConflict = "source_conflict"
+	// CodeSourceInvalid: Source.Type set but its kind-specific payload is missing or malformed.
+	CodeSourceInvalid = "source_invalid"
+	// CodeSourceKindUnsupported: Source.Type carries an enum value the server doesn't recognise.
+	CodeSourceKindUnsupported = "source_kind_unsupported"
+	// CodeUnsupportedSource: RepoURL scheme is not supported (e.g., file:// in production, or an unknown scheme).
+	CodeUnsupportedSource = "unsupported_source"
+	// CodePayloadTooLarge: upload archive exceeds APP_SOURCE_UPLOAD_MAX_BYTES.
+	CodePayloadTooLarge = "payload_too_large"
+	// CodeUnsupportedArchive: upload Content-Type / magic byte not one of tar.zst / tar.gz.
+	CodeUnsupportedArchive = "unsupported_archive_format"
+	// CodeArchiveCorrupt: archive failed to decompress / detar (path traversal, bad zstd, etc).
+	CodeArchiveCorrupt = "archive_corrupt"
+	// CodeSHA256Mismatch: server-computed sha256 differs from the client-supplied form field.
+	CodeSHA256Mismatch = "sha256_mismatch"
+	// CodeUploadRateLimited: caller exceeded per-team upload requests-per-window.
+	CodeUploadRateLimited = "upload_rate_limited"
+	// CodeTeamQuotaExceeded: per-team aggregate (inert bytes, pinned count, daily uploads) exceeded plan tier.
+	CodeTeamQuotaExceeded = "team_quota_exceeded"
+	// CodeSourceNotFound: upload_id does not exist (or is not visible to caller's team).
+	CodeSourceNotFound = "source_not_found"
+	// CodeSourceExpired: upload existed but its TTL (received_at + 24h, or pinned_at + 7d) has elapsed.
+	CodeSourceExpired = "source_expired"
+	// CodeUploadCrossTeam: caller is authenticated but the upload belongs to a different team.
+	CodeUploadCrossTeam = "upload_cross_team"
+)
+
 // Error is the server error envelope source.
 type Error struct {
 	Class   Class
