@@ -45,6 +45,11 @@ type uploadAuditWriter interface {
 // time (T13) extends the deadline to deploy_run.terminal_at + 7d.
 const uploadInertTTL = 24 * time.Hour
 
+// errUnrecognizedFormat is the package-local sentinel returned by
+// detectArchiveFormat when the leading magic bytes don't match any
+// supported archive container. writeIngestError matches via errors.Is.
+var errUnrecognizedFormat = errors.New("ingestion: unrecognized archive format")
+
 // detectArchiveFormat sniffs the leading bytes of a stream to choose
 // "tar.zst" vs "tar.gz". Returns a non-nil error when magic doesn't match.
 func detectArchiveFormat(peek []byte) (string, error) {
@@ -56,7 +61,7 @@ func detectArchiveFormat(peek []byte) (string, error) {
 	if len(peek) >= 2 && peek[0] == 0x1f && peek[1] == 0x8b {
 		return "tar.gz", nil
 	}
-	return "", errors.New("unrecognized archive format")
+	return "", errUnrecognizedFormat
 }
 
 // newUploadID returns a "upl_<24-base64url-chars>" identifier built from
@@ -234,15 +239,13 @@ func writeIngestError(w http.ResponseWriter, err error) {
 		errors.Is(err, ingestion.ErrTooManyEntries):
 		apperror.Write(w, apperror.CodePayloadTooLarge, apperror.ClassUnprocessable,
 			"archive exceeds configured size limits", nil)
-	case errors.Is(err, ingestion.ErrUnsupportedFormat):
+	case errors.Is(err, ingestion.ErrUnsupportedFormat),
+		errors.Is(err, errUnrecognizedFormat):
 		apperror.Write(w, apperror.CodeUnsupportedArchive, apperror.ClassUnprocessable,
 			"archive format is not supported", nil)
 	case errors.Is(err, ingestion.ErrPathEscape):
 		apperror.Write(w, apperror.CodeArchiveCorrupt, apperror.ClassUnprocessable,
 			"archive contains an entry that escapes the tree", nil)
-	case err != nil && strings.Contains(err.Error(), "unrecognized archive format"):
-		apperror.Write(w, apperror.CodeUnsupportedArchive, apperror.ClassUnprocessable,
-			"archive format is not supported", nil)
 	default:
 		apperror.Write(w, apperror.CodeArchiveCorrupt, apperror.ClassUnprocessable,
 			"archive is invalid or corrupt", nil)

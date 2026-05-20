@@ -511,6 +511,27 @@ func TestUploadsPostAuditWritten(t *testing.T) {
 	}
 }
 
+func TestUploadsPostUnreachableWithoutIngestStore(t *testing.T) {
+	// NewRouter passes nil for uploadIngest; the route must not be registered.
+	store, token := newFakeStore()
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	// Use raw zstd magic bytes to avoid any format-detection rejection.
+	body, ct := buildMultipart(t, []byte{0x28, 0xb5, 0x2f, 0xfd, 0, 0, 0, 0}, "")
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/teams/"+store.team.Slug+"/uploads", body)
+	req.Header.Set("Content-Type", ct)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 404/405 (route not registered), got %d", resp.StatusCode)
+	}
+}
+
 func TestUploadsPostSHA256MatchPassthrough(t *testing.T) {
 	// If sha256 field matches the server-computed value, request should succeed.
 	archive := makeTarZst(t, "x.txt", "data")

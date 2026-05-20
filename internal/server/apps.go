@@ -1384,9 +1384,11 @@ func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient 
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionCreateApp, next)
 		}).Post("/apps", createAppHandler(store, k3sClient, cfClient))
-		sr.With(func(next http.Handler) http.Handler {
-			return mw.CheckTokenScope(rbac.ActionCreateUpload, next)
-		}).Post("/uploads", uploadHandler(store, uploadIngest, uploadAuditSvc))
+		if uploadIngest != nil {
+			sr.With(func(next http.Handler) http.Handler {
+				return mw.CheckTokenScope(rbac.ActionCreateUpload, next)
+			}).Post("/uploads", uploadHandler(store, uploadIngest, uploadAuditSvc))
+		}
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionDeleteApp, next)
 		}).Post("/apps/{app_slug}:preview-delete", previewDeleteAppHandler(store))
