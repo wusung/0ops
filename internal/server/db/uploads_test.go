@@ -64,9 +64,9 @@ func TestUploadRepository_GetCrossTeamReturnsNotFound(t *testing.T) {
 	if !errors.Is(err, dbpkg.ErrUploadNotFound) {
 		t.Fatalf("expected ErrUploadNotFound, got %v", err)
 	}
-	// also ensure the underlying pgx not-found is wrapped, not exposed bare
-	if errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, dbpkg.ErrUploadNotFound) {
-		t.Fatalf("expected wrapped sentinel, not bare pgx.ErrNoRows")
+	// also ensure the underlying pgx not-found is not exposed bare
+	if errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("bare pgx.ErrNoRows leaked through ErrUploadNotFound; sentinel must not wrap pgx.ErrNoRows")
 	}
 }
 

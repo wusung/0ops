@@ -82,7 +82,10 @@ UPDATE app_source_uploads
 }
 
 // ListExpiredUploads returns uploads where expires_at < now and status is
-// not yet 'gc''d' / 'expired'. Used by the upload GC reconciler (T19).
+// 'received' or 'pinned'. Used by the upload GC reconciler (T19). Returned
+// Upload structs are partially populated: only ID, TeamID, Status, and
+// ExpiresAt are set; other fields are zero values. Callers needing the
+// full row must follow up with GetUpload.
 func (r *Repository) ListExpiredUploads(ctx context.Context, limit int) ([]Upload, error) {
 	rows, err := r.pool.Query(ctx, `
 SELECT id, team_id::text, status, expires_at
