@@ -34,8 +34,14 @@ type ListAppsResponse struct {
 // AppCreateRequest is the create_app preview payload.
 type AppCreateRequest struct {
 	Slug    string  `json:"slug"`
-	RepoURL string  `json:"repo_url"`
-	Ref     string  `json:"ref"`
+	Source  *Source `json:"source,omitempty"`
+
+	// Deprecated: use Source instead. Retained for v1 backward compat
+	// (ADR-0013 §4.2). Server normalizes RepoURL+Ref into
+	// Source{Type:github, GitHub:{...}} during validation.
+	RepoURL string  `json:"repo_url,omitempty"`
+	Ref     string  `json:"ref,omitempty"`
+
 	Builder *string `json:"builder,omitempty"`
 }
 
