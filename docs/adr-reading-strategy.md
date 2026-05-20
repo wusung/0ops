@@ -89,7 +89,8 @@ ADR 為不可違反的架構決策。讀取策略分三層：
 | **0005** | 構建管道 & 回調 | GitHub Actions + Cloud Native Buildpacks | v1.1 補 Dockerfile fallback；Paketo 版本鎖定 | 構建速度不可接受、平台相容性問題 |
 | **0009** | 遷移 & 映像 | `pressly/goose`；minimal multi-stage image | 運行時僅 binary + migrations/ | 遷移耗時過長、image 大小超出預期 |
 | **0010** | CLI 發佈 | `goreleaser` 預編；GitHub Release 發佈 | 支援 5 平台；`go install` 並行支援 | 跨平台相容性問題、包管理需求 |
-| **0012** | Local file repo & dev build pipeline | `file://` 為第三類 scheme，dev only；LocalBuildDispatcher 共用 `Dispatcher` 介面 | production 必拒 file://；不新增 deploy_run state；callback HMAC 共用 | 引入 k3d / BYO Dockerfile / 非 GHA build pipeline |
+| **0012** | Local file repo & dev build pipeline | `file://` 為第三類 scheme，dev only；LocalBuildDispatcher 共用 `Dispatcher` 介面 | production 必拒 file://（§3.1 已被 ADR-0013 supersede）；不新增 deploy_run state；callback HMAC 共用 | 引入 k3d / BYO Dockerfile / 非 GHA build pipeline |
+| **0013** | Production File-Source Ingestion | `source` sum type；server 不解析 host path；upload + GHA workflow 變體 | production 必經 authenticated upload；ADR-0012 §3.1 已 supersede；CLI `--source` 是對外契約 | OCI artifact registry / self-hosted runner 網路拓撲 / 全面砍 GHA 依賴 |
 
 ### 可觀測性 & 安全層
 
