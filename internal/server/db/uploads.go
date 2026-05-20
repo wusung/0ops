@@ -108,11 +108,14 @@ LIMIT $1`, limit)
 	return out, rows.Err()
 }
 
-// MarkUploadGCd flips the row to 'gc''d' status and stamps gc_at. Idempotent.
+// MarkUploadGCd flips the row to 'gc'd' status and stamps gc_at. Idempotent:
+// a second call on an already-gc'd row is a no-op (gc_at is not re-stamped).
+// No team scope parameter because GC is a privileged internal path operating
+// on rows already filtered by ListExpiredUploads.
 func (r *Repository) MarkUploadGCd(ctx context.Context, id string) error {
 	_, err := r.pool.Exec(ctx, `
 UPDATE app_source_uploads
    SET status = 'gc''d', gc_at = NOW()
- WHERE id = $1`, id)
+ WHERE id = $1 AND status != 'gc''d'`, id)
 	return err
 }

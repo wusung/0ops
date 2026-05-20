@@ -143,16 +143,20 @@ func TestUploadRepository_ListExpiredUploads(t *testing.T) {
 	expiredID := uniqueUploadID(t)
 	freshID := uniqueUploadID(t)
 
-	_ = repo.InsertUpload(ctx, dbpkg.Upload{
+	if err := repo.InsertUpload(ctx, dbpkg.Upload{
 		ID: expiredID, TeamID: teamID, ActorUserID: userID,
 		SizeBytes: 1, SHA256: "x", ArchiveFormat: "tar.zst",
 		Status: "received", ExpiresAt: time.Now().UTC().Add(-time.Hour),
-	})
-	_ = repo.InsertUpload(ctx, dbpkg.Upload{
+	}); err != nil {
+		t.Fatalf("InsertUpload (expired): %v", err)
+	}
+	if err := repo.InsertUpload(ctx, dbpkg.Upload{
 		ID: freshID, TeamID: teamID, ActorUserID: userID,
 		SizeBytes: 1, SHA256: "y", ArchiveFormat: "tar.zst",
 		Status: "received", ExpiresAt: time.Now().UTC().Add(time.Hour),
-	})
+	}); err != nil {
+		t.Fatalf("InsertUpload (fresh): %v", err)
+	}
 
 	got, err := repo.ListExpiredUploads(ctx, 100)
 	if err != nil {
@@ -168,6 +172,51 @@ func TestUploadRepository_ListExpiredUploads(t *testing.T) {
 	}
 	if found[freshID] {
 		t.Fatalf("fresh upload %s should NOT be in expired list", freshID)
+	}
+}
+
+func TestUploadRepository_ListExpiredUploads_ExcludesGCd(t *testing.T) {
+	repo, ctx, pool := newTestRepository(t)
+	teamID, _ := seedTeam(ctx, t, pool, "lxg-team", "LXG Team")
+	userID := seedUser(ctx, t, pool, "lxg-user")
+
+	activeExpiredID := uniqueUploadID(t)
+	gcdExpiredID := uniqueUploadID(t)
+
+	// Active expired row — should appear in result
+	if err := repo.InsertUpload(ctx, dbpkg.Upload{
+		ID: activeExpiredID, TeamID: teamID, ActorUserID: userID,
+		SizeBytes: 1, SHA256: "a", ArchiveFormat: "tar.zst",
+		Status: "received", ExpiresAt: time.Now().UTC().Add(-time.Hour),
+	}); err != nil {
+		t.Fatalf("InsertUpload (active expired): %v", err)
+	}
+	// Already gc'd row — must be excluded by the WHERE status IN ('received','pinned') filter
+	if err := repo.InsertUpload(ctx, dbpkg.Upload{
+		ID: gcdExpiredID, TeamID: teamID, ActorUserID: userID,
+		SizeBytes: 1, SHA256: "g", ArchiveFormat: "tar.zst",
+		Status: "received", ExpiresAt: time.Now().UTC().Add(-2 * time.Hour),
+	}); err != nil {
+		t.Fatalf("InsertUpload (will-gc): %v", err)
+	}
+	if err := repo.MarkUploadGCd(ctx, gcdExpiredID); err != nil {
+		t.Fatalf("MarkUploadGCd: %v", err)
+	}
+
+	got, err := repo.ListExpiredUploads(ctx, 100)
+	if err != nil {
+		t.Fatalf("ListExpiredUploads: %v", err)
+	}
+
+	found := map[string]bool{}
+	for _, u := range got {
+		found[u.ID] = true
+	}
+	if !found[activeExpiredID] {
+		t.Fatalf("active expired upload %s should be returned", activeExpiredID)
+	}
+	if found[gcdExpiredID] {
+		t.Fatalf("gc'd upload %s should NOT be returned (status filter)", gcdExpiredID)
 	}
 }
 
