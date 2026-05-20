@@ -14,8 +14,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/klauspost/compress/zstd"
 
+	"github.com/winshare/zeroops/internal/server/db"
 	"github.com/winshare/zeroops/internal/server/services/audit"
 	"github.com/winshare/zeroops/internal/server/services/createapp/ingestion"
 	"github.com/winshare/zeroops/internal/shared/dto"
@@ -161,18 +163,91 @@ func makeTarZst(t *testing.T, filename, content string) []byte {
 	return zstBuf.Bytes()
 }
 
+// fakeIngestFull wraps fakeIngest and adds a stub Archive method so it
+// satisfies ingestionStoreFull (needed for newRouterFull calls in tests).
+type fakeIngestFull struct {
+	*fakeIngest
+	archiveContents map[string][]byte // key: teamID+"/"+uploadID
+	archiveErr      error
+}
+
+func newFakeIngestFull(fi *fakeIngest) *fakeIngestFull {
+	return &fakeIngestFull{fakeIngest: fi, archiveContents: map[string][]byte{}}
+}
+
+func (f *fakeIngestFull) Archive(_ context.Context, teamID, uploadID string) (io.ReadCloser, error) {
+	if f.archiveErr != nil {
+		return nil, f.archiveErr
+	}
+	key := teamID + "/" + uploadID
+	data, ok := f.archiveContents[key]
+	if !ok {
+		return nil, ingestion.ErrUploadNotFound
+	}
+	return io.NopCloser(bytes.NewReader(data)), nil
+}
+
+// fakeArchiveReader is a standalone archiveReader fake used for archive tests.
+type fakeArchiveReader struct {
+	contents map[string][]byte // key: teamID+"/"+uploadID
+	err      error
+}
+
+func (f *fakeArchiveReader) Archive(_ context.Context, teamID, uploadID string) (io.ReadCloser, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	key := teamID + "/" + uploadID
+	data, ok := f.contents[key]
+	if !ok {
+		return nil, ingestion.ErrUploadNotFound
+	}
+	return io.NopCloser(bytes.NewReader(data)), nil
+}
+
 // newUploadRouter wires a Router+fakeStore pair for upload handler tests.
 // The returned triple (server, token, store) provides everything a test needs.
 func newUploadRouter(t *testing.T, ingest ingestionStore, auditSvc uploadAuditWriter) (*httptest.Server, string, *fakeStore) {
 	t.Helper()
 	store, token := newFakeStore()
+	// Wrap ingest in fakeIngestFull so it satisfies ingestionStoreFull.
+	fi, ok := ingest.(*fakeIngest)
+	if !ok {
+		t.Fatal("newUploadRouter: ingest must be *fakeIngest")
+	}
+	full := newFakeIngestFull(fi)
 	// Inline a local newRouterFull call: we reuse NewRouter but also need to
 	// inject uploadIngest and uploadAuditSvc. Use newRouterFull directly since
 	// it is unexported but we're in the same package.
-	h := newRouterFull(store, newGitHubOAuthClient(), nil, nil, nil, nil, nil, nil, ingest, auditSvc)
+	h := newRouterFull(store, newGitHubOAuthClient(), nil, nil, nil, nil, nil, nil, full, auditSvc, nil)
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	return srv, token, store
+}
+
+// newArchiveTestEnv builds a minimal server for archive download tests.
+// It returns the store (for seeding uploads), the token signer, the archive
+// fake (for seeding archive bytes), the audit fake, and the test server.
+func newArchiveTestEnv(t *testing.T) (store *fakeStore, signer *ingestion.TokenSigner, arc *fakeArchiveReader, fa *fakeUploadAudit, srv *httptest.Server) {
+	t.Helper()
+	store, _ = newFakeStore()
+	signer = &ingestion.TokenSigner{Secret: []byte("test-archive-secret"), TTL: time.Hour}
+	arc = &fakeArchiveReader{contents: map[string][]byte{}}
+	fa = &fakeUploadAudit{}
+
+	// Build a combined ingestionStoreFull from fakeIngest (for Put) + fakeArchiveReader.
+	type combinedIngest struct {
+		*fakeIngest
+		*fakeArchiveReader
+	}
+	combined := &combinedIngest{
+		fakeIngest:       &fakeIngest{},
+		fakeArchiveReader: arc,
+	}
+	h := newRouterFull(store, newGitHubOAuthClient(), nil, nil, nil, nil, nil, nil, combined, fa, signer)
+	srv = httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	return
 }
 
 // --- tests ---
@@ -376,8 +451,8 @@ func TestUploadsPostRequiresScope(t *testing.T) {
 		t.Fatalf("create token: %v", err)
 	}
 
-	fi := &fakeIngest{}
-	h := newRouterFull(store, newGitHubOAuthClient(), nil, nil, nil, nil, nil, nil, fi, nil)
+	fi := newFakeIngestFull(&fakeIngest{})
+	h := newRouterFull(store, newGitHubOAuthClient(), nil, nil, nil, nil, nil, nil, fi, nil, nil)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -674,5 +749,430 @@ func TestUploadsPostRejectsDuplicateArchive(t *testing.T) {
 	msg, _ := errBody["error"].(map[string]any)["message"].(string)
 	if !strings.Contains(msg, "duplicate archive part") {
 		t.Errorf("error message = %q, want to contain 'duplicate archive part'", msg)
+	}
+}
+
+// ─── Archive download tests (T9) ───────────────────────────────────────────
+
+// archiveGetURL builds the GET URL for a given upload ID.
+func archiveGetURL(srv *httptest.Server, id string) string {
+	return srv.URL + "/v1/uploads/" + id + "/archive"
+}
+
+// mintArchiveToken is a shorthand for signing a valid archive token in tests.
+func mintArchiveToken(t *testing.T, signer *ingestion.TokenSigner, claims ingestion.TokenClaims) string {
+	t.Helper()
+	tok, err := signer.Sign(claims)
+	if err != nil {
+		t.Fatalf("sign token: %v", err)
+	}
+	return tok
+}
+
+// seedArchiveUpload inserts an upload row in the fake store and plants
+// archive bytes keyed by teamID/uploadID in the fake archive reader.
+func seedArchiveUpload(store *fakeStore, arc *fakeArchiveReader, u db.Upload, data []byte) {
+	store.seedUpload(u)
+	arc.contents[u.TeamID+"/"+u.ID] = data
+}
+
+func TestUploadsArchiveGetHappyPath(t *testing.T) {
+	store, signer, arc, _, srv := newArchiveTestEnv(t)
+
+	archiveData := []byte("fake-archive-bytes-zstd")
+	u := db.Upload{
+		ID: "upl_happy", TeamID: "team-1",
+		SizeBytes: int64(len(archiveData)), ArchiveFormat: "tar.zst", Status: "received",
+	}
+	seedArchiveUpload(store, arc, u, archiveData)
+
+	tok := mintArchiveToken(t, signer, ingestion.TokenClaims{TeamID: "team-1", UploadID: "upl_happy"})
+	req, _ := http.NewRequest(http.MethodGet, archiveGetURL(srv, "upl_happy"), nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 200; body: %s", resp.StatusCode, body)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/zstd" {
+		t.Errorf("Content-Type = %q, want application/zstd", ct)
+	}
+	got, _ := io.ReadAll(resp.Body)
+	if !bytes.Equal(got, archiveData) {
+		t.Errorf("body mismatch: got %d bytes, want %d", len(got), len(archiveData))
+	}
+}
+
+func TestUploadsArchiveGetMissingToken(t *testing.T) {
+	_, _, _, _, srv := newArchiveTestEnv(t)
+
+	req, _ := http.NewRequest(http.MethodGet, archiveGetURL(srv, "upl_x"), nil)
+	// No Authorization header.
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestUploadsArchiveGetMalformedToken(t *testing.T) {
+	_, _, _, _, srv := newArchiveTestEnv(t)
+
+	req, _ := http.NewRequest(http.MethodGet, archiveGetURL(srv, "upl_x"), nil)
+	req.Header.Set("Authorization", "Bearer not.a.valid.jwt")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestUploadsArchiveGetExpiredToken(t *testing.T) {
+	_, _, _, _, srv := newArchiveTestEnv(t)
+
+	// Sign with a signer whose TTL places expiry in the past.
+	expiredSigner := &ingestion.TokenSigner{Secret: []byte("test-archive-secret"), TTL: -time.Minute}
+	tok := mintArchiveToken(t, expiredSigner, ingestion.TokenClaims{TeamID: "team-1", UploadID: "upl_x"})
+
+	req, _ := http.NewRequest(http.MethodGet, archiveGetURL(srv, "upl_x"), nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 401; body: %s", resp.StatusCode, body)
+	}
+}
+
+func TestUploadsArchiveGetWrongScope(t *testing.T) {
+	_, _, _, _, srv := newArchiveTestEnv(t)
+
+	// Forge a token with wrong scope by signing directly with the jwt library,
+	// bypassing TokenSigner.Sign which always forces ScopeDownloadUpload.
+	mapClaims := jwt.MapClaims{
+		"team_id":   "team-1",
+		"upload_id": "upl_x",
+		"scope":     "wrong-scope",
+		"iss":       "0ops",
+		"aud":       jwt.ClaimStrings{"gha-build"},
+		"sub":       "upload:upl_x",
+		"iat":       time.Now().Add(-30 * time.Second).Unix(),
+		"exp":       time.Now().Add(time.Hour).Unix(),
+	}
+	tok, err := jwt.NewWithClaims(jwt.SigningMethodHS256, mapClaims).SignedString([]byte("test-archive-secret"))
+	if err != nil {
+		t.Fatalf("sign forged token: %v", err)
+	}
+
+	req, _ := http.NewRequest(http.MethodGet, archiveGetURL(srv, "upl_x"), nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 403; body: %s", resp.StatusCode, body)
+	}
+}
+
+func TestUploadsArchiveGetURLUploadIDMismatch(t *testing.T) {
+	store, signer, arc, _, srv := newArchiveTestEnv(t)
+
+	archiveData := []byte("data")
+	u := db.Upload{ID: "upl_A", TeamID: "team-1", SizeBytes: 4, ArchiveFormat: "tar.zst", Status: "received"}
+	seedArchiveUpload(store, arc, u, archiveData)
+
+	// Token says upload_id=upl_A but URL says upl_B.
+	tok := mintArchiveToken(t, signer, ingestion.TokenClaims{TeamID: "team-1", UploadID: "upl_A"})
+	req, _ := http.NewRequest(http.MethodGet, archiveGetURL(srv, "upl_B"), nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 403; body: %s", resp.StatusCode, body)
+	}
+}
+
+func TestUploadsArchiveGetCrossTeamNotFound(t *testing.T) {
+	store, signer, arc, _, srv := newArchiveTestEnv(t)
+
+	// Upload belongs to team-2, but token claims team-1.
+	archiveData := []byte("data")
+	u := db.Upload{ID: "upl_cross", TeamID: "team-2", SizeBytes: 4, ArchiveFormat: "tar.zst", Status: "received"}
+	seedArchiveUpload(store, arc, u, archiveData)
+
+	tok := mintArchiveToken(t, signer, ingestion.TokenClaims{TeamID: "team-1", UploadID: "upl_cross"})
+	req, _ := http.NewRequest(http.MethodGet, archiveGetURL(srv, "upl_cross"), nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 404; body: %s", resp.StatusCode, body)
+	}
+	var errBody map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&errBody)
+	code, _ := errBody["error"].(map[string]any)["code"].(string)
+	if code != "source_not_found" {
+		t.Errorf("error code = %q, want source_not_found", code)
+	}
+}
+
+func TestUploadsArchiveGetExpiredUpload(t *testing.T) {
+	store, signer, arc, _, srv := newArchiveTestEnv(t)
+
+	archiveData := []byte("data")
+	u := db.Upload{ID: "upl_exp", TeamID: "team-1", SizeBytes: 4, ArchiveFormat: "tar.zst", Status: "expired"}
+	seedArchiveUpload(store, arc, u, archiveData)
+
+	tok := mintArchiveToken(t, signer, ingestion.TokenClaims{TeamID: "team-1", UploadID: "upl_exp"})
+	req, _ := http.NewRequest(http.MethodGet, archiveGetURL(srv, "upl_exp"), nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 404; body: %s", resp.StatusCode, body)
+	}
+	var errBody map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&errBody)
+	code, _ := errBody["error"].(map[string]any)["code"].(string)
+	if code != "source_expired" {
+		t.Errorf("error code = %q, want source_expired", code)
+	}
+}
+
+func TestUploadsArchiveGetGCdUpload(t *testing.T) {
+	store, signer, arc, _, srv := newArchiveTestEnv(t)
+
+	archiveData := []byte("data")
+	u := db.Upload{ID: "upl_gcd", TeamID: "team-1", SizeBytes: 4, ArchiveFormat: "tar.zst", Status: "gc'd"}
+	seedArchiveUpload(store, arc, u, archiveData)
+
+	tok := mintArchiveToken(t, signer, ingestion.TokenClaims{TeamID: "team-1", UploadID: "upl_gcd"})
+	req, _ := http.NewRequest(http.MethodGet, archiveGetURL(srv, "upl_gcd"), nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 404; body: %s", resp.StatusCode, body)
+	}
+	var errBody map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&errBody)
+	code, _ := errBody["error"].(map[string]any)["code"].(string)
+	if code != "source_expired" {
+		t.Errorf("error code = %q, want source_expired", code)
+	}
+}
+
+func TestUploadsArchiveGetReceived(t *testing.T) {
+	store, signer, arc, _, srv := newArchiveTestEnv(t)
+
+	archiveData := []byte("received-data")
+	u := db.Upload{ID: "upl_recv", TeamID: "team-1", SizeBytes: int64(len(archiveData)), ArchiveFormat: "tar.zst", Status: "received"}
+	seedArchiveUpload(store, arc, u, archiveData)
+
+	tok := mintArchiveToken(t, signer, ingestion.TokenClaims{TeamID: "team-1", UploadID: "upl_recv"})
+	req, _ := http.NewRequest(http.MethodGet, archiveGetURL(srv, "upl_recv"), nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 200; body: %s", resp.StatusCode, body)
+	}
+}
+
+func TestUploadsArchiveGetPinned(t *testing.T) {
+	store, signer, arc, _, srv := newArchiveTestEnv(t)
+
+	archiveData := []byte("pinned-data")
+	u := db.Upload{ID: "upl_pin", TeamID: "team-1", SizeBytes: int64(len(archiveData)), ArchiveFormat: "tar.zst", Status: "pinned"}
+	seedArchiveUpload(store, arc, u, archiveData)
+
+	tok := mintArchiveToken(t, signer, ingestion.TokenClaims{TeamID: "team-1", UploadID: "upl_pin"})
+	req, _ := http.NewRequest(http.MethodGet, archiveGetURL(srv, "upl_pin"), nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 200; body: %s", resp.StatusCode, body)
+	}
+}
+
+func TestUploadsArchiveGetNotFound(t *testing.T) {
+	_, signer, _, _, srv := newArchiveTestEnv(t)
+
+	// No upload seeded for this ID.
+	tok := mintArchiveToken(t, signer, ingestion.TokenClaims{TeamID: "team-1", UploadID: "upl_nope"})
+	req, _ := http.NewRequest(http.MethodGet, archiveGetURL(srv, "upl_nope"), nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 404; body: %s", resp.StatusCode, body)
+	}
+	var errBody map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&errBody)
+	code, _ := errBody["error"].(map[string]any)["code"].(string)
+	if code != "source_not_found" {
+		t.Errorf("error code = %q, want source_not_found", code)
+	}
+}
+
+func TestUploadsArchiveGetTarGzContentType(t *testing.T) {
+	store, signer, arc, _, srv := newArchiveTestEnv(t)
+
+	archiveData := []byte("gzip-archive-data")
+	u := db.Upload{ID: "upl_gz", TeamID: "team-1", SizeBytes: int64(len(archiveData)), ArchiveFormat: "tar.gz", Status: "received"}
+	seedArchiveUpload(store, arc, u, archiveData)
+
+	tok := mintArchiveToken(t, signer, ingestion.TokenClaims{TeamID: "team-1", UploadID: "upl_gz"})
+	req, _ := http.NewRequest(http.MethodGet, archiveGetURL(srv, "upl_gz"), nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 200; body: %s", resp.StatusCode, body)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/gzip" {
+		t.Errorf("Content-Type = %q, want application/gzip", ct)
+	}
+}
+
+func TestUploadsArchiveGetAuditWritten(t *testing.T) {
+	store, signer, arc, fa, srv := newArchiveTestEnv(t)
+
+	archiveData := []byte("audit-check-data")
+	uploadID := "upl_audit"
+	u := db.Upload{ID: uploadID, TeamID: "team-1", SizeBytes: int64(len(archiveData)), ArchiveFormat: "tar.zst", Status: "received"}
+	seedArchiveUpload(store, arc, u, archiveData)
+
+	tok := mintArchiveToken(t, signer, ingestion.TokenClaims{TeamID: "team-1", UploadID: uploadID, DeployRunID: "run-42"})
+	req, _ := http.NewRequest(http.MethodGet, archiveGetURL(srv, uploadID), nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	// Drain body so the handler completes before we check audit.
+	_, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	if len(fa.entries) != 1 {
+		t.Fatalf("audit entries = %d, want 1", len(fa.entries))
+	}
+	entry := fa.entries[0]
+	if entry.Action != "app_source.upload.archive_downloaded" {
+		t.Errorf("audit action = %q, want app_source.upload.archive_downloaded", entry.Action)
+	}
+	if entry.SubjectID == nil || *entry.SubjectID != uploadID {
+		t.Errorf("audit SubjectID = %v, want %q", entry.SubjectID, uploadID)
+	}
+	if entry.Outcome != audit.OutcomeSuccess {
+		t.Errorf("audit outcome = %q, want success", entry.Outcome)
+	}
+	if entry.ActorUserID != nil {
+		t.Errorf("ActorUserID should be nil for workflow actor, got %v", entry.ActorUserID)
+	}
+	if entry.Source != audit.SourceSystem {
+		t.Errorf("audit source = %q, want system", entry.Source)
+	}
+	result, _ := entry.Result.(map[string]any)
+	if result["deploy_run_id"] != "run-42" {
+		t.Errorf("audit result deploy_run_id = %v, want run-42", result["deploy_run_id"])
+	}
+}
+
+func TestUploadsArchiveGetUnreachableWithoutSigner(t *testing.T) {
+	// NewRouter passes nil for archiveSigner; the route must not be registered.
+	store, _ := newFakeStore()
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/uploads/upl_any/archive", nil)
+	req.Header.Set("Authorization", "Bearer dummy")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 404/405 (route not registered), got %d", resp.StatusCode)
 	}
 }

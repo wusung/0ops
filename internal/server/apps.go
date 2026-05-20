@@ -92,6 +92,8 @@ type appsStore interface {
 
 	// M6.8 app-source-ingestion upload handler (ADR-0013)
 	InsertUpload(ctx context.Context, u db.Upload) error
+	// M6.9 archive download handler (ADR-0013 §9)
+	GetUpload(ctx context.Context, teamID, id string) (db.Upload, error)
 }
 
 // infraK3sClient provides K3s namespace management operations.
@@ -1234,13 +1236,13 @@ func logoutHandler(store appsStore) http.HandlerFunc {
 // NewRouter returns the HTTP router for the server.
 func NewRouter(store routerStore) http.Handler {
 	githubClient := newGitHubOAuthClient()
-	return newRouterFull(store, githubClient, nil, nil, nil, nil, nil, nil, nil, nil)
+	return newRouterFull(store, githubClient, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 // NewRouterWithInfra creates a router with infrastructure clients.
 func NewRouterWithInfra(store routerStore, k3sClient infraK3sClient, cfClient infraCloudflareClient) http.Handler {
 	githubClient := newGitHubOAuthClient()
-	return newRouterFull(store, githubClient, k3sClient, cfClient, nil, nil, nil, nil, nil, nil)
+	return newRouterFull(store, githubClient, k3sClient, cfClient, nil, nil, nil, nil, nil, nil, nil)
 }
 
 // NewRouterWithRateLimit creates a router with infrastructure clients and a
@@ -1256,12 +1258,12 @@ func NewRouterWithRateLimit(store routerStore, k3sClient infraK3sClient, cfClien
 			observerFn(string(scope), string(cat), string(plan))
 		})
 	}
-	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer, nil, nil, nil, nil)
+	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer, nil, nil, nil, nil, nil)
 }
 
 //nolint:revive // exported for public API
 func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient, k3sClient infraK3sClient, cfClient infraCloudflareClient) http.Handler {
-	return newRouterFull(store, githubClient, k3sClient, cfClient, nil, nil, nil, nil, nil, nil)
+	return newRouterFull(store, githubClient, k3sClient, cfClient, nil, nil, nil, nil, nil, nil, nil)
 }
 
 // NewRouterWithAudit composes the full router with an explicit audit
@@ -1272,7 +1274,7 @@ func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient,
 //nolint:revive // exported for public API
 func NewRouterWithAudit(store routerStore, k3sClient infraK3sClient, cfClient infraCloudflareClient, auditSvc auditQueryService) http.Handler {
 	githubClient := newGitHubOAuthClient()
-	return newRouterFull(store, githubClient, k3sClient, cfClient, nil, nil, auditSvc, nil, nil, nil)
+	return newRouterFull(store, githubClient, k3sClient, cfClient, nil, nil, auditSvc, nil, nil, nil, nil)
 }
 
 // NewRouterWithRateLimitAndAudit is the production constructor used by
@@ -1288,7 +1290,7 @@ func NewRouterWithRateLimitAndAudit(store routerStore, k3sClient infraK3sClient,
 			observerFn(string(scope), string(cat), string(plan))
 		})
 	}
-	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer, auditSvc, nil, nil, nil)
+	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer, auditSvc, nil, nil, nil, nil)
 }
 
 // NewRouterWithReconciler is the production constructor used by
@@ -1304,15 +1306,16 @@ func NewRouterWithReconciler(store routerStore, k3sClient infraK3sClient, cfClie
 			observerFn(string(scope), string(cat), string(plan))
 		})
 	}
-	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer, auditSvc, incidentSvc, nil, nil)
+	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer, auditSvc, incidentSvc, nil, nil, nil)
 }
 
 // NewRouterWithIngestion is the production constructor used by cmd/server
-// to enable the app-source-ingestion upload endpoint (M6.8). It extends
-// NewRouterWithReconciler with an ingestion store and a reused audit service.
+// to enable the app-source-ingestion upload endpoint (M6.8) and the archive
+// download endpoint (M6.9). Pass nil for archiveSigner to skip registering
+// GET /v1/uploads/{id}/archive (useful in dev without OPS_BUILD_TOKEN_SECRET).
 //
 //nolint:revive // exported for public API
-func NewRouterWithIngestion(store routerStore, k3sClient infraK3sClient, cfClient infraCloudflareClient, limiter *ratelimit.Limiter, observerFn func(scope, category, plan string), auditSvc auditQueryService, incidentSvc incidentService, uploadIngest ingestionStore, uploadAuditSvc uploadAuditWriter) http.Handler {
+func NewRouterWithIngestion(store routerStore, k3sClient infraK3sClient, cfClient infraCloudflareClient, limiter *ratelimit.Limiter, observerFn func(scope, category, plan string), auditSvc auditQueryService, incidentSvc incidentService, uploadIngest ingestionStoreFull, uploadAuditSvc uploadAuditWriter, archiveSigner archiveTokenVerifier) http.Handler {
 	githubClient := newGitHubOAuthClient()
 	var observer ratelimit.Observer
 	if observerFn != nil {
@@ -1320,10 +1323,10 @@ func NewRouterWithIngestion(store routerStore, k3sClient infraK3sClient, cfClien
 			observerFn(string(scope), string(cat), string(plan))
 		})
 	}
-	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer, auditSvc, incidentSvc, uploadIngest, uploadAuditSvc)
+	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer, auditSvc, incidentSvc, uploadIngest, uploadAuditSvc, archiveSigner)
 }
 
-func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient infraK3sClient, cfClient infraCloudflareClient, limiter *ratelimit.Limiter, observer ratelimit.Observer, auditSvc auditQueryService, incidentSvc incidentService, uploadIngest ingestionStore, uploadAuditSvc uploadAuditWriter) http.Handler {
+func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient infraK3sClient, cfClient infraCloudflareClient, limiter *ratelimit.Limiter, observer ratelimit.Observer, auditSvc auditQueryService, incidentSvc incidentService, uploadIngest ingestionStoreFull, uploadAuditSvc uploadAuditWriter, archiveSigner archiveTokenVerifier) http.Handler {
 	if argoClient, ok := k3sClient.(k3sArgoCDClient); ok && argoClient != nil {
 		newArgoCDStatusProvider = func() argoCDStatusProvider {
 			return k3sArgoCDStatusProvider{client: argoClient}
@@ -1352,6 +1355,13 @@ func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient 
 
 	// Tool authorization endpoint (requires temporary token)
 	r.Post("/v1/teams/{team_slug}/auth:grant-tools", authorizeToolsHandler(store))
+
+	// Archive download endpoint (M6.9). Top-level (not under team scope) because
+	// the GHA workflow authenticates via a short-lived JWT that carries team scope
+	// and does not know its team slug at fetch time. Auth enforced inside handler.
+	if archiveSigner != nil && uploadIngest != nil {
+		r.Get("/v1/uploads/{id}/archive", uploadArchiveHandler(store, uploadIngest, archiveSigner, uploadAuditSvc))
+	}
 
 	r.Route("/v1/me", func(sr chi.Router) {
 		sr.Use(mw.Bearer)
