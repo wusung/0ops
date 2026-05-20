@@ -718,6 +718,9 @@ func TestConfirm_UploadSourceSignsTokenAndPopulatesPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetch_token is not a valid JWT: %v", err)
 	}
+	if claims.Scope != ingestion.ScopeDownloadUpload {
+		t.Fatalf("Scope: got %q want %q", claims.Scope, ingestion.ScopeDownloadUpload)
+	}
 	if claims.UploadID != "upl_abc123" {
 		t.Fatalf("token upload_id = %q, want upl_abc123", claims.UploadID)
 	}

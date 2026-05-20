@@ -2,14 +2,25 @@ package createapp
 
 import (
 	"context"
-	"encoding/json"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/winshare/zeroops/internal/server/services/workflowdispatch"
 )
+
+// fakeEventDispatcher records DispatchEvent calls for assertion in tests.
+type fakeEventDispatcher struct {
+	lastEventType string
+	lastPayload   workflowdispatch.ClientPayload
+	err           error
+	calls         int
+}
+
+func (f *fakeEventDispatcher) DispatchEvent(_ context.Context, eventType string, payload workflowdispatch.ClientPayload) error {
+	f.calls++
+	f.lastEventType = eventType
+	f.lastPayload = payload
+	return f.err
+}
 
 // TestUploadGHADispatcher_NilClientIsNoOp verifies that a nil Client is
 // safely ignored (no panic, no error).
@@ -38,23 +49,8 @@ func TestUploadGHADispatcher_NilReceiverIsNoOp(t *testing.T) {
 func TestUploadGHADispatcher_OverridesEventType(t *testing.T) {
 	t.Parallel()
 
-	var capturedBody struct {
-		EventType string                        `json:"event_type"`
-		Payload   workflowdispatch.ClientPayload `json:"client_payload"`
-	}
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		if err := json.Unmarshal(body, &capturedBody); err != nil {
-			t.Errorf("unmarshal body: %v", err)
-		}
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	t.Cleanup(srv.Close)
-
-	// Construct a client that points at the test server.
-	client := workflowdispatch.NewClientForTest(srv.URL, "winshare", "0ops", "test-token", srv.Client())
-	d := &UploadGHADispatcher{Client: client}
+	fake := &fakeEventDispatcher{}
+	d := &UploadGHADispatcher{Client: fake}
 
 	if err := d.Dispatch(context.Background(), workflowdispatch.ClientPayload{
 		RunID:    "run-upload-1",
@@ -65,13 +61,16 @@ func TestUploadGHADispatcher_OverridesEventType(t *testing.T) {
 		t.Fatalf("Dispatch() error = %v", err)
 	}
 
-	if capturedBody.EventType != uploadGHAEventType {
-		t.Fatalf("event_type = %q, want %q", capturedBody.EventType, uploadGHAEventType)
+	if fake.lastEventType != uploadGHAEventType {
+		t.Fatalf("event_type = %q, want %q", fake.lastEventType, uploadGHAEventType)
 	}
-	if capturedBody.Payload.RunID != "run-upload-1" {
-		t.Fatalf("payload.run_id = %q, want run-upload-1", capturedBody.Payload.RunID)
+	if fake.lastPayload.RunID != "run-upload-1" {
+		t.Fatalf("payload.run_id = %q, want run-upload-1", fake.lastPayload.RunID)
 	}
-	if capturedBody.Payload.UploadID != "upl_abc" {
-		t.Fatalf("payload.upload_id = %q, want upl_abc", capturedBody.Payload.UploadID)
+	if fake.lastPayload.UploadID != "upl_abc" {
+		t.Fatalf("payload.upload_id = %q, want upl_abc", fake.lastPayload.UploadID)
+	}
+	if fake.calls != 1 {
+		t.Fatalf("calls = %d, want 1", fake.calls)
 	}
 }

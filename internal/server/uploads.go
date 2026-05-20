@@ -78,12 +78,6 @@ type ingestionStoreFull interface {
 	ingestionReadOpener
 }
 
-// archiveTokenVerifier verifies short-lived JWTs from the GHA build workflow.
-// Production = *ingestion.TokenSigner (T7).
-type archiveTokenVerifier interface {
-	Verify(raw string) (ingestion.TokenClaims, error)
-}
-
 // uploadAuditWriter is the audit boundary used by the upload handler.
 // nil is explicitly allowed — matches the existing auditSvc nil-tolerant
 // pattern in apps.go (see the incidentSvc nil-guard at line 1441).
@@ -347,7 +341,7 @@ func strPtrIfNonEmpty(s string) *string {
 //  6. Audits app_source.upload.archive_downloaded on success.
 //
 // nil tokenSigner / nil archive store → route is not registered (mirrors T8 nil-guard).
-func uploadArchiveHandler(store uploadArchiveStore, archive archiveReader, signer archiveTokenVerifier, auditSvc uploadAuditWriter) http.HandlerFunc {
+func uploadArchiveHandler(store uploadArchiveStore, archive archiveReader, signer *ingestion.TokenSigner, auditSvc uploadAuditWriter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		urlID := chi.URLParam(r, "id")

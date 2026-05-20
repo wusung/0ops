@@ -92,7 +92,13 @@ func (c *Client) Dispatch(ctx context.Context, payload ClientPayload) error {
 	return c.DispatchEvent(ctx, "deploy-app", payload)
 }
 
-// DispatchEvent triggers repository_dispatch with a caller-specified event_type.
+// DispatchEvent triggers a GitHub repository_dispatch event with a
+// caller-specified event_type. Authenticates via the GitHub PAT (or App
+// installation token) stored on the Client. The payload is forwarded to
+// any GHA workflow that listens on the matching event_type — those
+// workflows run with access to repo-level secrets, so callers must treat
+// the payload as a trust boundary: only fields validated by the server
+// should be set (fetch_token, image_ref, ops_token, etc).
 func (c *Client) DispatchEvent(ctx context.Context, eventType string, payload ClientPayload) error {
 	if c == nil {
 		return nil

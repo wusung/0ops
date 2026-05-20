@@ -25,6 +25,16 @@ type RoutingDispatcher struct {
 	Lookup           RepoURLLookup
 }
 
+// Dispatch routes by SourceKind first, with URL-prefix lookup as legacy
+// fallback. Nil-tolerance policy across kinds (asymmetric by design):
+//   - UploadDispatcher nil → explicit error. Upload source has no legacy
+//     URL-prefix fallback; misconfiguration must surface as a create_app
+//     failure, not a silent drop.
+//   - GitHubDispatcher nil → silent no-op. Matches pre-T14 behaviour: dev
+//     envs without OPS_GITHUB_* env vars expect create_app to succeed
+//     without firing GHA, leaving downstream reconciler to drive state.
+//   - LocalDispatcher nil → falls through to URL-prefix lookup. The legacy
+//     path may have its own LocalDispatcher attached.
 func (r *RoutingDispatcher) Dispatch(ctx context.Context, payload workflowdispatch.ClientPayload) error {
 	// Preferred path: source_kind populated by Service.Confirm (T14).
 	switch payload.SourceKind {

@@ -188,6 +188,31 @@ func TestRoutingDispatcher_UploadKindNilReturnsError(t *testing.T) {
 	}
 }
 
+// TestRoutingDispatcher_LocalKindNilFallsThroughToURLLookup verifies that
+// SourceKind="local" with a nil LocalDispatcher falls through to the legacy
+// URL-prefix lookup (which then dispatches to GitHubDispatcher).
+func TestRoutingDispatcher_LocalKindNilFallsThroughToURLLookup(t *testing.T) {
+	gh := &recDispatcher{}
+	rd := &RoutingDispatcher{
+		GitHubDispatcher: gh,
+		LocalDispatcher:  nil,
+		UploadDispatcher: nil,
+		Lookup:           fakeRepoLookup{url: "https://github.com/foo/bar"},
+	}
+	// SourceKind="local" but no LocalDispatcher → fall through → URL lookup → github dispatch.
+	err := rd.Dispatch(context.Background(), workflowdispatch.ClientPayload{
+		TeamSlug:   "t",
+		AppSlug:    "a",
+		SourceKind: "local",
+	})
+	if err != nil {
+		t.Fatalf("Dispatch() error = %v", err)
+	}
+	if gh.called != "ok" {
+		t.Fatalf("expected github dispatch (legacy fallback), got calls=%q", gh.called)
+	}
+}
+
 // TestRoutingDispatcher_LegacyURLFallback verifies that when SourceKind is empty,
 // the legacy URL-prefix lookup still works (file:// → LocalDispatcher).
 func TestRoutingDispatcher_LegacyURLFallback(t *testing.T) {

@@ -1330,7 +1330,7 @@ func NewRouterWithReconciler(store routerStore, k3sClient infraK3sClient, cfClie
 // GET /v1/uploads/{id}/archive (useful in dev without OPS_BUILD_TOKEN_SECRET).
 //
 //nolint:revive // exported for public API
-func NewRouterWithIngestion(store routerStore, k3sClient infraK3sClient, cfClient infraCloudflareClient, limiter *ratelimit.Limiter, observerFn func(scope, category, plan string), auditSvc auditQueryService, incidentSvc incidentService, uploadIngest ingestionStoreFull, uploadAuditSvc uploadAuditWriter, archiveSigner archiveTokenVerifier) http.Handler {
+func NewRouterWithIngestion(store routerStore, k3sClient infraK3sClient, cfClient infraCloudflareClient, limiter *ratelimit.Limiter, observerFn func(scope, category, plan string), auditSvc auditQueryService, incidentSvc incidentService, uploadIngest ingestionStoreFull, uploadAuditSvc uploadAuditWriter, archiveSigner *ingestion.TokenSigner) http.Handler {
 	githubClient := newGitHubOAuthClient()
 	var observer ratelimit.Observer
 	if observerFn != nil {
@@ -1341,7 +1341,7 @@ func NewRouterWithIngestion(store routerStore, k3sClient infraK3sClient, cfClien
 	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer, auditSvc, incidentSvc, uploadIngest, uploadAuditSvc, archiveSigner)
 }
 
-func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient infraK3sClient, cfClient infraCloudflareClient, limiter *ratelimit.Limiter, observer ratelimit.Observer, auditSvc auditQueryService, incidentSvc incidentService, uploadIngest ingestionStoreFull, uploadAuditSvc uploadAuditWriter, archiveSigner archiveTokenVerifier) http.Handler {
+func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient infraK3sClient, cfClient infraCloudflareClient, limiter *ratelimit.Limiter, observer ratelimit.Observer, auditSvc auditQueryService, incidentSvc incidentService, uploadIngest ingestionStoreFull, uploadAuditSvc uploadAuditWriter, archiveSigner *ingestion.TokenSigner) http.Handler {
 	if argoClient, ok := k3sClient.(k3sArgoCDClient); ok && argoClient != nil {
 		newArgoCDStatusProvider = func() argoCDStatusProvider {
 			return k3sArgoCDStatusProvider{client: argoClient}
@@ -1371,14 +1371,10 @@ func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient 
 		)
 	}
 
-	// Extract upload fetch-token signer for createAppHandler (T14).
-	// archiveSigner is *ingestion.TokenSigner in production (has both Sign and
-	// Verify). Type-assert to get the full signer; nil when not wired (dev /
+	// archiveSigner is *ingestion.TokenSigner in production (both Sign and
+	// Verify). Pass directly to createAppHandler; nil when not wired (dev /
 	// non-ingestion routers — createApp will skip token signing for upload source).
-	var uploadTokenSigner *ingestion.TokenSigner
-	if ts, ok := archiveSigner.(*ingestion.TokenSigner); ok {
-		uploadTokenSigner = ts
-	}
+	uploadTokenSigner := archiveSigner
 
 	r := chi.NewRouter()
 	r.Post("/v1/admin/bootstrap-owner", bootstrapOwnerHandler(store))
@@ -1714,7 +1710,7 @@ func newWorkflowDispatchClient(store appsStore) createappsvc.Dispatcher {
 
 	if !cfg.IsUsable() {
 		// production path: RoutingDispatcher with GitHub + Upload arms.
-		if ghClient == nil && uploadDispatcher == nil {
+		if ghClient == nil {
 			return nil
 		}
 		return &createappsvc.RoutingDispatcher{
