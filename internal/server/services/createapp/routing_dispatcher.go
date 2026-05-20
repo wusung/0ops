@@ -2,6 +2,7 @@ package createapp
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/winshare/zeroops/internal/server/services/workflowdispatch"
@@ -13,16 +14,50 @@ type RepoURLLookup interface {
 	GetAppRepoURLByTeamAndAppSlug(ctx context.Context, teamSlug, appSlug string) (string, error)
 }
 
-// RoutingDispatcher selects between GitHub and Local dispatchers based on the
-// stored repo_url scheme. Per ADR-0012 § 3.2, the workflowdispatch.ClientPayload
-// contract is preserved (no extra fields); routing reads from the database.
+// RoutingDispatcher selects between GitHub, Local, and Upload dispatchers.
+// Primary dispatch key is payload.SourceKind (populated by Service.Confirm, T14).
+// Legacy URL-prefix lookup is preserved as a fallback for payloads that pre-date
+// T14 (backward compat per ADR-0012 § 3.2).
 type RoutingDispatcher struct {
 	GitHubDispatcher Dispatcher
 	LocalDispatcher  Dispatcher
+	UploadDispatcher Dispatcher
 	Lookup           RepoURLLookup
 }
 
+// Dispatch routes by SourceKind first, with URL-prefix lookup as legacy
+// fallback. Nil-tolerance policy across kinds (asymmetric by design):
+//   - UploadDispatcher nil → explicit error. Upload source has no legacy
+//     URL-prefix fallback; misconfiguration must surface as a create_app
+//     failure, not a silent drop.
+//   - GitHubDispatcher nil → silent no-op. Matches pre-T14 behaviour: dev
+//     envs without OPS_GITHUB_* env vars expect create_app to succeed
+//     without firing GHA, leaving downstream reconciler to drive state.
+//   - LocalDispatcher nil → falls through to URL-prefix lookup. The legacy
+//     path may have its own LocalDispatcher attached.
 func (r *RoutingDispatcher) Dispatch(ctx context.Context, payload workflowdispatch.ClientPayload) error {
+	// Preferred path: source_kind populated by Service.Confirm (T14).
+	switch payload.SourceKind {
+	case "upload":
+		if r.UploadDispatcher == nil {
+			return errors.New("upload dispatcher not configured")
+		}
+		return r.UploadDispatcher.Dispatch(ctx, payload)
+	case "github":
+		if r.GitHubDispatcher == nil {
+			// nil-tolerant fallback — matches pre-T14 behavior for GitHub source.
+			return nil
+		}
+		return r.GitHubDispatcher.Dispatch(ctx, payload)
+	case "local":
+		if r.LocalDispatcher != nil {
+			return r.LocalDispatcher.Dispatch(ctx, payload)
+		}
+		// fall through to legacy URL lookup for safety
+	}
+
+	// Legacy / unflagged path: fall back to URL-prefix lookup. Preserves
+	// backward compatibility for any payload built before T14 wired SourceKind.
 	url, err := r.Lookup.GetAppRepoURLByTeamAndAppSlug(ctx, payload.TeamSlug, payload.AppSlug)
 	if err != nil {
 		return err

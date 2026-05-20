@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/winshare/zeroops/internal/server/db"
+	"github.com/winshare/zeroops/internal/server/services/createapp/ingestion"
+	"github.com/winshare/zeroops/internal/server/services/workflowdispatch"
 	"github.com/winshare/zeroops/internal/shared/dto"
 )
 
@@ -617,5 +620,283 @@ func TestService_InspectorWireUp(t *testing.T) {
 	got := s3.WithInspector(fake)
 	if got != s3 {
 		t.Fatal("WithInspector must return the receiver")
+	}
+}
+
+// ----- T14 service tests -----
+
+// recordingDispatcher records the last payload passed to Dispatch.
+type recordingDispatcher struct {
+	called  bool
+	payload workflowdispatch.ClientPayload
+	err     error
+}
+
+func (r *recordingDispatcher) Dispatch(_ context.Context, p workflowdispatch.ClientPayload) error {
+	r.called = true
+	r.payload = p
+	return r.err
+}
+
+// stubOpsTokenSigner always returns a fixed token.
+type stubOpsTokenSigner struct{}
+
+func (stubOpsTokenSigner) Issue(_, _ string, _ []string) (string, error) {
+	return "ops-token-stub", nil
+}
+
+// newTestUploadSigner returns a TokenSigner with a deterministic secret.
+func newTestUploadSigner() *ingestion.TokenSigner {
+	return &ingestion.TokenSigner{
+		Secret: []byte("test-secret-32-bytes-long-enough"),
+		TTL:    15 * time.Minute,
+	}
+}
+
+// mustJSONNoT marshals v to JSON and panics on error.
+// Used in helper constructors where no *testing.T is in scope.
+func mustJSONNoT(v any) json.RawMessage {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+// newUploadPreview builds a fakeStore with a preview for an upload-source request.
+func newUploadPreview(uploadID string) *fakeStore {
+	now := time.Now().UTC()
+	return &fakeStore{
+		preview: db.Preview{
+			ID:          "preview-1",
+			TeamID:      "team-1",
+			ActorUserID: "user-1",
+			Action:      previewAction,
+			Args: mustJSONNoT(dto.AppCreateRequest{
+				Slug: "nextdemo",
+				Source: &dto.Source{
+					Type:   dto.SourceKindUpload,
+					Upload: &dto.SourceUpload{UploadID: uploadID},
+				},
+			}),
+			ExpiresAt: now.Add(10 * time.Minute),
+		},
+	}
+}
+
+// TestConfirm_UploadSourceSignsTokenAndPopulatesPayload verifies that when
+// Service.Confirm is called with an upload source and a token signer installed,
+// the dispatch payload contains source_kind="upload", upload_id, fetch_token
+// (a valid JWT), and fetch_url.
+func TestConfirm_UploadSourceSignsTokenAndPopulatesPayload(t *testing.T) {
+	store := newUploadPreview("upl_abc123")
+	disp := &recordingDispatcher{}
+	signer := newTestUploadSigner()
+
+	svc := New(store, noopK3s{}, noopCF{}, nil, disp, stubOpsTokenSigner{}, "https://ops.example").
+		WithUploadTokenSigner(signer, "")
+
+	_, err := svc.Confirm(context.Background(), "team-1", "user-1", "team-slug", "preview-1", "trace-1")
+	if err != nil {
+		t.Fatalf("Confirm() error = %v", err)
+	}
+	if !disp.called {
+		t.Fatal("dispatcher not called")
+	}
+	p := disp.payload
+	if p.SourceKind != "upload" {
+		t.Fatalf("source_kind = %q, want upload", p.SourceKind)
+	}
+	if p.UploadID != "upl_abc123" {
+		t.Fatalf("upload_id = %q, want upl_abc123", p.UploadID)
+	}
+	if p.FetchToken == "" {
+		t.Fatal("fetch_token must be non-empty")
+	}
+	// Verify the token is a valid JWT for this signer.
+	claims, err := signer.Verify(p.FetchToken)
+	if err != nil {
+		t.Fatalf("fetch_token is not a valid JWT: %v", err)
+	}
+	if claims.Scope != ingestion.ScopeDownloadUpload {
+		t.Fatalf("Scope: got %q want %q", claims.Scope, ingestion.ScopeDownloadUpload)
+	}
+	if claims.UploadID != "upl_abc123" {
+		t.Fatalf("token upload_id = %q, want upl_abc123", claims.UploadID)
+	}
+	if claims.TeamID != "team-1" {
+		t.Fatalf("token team_id = %q, want team-1", claims.TeamID)
+	}
+	// fetch_url must contain the upload ID path.
+	if !strings.Contains(p.FetchURL, "upl_abc123") {
+		t.Fatalf("fetch_url = %q, want URL containing upl_abc123", p.FetchURL)
+	}
+	if !strings.HasPrefix(p.FetchURL, "https://ops.example") {
+		t.Fatalf("fetch_url = %q, want prefix https://ops.example", p.FetchURL)
+	}
+}
+
+// TestConfirm_UploadSourceWithoutSignerSkipsTokenFields verifies that when
+// no token signer is installed, fetch_token and fetch_url are empty but
+// source_kind and upload_id are still populated.
+func TestConfirm_UploadSourceWithoutSignerSkipsTokenFields(t *testing.T) {
+	store := newUploadPreview("upl_nosign")
+	disp := &recordingDispatcher{}
+
+	svc := New(store, noopK3s{}, noopCF{}, nil, disp, stubOpsTokenSigner{}, "https://ops.example")
+	// WithUploadTokenSigner not called — signer is nil.
+
+	_, err := svc.Confirm(context.Background(), "team-1", "user-1", "team-slug", "preview-1", "trace-1")
+	if err != nil {
+		t.Fatalf("Confirm() error = %v", err)
+	}
+	p := disp.payload
+	if p.SourceKind != "upload" {
+		t.Fatalf("source_kind = %q, want upload", p.SourceKind)
+	}
+	if p.UploadID != "upl_nosign" {
+		t.Fatalf("upload_id = %q, want upl_nosign", p.UploadID)
+	}
+	if p.FetchToken != "" {
+		t.Fatalf("fetch_token must be empty without signer, got %q", p.FetchToken)
+	}
+	if p.FetchURL != "" {
+		t.Fatalf("fetch_url must be empty without signer, got %q", p.FetchURL)
+	}
+}
+
+// TestConfirm_GitHubSourceSetsKindOnly verifies that a GitHub source sets
+// source_kind="github" and leaves upload fields empty.
+func TestConfirm_GitHubSourceSetsKindOnly(t *testing.T) {
+	now := time.Now().UTC()
+	store := &fakeStore{
+		preview: db.Preview{
+			ID:          "preview-1",
+			TeamID:      "team-1",
+			ActorUserID: "user-1",
+			Action:      previewAction,
+			Args: mustJSONNoT(dto.AppCreateRequest{
+				Slug: "nextdemo",
+				Source: &dto.Source{
+					Type:   dto.SourceKindGitHub,
+					GitHub: &dto.SourceGitHub{URL: "https://github.com/example/nextdemo", Ref: "main"},
+				},
+			}),
+			ExpiresAt: now.Add(10 * time.Minute),
+		},
+	}
+	disp := &recordingDispatcher{}
+
+	svc := New(store, noopK3s{}, noopCF{}, nil, disp, stubOpsTokenSigner{}, "https://ops.example")
+
+	_, err := svc.Confirm(context.Background(), "team-1", "user-1", "team-slug", "preview-1", "trace-1")
+	if err != nil {
+		t.Fatalf("Confirm() error = %v", err)
+	}
+	p := disp.payload
+	if p.SourceKind != "github" {
+		t.Fatalf("source_kind = %q, want github", p.SourceKind)
+	}
+	if p.UploadID != "" || p.FetchToken != "" || p.FetchURL != "" {
+		t.Fatalf("upload fields must be empty for github source: upload_id=%q fetch_token=%q fetch_url=%q",
+			p.UploadID, p.FetchToken, p.FetchURL)
+	}
+}
+
+// TestConfirm_LegacyFileURLSetsLocalKind verifies that a legacy repo_url
+// with file:// scheme sets source_kind="local".
+// Requires LOCAL_FILE_REPO_ENABLED + LOCAL_FILE_REPO_ROOT so validateRequest
+// accepts the file:// path.
+func TestConfirm_LegacyFileURLSetsLocalKind(t *testing.T) {
+	// Enable the local-repo gate and point root at /tmp (always exists).
+	t.Setenv("LOCAL_FILE_REPO_ENABLED", "true")
+	t.Setenv("LOCAL_FILE_REPO_ROOT", "/tmp")
+
+	now := time.Now().UTC()
+	store := &fakeStore{
+		preview: db.Preview{
+			ID:          "preview-1",
+			TeamID:      "team-1",
+			ActorUserID: "user-1",
+			Action:      previewAction,
+			Args: mustJSONNoT(dto.AppCreateRequest{
+				Slug:    "nextdemo",
+				RepoURL: "file:///tmp",
+				Ref:     "main",
+			}),
+			ExpiresAt: now.Add(10 * time.Minute),
+		},
+	}
+	disp := &recordingDispatcher{}
+
+	svc := New(store, noopK3s{}, noopCF{}, nil, disp, stubOpsTokenSigner{}, "https://ops.example")
+
+	_, err := svc.Confirm(context.Background(), "team-1", "user-1", "team-slug", "preview-1", "trace-1")
+	if err != nil {
+		t.Fatalf("Confirm() error = %v", err)
+	}
+	p := disp.payload
+	if p.SourceKind != "local" {
+		t.Fatalf("source_kind = %q, want local", p.SourceKind)
+	}
+}
+
+// TestConfirm_TokenSignFailureRollsBack verifies that when the upload token
+// signer returns an error, the confirm rolls back (DeleteAppByID called) and
+// returns an error.
+func TestConfirm_TokenSignFailureRollsBack(t *testing.T) {
+	store := newUploadPreview("upl_failsign")
+	disp := &recordingDispatcher{}
+
+	// Use a signer with empty secret — Sign() returns errEmptySecret.
+	badSigner := &ingestion.TokenSigner{Secret: nil, TTL: 15 * time.Minute}
+
+	svc := New(store, noopK3s{}, noopCF{}, nil, disp, stubOpsTokenSigner{}, "https://ops.example").
+		WithUploadTokenSigner(badSigner, "")
+
+	_, err := svc.Confirm(context.Background(), "team-1", "user-1", "team-slug", "preview-1", "trace-1")
+	if err == nil {
+		t.Fatal("Confirm() must fail when token signing fails")
+	}
+	if !strings.Contains(err.Error(), "sign upload fetch token") {
+		t.Fatalf("error should mention 'sign upload fetch token', got: %v", err)
+	}
+	// Rollback: app must be deleted.
+	if store.deleteCalls != 1 {
+		t.Fatalf("DeleteAppByID calls = %d, want 1 (rollback)", store.deleteCalls)
+	}
+	// Dispatcher must NOT have been called (token sign failure is before dispatch).
+	if disp.called {
+		t.Fatal("dispatcher should not be called after token sign failure")
+	}
+	// Preview must not be consumed.
+	if store.preview.ConsumedAt != nil {
+		t.Fatal("preview should not be consumed after token sign failure")
+	}
+}
+
+// TestService_WithUploadTokenSignerBuilder verifies the builder pattern (T14).
+func TestService_WithUploadTokenSignerBuilder(t *testing.T) {
+	// Default: uploadTokenSigner is nil.
+	s := New(nil, nil, nil, nil, nil, nil, "")
+	if s.uploadTokenSigner != nil {
+		t.Fatal("expected nil uploadTokenSigner by default")
+	}
+
+	// Install a signer; receiver returned.
+	signer := newTestUploadSigner()
+	s2 := New(nil, nil, nil, nil, nil, nil, "").WithUploadTokenSigner(signer, "https://base.example")
+	if s2.uploadTokenSigner != signer {
+		t.Fatalf("expected installed signer, got %v", s2.uploadTokenSigner)
+	}
+	if s2.uploadFetchBaseURL != "https://base.example" {
+		t.Fatalf("uploadFetchBaseURL = %q, want https://base.example", s2.uploadFetchBaseURL)
+	}
+
+	// Chainable and returns same pointer.
+	s3 := New(nil, nil, nil, nil, nil, nil, "")
+	got := s3.WithUploadTokenSigner(signer, "")
+	if got != s3 {
+		t.Fatal("WithUploadTokenSigner must return the receiver")
 	}
 }

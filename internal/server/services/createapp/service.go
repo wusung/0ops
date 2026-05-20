@@ -14,6 +14,7 @@ import (
 
 	"github.com/winshare/zeroops/internal/server/db"
 	gitopssvc "github.com/winshare/zeroops/internal/server/services/gitops"
+	"github.com/winshare/zeroops/internal/server/services/createapp/ingestion"
 	workflowdispatch "github.com/winshare/zeroops/internal/server/services/workflowdispatch"
 	"github.com/winshare/zeroops/internal/shared/dto"
 )
@@ -97,6 +98,18 @@ type Service struct {
 	// for backward compatibility with callers that don't yet have a router
 	// wired (test fakes, the legacy redeploy path). T13/T14 consume this field.
 	inspector Inspector
+
+	// uploadTokenSigner mints the short-lived JWT that GHA's
+	// deploy-app-from-upload workflow presents when calling
+	// GET /v1/uploads/{id}/archive (T9). nil means skip token signing —
+	// the fetch_token and fetch_url fields will be empty in the dispatch
+	// payload. This is intentional for non-upload sources and for router
+	// configurations without ingestion wired (e.g. dev with LocalDispatcher).
+	uploadTokenSigner *ingestion.TokenSigner
+
+	// uploadFetchBaseURL is the public origin used to build the archive
+	// fetch_url sent to GHA. Empty falls back to callbackBaseURL at sign time.
+	uploadFetchBaseURL string
 }
 
 // ConfirmResult is the durable create_app response plus replay metadata.
@@ -137,6 +150,18 @@ func (s *Service) WithInspector(insp Inspector) *Service {
 // Inspect directly through this — go through the planned T13/T14 paths.
 func (s *Service) Inspector() Inspector {
 	return s.inspector
+}
+
+// WithUploadTokenSigner installs the T7 fetch-token signer used to mint
+// the short-lived JWT that GHA's deploy-app-from-upload workflow presents
+// when calling GET /v1/uploads/{id}/archive (T9). Passing nil is a no-op —
+// the field is set to nil, equivalent to never calling WithUploadTokenSigner.
+// fetchBaseURL is the public origin used to build the fetch URL; empty falls
+// back to s.callbackBaseURL at sign time.
+func (s *Service) WithUploadTokenSigner(signer *ingestion.TokenSigner, fetchBaseURL string) *Service {
+	s.uploadTokenSigner = signer
+	s.uploadFetchBaseURL = fetchBaseURL
+	return s
 }
 
 // Confirm executes the create_app confirm flow for a validated preview.
@@ -260,6 +285,39 @@ func (s *Service) Confirm(ctx context.Context, teamID, actorUserID, teamSlug, pr
 		if err != nil {
 			return ConfirmResult{}, rollback(err)
 		}
+
+		// Determine source kind for the dispatcher (T14).
+		var (
+			sourceKind string
+			uploadID   string
+			fetchToken string
+			fetchURL   string
+		)
+		if payload.Source != nil {
+			sourceKind = string(payload.Source.Type) // "github" or "upload"
+			if payload.Source.Type == dto.SourceKindUpload && payload.Source.Upload != nil {
+				uploadID = payload.Source.Upload.UploadID
+				if s.uploadTokenSigner != nil {
+					tok, signErr := s.uploadTokenSigner.Sign(ingestion.TokenClaims{
+						TeamID:      teamID,
+						UploadID:    uploadID,
+						DeployRunID: result.DeployRunID,
+					})
+					if signErr != nil {
+						return ConfirmResult{}, rollback(fmt.Errorf("sign upload fetch token: %w", signErr))
+					}
+					fetchToken = tok
+					base := s.uploadFetchBaseURL
+					if base == "" {
+						base = s.callbackBaseURL
+					}
+					fetchURL = fmt.Sprintf("%s/v1/uploads/%s/archive", strings.TrimRight(base, "/"), uploadID)
+				}
+			}
+		} else if strings.HasPrefix(payload.RepoURL, "file://") {
+			sourceKind = "local"
+		}
+
 		if err := s.dispatcher.Dispatch(ctx, workflowdispatch.ClientPayload{
 			RunID:       result.DeployRunID,
 			AppSlug:     result.AppSlug,
@@ -270,6 +328,10 @@ func (s *Service) Confirm(ctx context.Context, teamID, actorUserID, teamSlug, pr
 			OpsToken:    opsToken,
 			CallbackURL: fmt.Sprintf("%s/internal/deploy-runs/%s/callback", s.callbackBaseURL, result.DeployRunID),
 			TraceID:     traceID,
+			SourceKind:  sourceKind,
+			UploadID:    uploadID,
+			FetchToken:  fetchToken,
+			FetchURL:    fetchURL,
 		}); err != nil {
 			return ConfirmResult{}, rollback(err)
 		}
