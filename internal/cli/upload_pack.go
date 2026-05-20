@@ -21,7 +21,8 @@
 //
 //	caller ← out
 //	          ↑
-//	         io.MultiWriter(out, sha256hasher, sizeCounter)
+//	         capWriter (enforces MaxBytes; error short-circuits MultiWriter)
+//	         io.MultiWriter(cap, sha256hasher, sizeCounter)
 //	          ↑
 //	         zstd.Writer
 //	          ↑
@@ -31,9 +32,7 @@
 //
 // # PackOptions zero value
 //
-// A zero PackOptions is unsafe: MaxBytes=0 and MaxEntries=0 disable both caps.
-// Callers must set explicit limits or pass math.MaxInt64 / math.MaxInt to
-// signal "no cap intentionally".
+// A zero PackOptions is unsafe — see PackOptions godoc for details.
 package cli
 
 import (
@@ -54,9 +53,10 @@ import (
 	"github.com/klauspost/compress/zstd"
 )
 
-// PackOptions configures PackDir. Zero values are unsafe — caller must set
-// non-zero MaxBytes and MaxEntries to enforce caps, or pass math.MaxInt64
-// and math.MaxInt to disable them.
+// PackOptions configures PackDir. ZERO VALUES ARE UNSAFE: MaxBytes=0 and
+// MaxEntries=0 mean "reject everything" — every call would return
+// ErrTarballTooLarge or ErrTooManyEntries immediately. Callers must set
+// these explicitly. Pass math.MaxInt64 / math.MaxInt to disable caps.
 type PackOptions struct {
 	// MaxBytes caps the total tar.zst output size in bytes.
 	// Exceeded → ErrTarballTooLarge. 0 = no cap.
@@ -124,7 +124,10 @@ func PackDir(rootPath string, out io.Writer, opt PackOptions) (PackResult, error
 	// --- streaming pipeline ---
 	hasher := sha256.New()
 	sc := &sizeCounterWriter{}
-	mw := io.MultiWriter(out, hasher, sc)
+	cw := &capWriter{w: out, max: opt.MaxBytes}
+	// cw is first: its error short-circuits MultiWriter before any bytes reach
+	// the hasher or counter, keeping SizeBytes accurate on abort.
+	mw := io.MultiWriter(cw, hasher, sc)
 
 	zw, err := zstd.NewWriter(mw)
 	if err != nil {
@@ -137,7 +140,10 @@ func PackDir(rootPath string, out io.Writer, opt PackOptions) (PackResult, error
 	for _, rel := range entries {
 		abs := filepath.Join(rootPath, rel)
 
-		fi, err := os.Lstat(abs)
+		// Use Lstat only to determine entry type. For regular files we re-stat
+		// via an open handle below to eliminate the TOCTOU window between stat
+		// and copy.
+		lfi, err := os.Lstat(abs)
 		if err != nil {
 			// File disappeared between enumeration and packing — skip with warning.
 			slog.Warn("cli: pack: file vanished, skipping", "path", rel, "err", err)
@@ -152,50 +158,38 @@ func PackDir(rootPath string, out io.Writer, opt PackOptions) (PackResult, error
 			return PackResult{}, ErrTooManyEntries
 		}
 
-		hdr, err := tar.FileInfoHeader(fi, "")
-		if err != nil {
-			_ = tw.Close()
-			_ = zw.Close()
-			return PackResult{}, fmt.Errorf("cli: pack: tar header for %q: %w", rel, err)
-		}
-		// Use forward-slash paths regardless of OS.
-		hdr.Name = filepath.ToSlash(rel)
-
-		// Mask modes.
 		switch {
-		case fi.Mode().IsRegular():
-			hdr.Mode = 0644
-		case fi.IsDir():
-			hdr.Mode = 0755
-			// Ensure directory names end with / per tar convention.
-			if !strings.HasSuffix(hdr.Name, "/") {
-				hdr.Name += "/"
-			}
-		case fi.Mode()&os.ModeSymlink != 0:
-			target, err := os.Readlink(abs)
-			if err != nil {
-				slog.Warn("cli: pack: readlink failed, skipping symlink", "path", rel, "err", err)
-				continue
-			}
-			hdr.Linkname = target
-			hdr.Mode = 0777 // tar convention for symlinks (informational only)
-		default:
-			// Skip devices, pipes, sockets, etc.
-			continue
-		}
-
-		if err := tw.WriteHeader(hdr); err != nil {
-			_ = tw.Close()
-			_ = zw.Close()
-			return PackResult{}, fmt.Errorf("cli: pack: write header for %q: %w", rel, err)
-		}
-
-		if fi.Mode().IsRegular() {
+		case lfi.Mode().IsRegular():
+			// Open first, then stat the open handle — this eliminates the TOCTOU
+			// window between the Lstat above and the subsequent io.Copy so that
+			// hdr.Size always matches the bytes actually copied.
 			f, err := os.Open(abs) //nolint:gosec // path constructed from (rootPath, rel)
 			if err != nil {
 				_ = tw.Close()
 				_ = zw.Close()
 				return PackResult{}, fmt.Errorf("cli: pack: open %q: %w", rel, err)
+			}
+			fi, err := f.Stat()
+			if err != nil {
+				_ = f.Close()
+				_ = tw.Close()
+				_ = zw.Close()
+				return PackResult{}, fmt.Errorf("cli: pack: stat %q: %w", rel, err)
+			}
+			hdr, err := tar.FileInfoHeader(fi, "")
+			if err != nil {
+				_ = f.Close()
+				_ = tw.Close()
+				_ = zw.Close()
+				return PackResult{}, fmt.Errorf("cli: pack: tar header for %q: %w", rel, err)
+			}
+			hdr.Name = filepath.ToSlash(rel)
+			hdr.Mode = 0644
+			if err := tw.WriteHeader(hdr); err != nil {
+				_ = f.Close()
+				_ = tw.Close()
+				_ = zw.Close()
+				return PackResult{}, fmt.Errorf("cli: pack: write header for %q: %w", rel, err)
 			}
 			_, copyErr := io.Copy(tw, f)
 			_ = f.Close()
@@ -204,13 +198,52 @@ func PackDir(rootPath string, out io.Writer, opt PackOptions) (PackResult, error
 				_ = zw.Close()
 				return PackResult{}, fmt.Errorf("cli: pack: copy %q: %w", rel, copyErr)
 			}
-		}
 
-		// Check size cap after each entry; bytes may have flushed at any point.
-		if opt.MaxBytes > 0 && sc.bytes > opt.MaxBytes {
-			_ = tw.Close()
-			_ = zw.Close()
-			return PackResult{}, ErrTarballTooLarge
+		case lfi.IsDir():
+			// Directories have no content — no TOCTOU risk; use Lstat result.
+			hdr, err := tar.FileInfoHeader(lfi, "")
+			if err != nil {
+				_ = tw.Close()
+				_ = zw.Close()
+				return PackResult{}, fmt.Errorf("cli: pack: tar header for %q: %w", rel, err)
+			}
+			hdr.Name = filepath.ToSlash(rel)
+			hdr.Mode = 0755
+			// Ensure directory names end with / per tar convention.
+			if !strings.HasSuffix(hdr.Name, "/") {
+				hdr.Name += "/"
+			}
+			if err := tw.WriteHeader(hdr); err != nil {
+				_ = tw.Close()
+				_ = zw.Close()
+				return PackResult{}, fmt.Errorf("cli: pack: write header for %q: %w", rel, err)
+			}
+
+		case lfi.Mode()&os.ModeSymlink != 0:
+			// Symlinks read target via Readlink — no file content copied, no TOCTOU.
+			target, err := os.Readlink(abs)
+			if err != nil {
+				slog.Warn("cli: pack: readlink failed, skipping symlink", "path", rel, "err", err)
+				continue
+			}
+			hdr, err := tar.FileInfoHeader(lfi, target)
+			if err != nil {
+				_ = tw.Close()
+				_ = zw.Close()
+				return PackResult{}, fmt.Errorf("cli: pack: tar header for %q: %w", rel, err)
+			}
+			hdr.Name = filepath.ToSlash(rel)
+			hdr.Linkname = target
+			hdr.Mode = 0777 // tar convention for symlinks (informational only)
+			if err := tw.WriteHeader(hdr); err != nil {
+				_ = tw.Close()
+				_ = zw.Close()
+				return PackResult{}, fmt.Errorf("cli: pack: write header for %q: %w", rel, err)
+			}
+
+		default:
+			// Skip devices, pipes, sockets, etc.
+			continue
 		}
 
 		entryCount++
@@ -281,11 +314,15 @@ func gitLsFiles(rootPath string) ([]string, error) {
 
 // walkWithIgnore enumerates rootPath with filepath.WalkDir, applying ignore
 // patterns loaded from .dockerignore (if present) or the built-in fallback list.
+// Only files and symlinks are emitted — directory entries are omitted to align
+// with the gitLsFiles path which also emits files only.
 func walkWithIgnore(rootPath string) ([]string, error) {
 	ignores, err := loadDockerIgnore(rootPath)
 	if err != nil {
 		// Non-fatal: log a warning and proceed with the built-in list.
 		slog.Warn("cli: pack: failed to load .dockerignore, using built-in ignore list", "err", err)
+	}
+	if ignores == nil {
 		ignores = builtinIgnores()
 	}
 
@@ -305,6 +342,11 @@ func walkWithIgnore(rootPath string) ([]string, error) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
+			return nil
+		}
+		// Don't emit explicit directory entries — intermediate dirs are implicit
+		// in nested file paths. This aligns output with gitLsFiles.
+		if d.IsDir() {
 			return nil
 		}
 		files = append(files, rel)
@@ -335,16 +377,17 @@ func builtinIgnores() []string {
 }
 
 // loadDockerIgnore reads rootPath/.dockerignore and returns the non-empty,
-// non-comment lines as patterns. Returns (builtinIgnores(), nil) when the file
-// does not exist.
+// non-comment lines as patterns. Returns (nil, nil) when the file does not
+// exist — caller is responsible for falling back to builtinIgnores().
+// Returns (nil, err) on any other I/O error.
 func loadDockerIgnore(rootPath string) ([]string, error) {
 	p := filepath.Join(rootPath, ".dockerignore")
 	f, err := os.Open(p) //nolint:gosec // path is derived from rootPath
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return builtinIgnores(), nil
+			return nil, nil // absent — caller falls back
 		}
-		return builtinIgnores(), fmt.Errorf("open .dockerignore: %w", err)
+		return nil, fmt.Errorf("open .dockerignore: %w", err)
 	}
 	defer func() { _ = f.Close() }()
 
@@ -358,7 +401,7 @@ func loadDockerIgnore(rootPath string) ([]string, error) {
 		patterns = append(patterns, line)
 	}
 	if err := sc.Err(); err != nil {
-		return builtinIgnores(), fmt.Errorf("read .dockerignore: %w", err)
+		return nil, fmt.Errorf("read .dockerignore: %w", err)
 	}
 	return patterns, nil
 }
@@ -402,4 +445,36 @@ type sizeCounterWriter struct {
 func (s *sizeCounterWriter) Write(p []byte) (int, error) {
 	s.bytes += int64(len(p))
 	return len(p), nil
+}
+
+// capWriter aborts any Write that would push total written bytes past max.
+// Returns ErrTarballTooLarge as soon as the cap is exceeded — the upstream
+// tar/zstd writers then surface the error through io.Copy.
+// When max <= 0, no cap is enforced.
+type capWriter struct {
+	w     io.Writer
+	max   int64
+	bytes int64
+}
+
+func (c *capWriter) Write(p []byte) (int, error) {
+	if c.max <= 0 {
+		return c.w.Write(p)
+	}
+	remaining := c.max - c.bytes
+	if remaining <= 0 {
+		return 0, ErrTarballTooLarge
+	}
+	if int64(len(p)) > remaining {
+		// Write only what fits, then surface the error.
+		n, err := c.w.Write(p[:remaining])
+		c.bytes += int64(n)
+		if err != nil {
+			return n, err
+		}
+		return n, ErrTarballTooLarge
+	}
+	n, err := c.w.Write(p)
+	c.bytes += int64(n)
+	return n, err
 }

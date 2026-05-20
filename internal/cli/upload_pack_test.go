@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"math"
 	"os"
@@ -258,7 +259,7 @@ func TestPackDir_SymlinkRecorded(t *testing.T) {
 	}
 }
 
-func TestPackDir_SymlinkBrokenSkipped(t *testing.T) {
+func TestPackDir_SymlinkBrokenIncluded(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "real.txt", "real")
 	// Broken symlink: target does not exist.
@@ -277,6 +278,9 @@ func TestPackDir_SymlinkBrokenSkipped(t *testing.T) {
 	entries := extractTarZst(t, buf.Bytes())
 	if _, ok := entries["real.txt"]; !ok {
 		t.Error("real.txt should be packed")
+	}
+	if _, ok := entries["broken.txt"]; !ok {
+		t.Errorf("expected broken.txt to be present in archive (server T6 rejects unsafe targets, not packer)")
 	}
 }
 
@@ -385,5 +389,60 @@ func TestPackDir_SHAAndSizeConsistent(t *testing.T) {
 	want := sha256Hex(buf.Bytes())
 	if res.SHA256 != want {
 		t.Errorf("SHA256 mismatch: got %q, want %q", res.SHA256, want)
+	}
+}
+
+func TestPackDir_CapAbortsMidFile(t *testing.T) {
+	dir := t.TempDir()
+	// Write 10 KB of varied (incompressible) data so the compressed output
+	// exceeds the cap even after zstd compression.
+	content := make([]byte, 10*1024)
+	for i := range content {
+		content[i] = byte(i & 0xFF)
+	}
+	abs := filepath.Join(dir, "big.bin")
+	if err := os.WriteFile(abs, content, 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Cap at 100 bytes: above empty-archive overhead (~16 B) but well below
+	// what the tar header + file content compresses to (~400+ B).
+	var buf bytes.Buffer
+	_, err := PackDir(dir, &buf, PackOptions{MaxBytes: 100, MaxEntries: math.MaxInt})
+	if !errors.Is(err, ErrTarballTooLarge) {
+		t.Fatalf("expected ErrTarballTooLarge, got %v", err)
+	}
+	// buf must not exceed cap + small headroom for buffered writes.
+	if int64(buf.Len()) > 200 {
+		t.Fatalf("output exceeded cap+headroom: %d bytes", buf.Len())
+	}
+}
+
+func TestPackDir_EnumerationPathsConsistent(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not in PATH")
+	}
+
+	// Non-git directory.
+	nonGit := t.TempDir()
+	writeFile(t, nonGit, "a.txt", "hello")
+	writeFile(t, nonGit, "nested/b.txt", "world")
+
+	// Git directory with identical content.
+	gitDir := t.TempDir()
+	writeFile(t, gitDir, "a.txt", "hello")
+	writeFile(t, gitDir, "nested/b.txt", "world")
+	gitRun(t, gitDir, "init", "-q")
+	gitRun(t, gitDir, "add", ".")
+	gitRun(t, gitDir, "-c", "user.email=t@e.com", "-c", "user.name=t", "commit", "-qm", "init")
+
+	var bufA, bufB bytes.Buffer
+	resA, errA := PackDir(nonGit, &bufA, defaultOpts())
+	resB, errB := PackDir(gitDir, &bufB, defaultOpts())
+	if errA != nil || errB != nil {
+		t.Fatalf("pack errs: %v / %v", errA, errB)
+	}
+	if resA.EntryCount != resB.EntryCount {
+		t.Errorf("entry counts differ: walk=%d, git=%d", resA.EntryCount, resB.EntryCount)
 	}
 }
