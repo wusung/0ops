@@ -1,13 +1,13 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"math"
-	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -36,7 +36,8 @@ func handCraftedUploadResponse() dto.UploadResponse {
 // zstdMagic returns the first 4 bytes of a zstd frame: 0x28 0xb5 0x2f 0xfd.
 var zstdMagic = []byte{0x28, 0xb5, 0x2f, 0xfd}
 
-// TestUploadDir_HappyPath verifies that a valid upload returns a parsed UploadResponse.
+// TestUploadDir_HappyPath verifies that a valid upload returns a parsed UploadResponse
+// and a populated PackResult.
 func TestUploadDir_HappyPath(t *testing.T) {
 	const teamSlug = "my-team"
 	const bearerToken = "tok_abc123"
@@ -113,7 +114,7 @@ func TestUploadDir_HappyPath(t *testing.T) {
 	writeFile(t, dir, "hello.txt", "hello world")
 
 	c := NewUploadsClient(srv.URL, bearerToken)
-	got, err := c.UploadDir(context.Background(), teamSlug, dir, defaultOpts())
+	got, pr, err := c.UploadDir(context.Background(), teamSlug, dir, defaultOpts())
 	if err != nil {
 		t.Fatalf("UploadDir: %v", err)
 	}
@@ -125,6 +126,13 @@ func TestUploadDir_HappyPath(t *testing.T) {
 	}
 	if got.Format != wantResp.Format {
 		t.Errorf("Format = %q, want %q", got.Format, wantResp.Format)
+	}
+	// Verify PackResult is populated.
+	if pr.SizeBytes == 0 {
+		t.Error("PackResult.SizeBytes should be non-zero")
+	}
+	if pr.SHA256 == "" {
+		t.Error("PackResult.SHA256 should be non-empty")
 	}
 }
 
@@ -151,7 +159,7 @@ func TestUploadDir_PackErrorPropagates(t *testing.T) {
 	}
 
 	c := NewUploadsClient(srv.URL, "tok_test")
-	_, err := c.UploadDir(context.Background(), "team-x", dir, PackOptions{
+	_, _, err := c.UploadDir(context.Background(), "team-x", dir, PackOptions{
 		MaxBytes:   100,
 		MaxEntries: math.MaxInt,
 	})
@@ -178,7 +186,7 @@ func TestUploadDir_ServerReturns4xx(t *testing.T) {
 	writeFile(t, dir, "f.txt", "data")
 
 	c := NewUploadsClient(srv.URL, "tok_test")
-	_, err := c.UploadDir(context.Background(), "team-y", dir, defaultOpts())
+	_, _, err := c.UploadDir(context.Background(), "team-y", dir, defaultOpts())
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -230,7 +238,7 @@ func TestUploadDir_ContextCancel(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		c := NewUploadsClient(srv.URL, "tok_cancel")
-		_, err := c.UploadDir(ctx, "team-z", dir, defaultOpts())
+		_, _, err := c.UploadDir(ctx, "team-z", dir, defaultOpts())
 		done <- err
 	}()
 
@@ -259,7 +267,7 @@ func TestUploadDir_ContextCancel(t *testing.T) {
 // before making any HTTP request.
 func TestUploadDir_MissingBaseURL(t *testing.T) {
 	c := NewUploadsClient("", "tok_test")
-	_, err := c.UploadDir(context.Background(), "team", t.TempDir(), defaultOpts())
+	_, _, err := c.UploadDir(context.Background(), "team", t.TempDir(), defaultOpts())
 	if err == nil {
 		t.Fatal("expected error for empty BaseURL")
 	}
@@ -272,7 +280,7 @@ func TestUploadDir_MissingBaseURL(t *testing.T) {
 // an error before making any HTTP request.
 func TestUploadDir_MissingBearerToken(t *testing.T) {
 	c := NewUploadsClient("http://localhost:9999", "")
-	_, err := c.UploadDir(context.Background(), "team", t.TempDir(), defaultOpts())
+	_, _, err := c.UploadDir(context.Background(), "team", t.TempDir(), defaultOpts())
 	if err == nil {
 		t.Fatal("expected error for empty BearerToken")
 	}
@@ -289,7 +297,7 @@ func TestUploadDir_HTTPDoError(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "f.txt", "x")
 
-	_, err := c.UploadDir(context.Background(), "team", dir, defaultOpts())
+	_, _, err := c.UploadDir(context.Background(), "team", dir, defaultOpts())
 	if err == nil {
 		t.Fatal("expected error for unreachable server")
 	}
@@ -314,7 +322,7 @@ func TestUploadDir_AuthHeaderFormat(t *testing.T) {
 	writeFile(t, dir, "f.txt", "data")
 
 	c := NewUploadsClient(srv.URL, token)
-	_, err := c.UploadDir(context.Background(), "team", dir, defaultOpts())
+	_, _, err := c.UploadDir(context.Background(), "team", dir, defaultOpts())
 	if err != nil {
 		t.Fatalf("UploadDir: %v", err)
 	}
@@ -349,7 +357,7 @@ func TestUploadDir_TeamSlugPathEscape(t *testing.T) {
 	// via the raw request URI instead. We can check the request URI using a
 	// custom RoundTripper, but the simpler check is that the server path
 	// contains the unescaped slug (meaning Go's server decoded %20 → space).
-	_, err := c.UploadDir(context.Background(), slug, dir, defaultOpts())
+	_, _, err := c.UploadDir(context.Background(), slug, dir, defaultOpts())
 	if err != nil {
 		t.Fatalf("UploadDir: %v", err)
 	}
@@ -406,7 +414,7 @@ func TestUploadDir_LargeStreaming(t *testing.T) {
 	}
 
 	c := NewUploadsClient(srv.URL, "tok_large")
-	got, err := c.UploadDir(context.Background(), "team-large", dir, defaultOpts())
+	got, _, err := c.UploadDir(context.Background(), "team-large", dir, defaultOpts())
 	if err != nil {
 		t.Fatalf("UploadDir: %v", err)
 	}
@@ -464,7 +472,7 @@ func TestUploadDir_MultipartFieldName(t *testing.T) {
 	writeFile(t, dir, "f.txt", "data")
 
 	c := NewUploadsClient(srv.URL, "tok")
-	_, err := c.UploadDir(context.Background(), "team", dir, defaultOpts())
+	_, _, err := c.UploadDir(context.Background(), "team", dir, defaultOpts())
 	if err != nil {
 		t.Fatalf("UploadDir: %v", err)
 	}
@@ -503,7 +511,7 @@ func TestUploadDir_ResponseBodyReadOnNon2xx(t *testing.T) {
 	writeFile(t, dir, "f.txt", "data")
 
 	c := NewUploadsClient(srv.URL, "tok")
-	_, err := c.UploadDir(context.Background(), "team", dir, defaultOpts())
+	_, _, err := c.UploadDir(context.Background(), "team", dir, defaultOpts())
 	var ue *UploadError
 	if !errors.As(err, &ue) {
 		t.Fatalf("expected *UploadError, got %T: %v", err, err)
@@ -532,7 +540,7 @@ func TestUploadDir_NilHTTPUsesDefault(t *testing.T) {
 		BearerToken: "tok",
 		HTTP:        nil, // must not panic
 	}
-	_, err := c.UploadDir(context.Background(), "t", dir, defaultOpts())
+	_, _, err := c.UploadDir(context.Background(), "t", dir, defaultOpts())
 	if err != nil {
 		t.Fatalf("UploadDir: %v", err)
 	}
@@ -570,7 +578,7 @@ func TestUploadDir_MultipartContentType(t *testing.T) {
 	writeFile(t, dir, "f.txt", "data")
 
 	c := NewUploadsClient(srv.URL, "tok")
-	_, err := c.UploadDir(context.Background(), "team", dir, defaultOpts())
+	_, _, err := c.UploadDir(context.Background(), "team", dir, defaultOpts())
 	if err != nil {
 		t.Fatalf("UploadDir: %v", err)
 	}
@@ -602,7 +610,7 @@ func TestUploadDir_GoRoutineNeverLeaks(t *testing.T) {
 	// Must return (possibly with error) — not hang.
 	done := make(chan struct{})
 	go func() {
-		_, _ = c.UploadDir(context.Background(), "team", dir, defaultOpts())
+		_, _, _ = c.UploadDir(context.Background(), "team", dir, defaultOpts())
 		close(done)
 	}()
 
@@ -613,30 +621,43 @@ func TestUploadDir_GoRoutineNeverLeaks(t *testing.T) {
 	}
 }
 
-// --- helpers used only in this test file ---
+// TestUploadDir_ServerEarlyRejectPreferredOverPipeError verifies that when the
+// server returns a 4xx before consuming the body (causing a broken-pipe write
+// error in PackDir), the client surfaces the server's *UploadError rather than
+// the pipe write error.
+func TestUploadDir_ServerEarlyRejectPreferredOverPipeError(t *testing.T) {
+	// Server immediately returns 413 (oversize) and stops reading.
+	// Client's PackDir will see "broken pipe" because server closed the body.
+	// Expect: client returns *UploadError(413, "payload_too_large"), NOT broken pipe.
 
-// readMultipartArchive reads the "archive" part bytes from a multipart reader.
-// Returns nil if the part is absent.
-func readMultipartArchive(t *testing.T, r *multipart.Reader) []byte {
-	t.Helper()
-	for {
-		part, err := r.NextPart()
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-		if err != nil {
-			t.Errorf("NextPart: %v", err)
-			return nil
-		}
-		if part.FormName() == "archive" {
-			data, err := io.ReadAll(part)
-			_ = part.Close()
-			if err != nil {
-				t.Errorf("read archive part: %v", err)
-			}
-			return data
-		}
-		_, _ = io.Copy(io.Discard, part)
-		_ = part.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		_, _ = io.WriteString(w, `{"error":{"code":"payload_too_large","message":"archive too big"}}`)
+	}))
+	defer srv.Close()
+
+	// Build a large source so PackDir is mid-stream when server cuts the body.
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "big.bin"), bytes.Repeat([]byte("x"), 1<<20), 0644); err != nil {
+		t.Fatalf("write big: %v", err)
+	}
+
+	c := NewUploadsClient(srv.URL, "tok")
+	_, _, err := c.UploadDir(context.Background(), "team", tmp, PackOptions{MaxBytes: 1 << 30, MaxEntries: 100})
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	var ue *UploadError
+	if !errors.As(err, &ue) {
+		t.Fatalf("expected *UploadError, got %T: %v", err, err)
+	}
+	if ue.HTTPStatus != http.StatusRequestEntityTooLarge {
+		t.Errorf("status: got %d want %d", ue.HTTPStatus, http.StatusRequestEntityTooLarge)
+	}
+	if ue.Code != "payload_too_large" {
+		t.Errorf("code: got %q want %q", ue.Code, "payload_too_large")
 	}
 }
+
+// --- helpers used only in this test file ---

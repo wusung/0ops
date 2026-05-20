@@ -14,6 +14,15 @@ import (
 	"github.com/winshare/zeroops/internal/shared/dto"
 )
 
+const (
+	// uploadFieldName is the multipart form field name expected by the server
+	// (T8 handler at internal/server/uploads.go). MUST match server-side.
+	uploadFieldName = "archive"
+	// uploadFileName is the suggested filename in the multipart Content-Disposition
+	// header. Server ignores it but a tool like curl/postman shows it.
+	uploadFileName = "source.tar.zst"
+)
+
 // UploadsClient posts a local directory as a tar.zst to the 0ops uploads endpoint.
 // Production wiring is done by T18; T17 only owns the HTTP plumbing.
 type UploadsClient struct {
@@ -50,18 +59,29 @@ func (e *UploadError) Error() string {
 //
 // The pack runs in a goroutine writing to an io.Pipe; the main routine
 // streams the pipe through multipart into the HTTP body. No full buffer.
-// Pack errors (including ErrTarballTooLarge mid-stream) propagate to the
-// returned error, preferentially over any HTTP transport error.
 //
-// On 201 Created, returns the server's UploadResponse.
-// On non-2xx, attempts to decode the apperror envelope; returns an
-// UploadError carrying the parsed code/message.
-func (c *UploadsClient) UploadDir(ctx context.Context, teamSlug, srcPath string, opt PackOptions) (dto.UploadResponse, error) {
+// Error priority chain on failure:
+//  1. ctx.Err() — caller cancellation always wins
+//  2. server 4xx/5xx — if the server rejected the request, its parsed
+//     *UploadError is preferred over any mid-stream pack write error
+//     (the server response is the cause; the broken-pipe write is the symptom)
+//  3. pack error (e.g., ErrTarballTooLarge mid-stream) — when no server
+//     response is available
+//  4. HTTP transport error (unreachable, TLS, etc.)
+//
+// The supplied context should carry a deadline; UploadDir does not set its own
+// HTTP timeout. For a CLI use with no explicit --timeout flag, prefer
+// context.WithTimeout(parent, 10 * time.Minute) or similar. Without a deadline,
+// a stalled connection blocks the call indefinitely.
+//
+// On 201 Created, returns the server's UploadResponse plus the client-computed
+// PackResult.
+func (c *UploadsClient) UploadDir(ctx context.Context, teamSlug, srcPath string, opt PackOptions) (dto.UploadResponse, PackResult, error) {
 	if c.BaseURL == "" {
-		return dto.UploadResponse{}, errors.New("cli: BaseURL is required")
+		return dto.UploadResponse{}, PackResult{}, errors.New("cli: BaseURL is required")
 	}
 	if c.BearerToken == "" {
-		return dto.UploadResponse{}, errors.New("cli: BearerToken is required")
+		return dto.UploadResponse{}, PackResult{}, errors.New("cli: BearerToken is required")
 	}
 	httpClient := c.HTTP
 	if httpClient == nil {
@@ -92,7 +112,7 @@ func (c *UploadsClient) UploadDir(ctx context.Context, teamSlug, srcPath string,
 		}()
 		defer mw.Close()
 
-		part, err := mw.CreateFormFile("archive", "source.tar.zst")
+		part, err := mw.CreateFormFile(uploadFieldName, uploadFileName)
 		if err != nil {
 			packErr = fmt.Errorf("multipart CreateFormFile: %w", err)
 			return
@@ -110,7 +130,7 @@ func (c *UploadsClient) UploadDir(ctx context.Context, teamSlug, srcPath string,
 	if err != nil {
 		_ = pr.Close()
 		<-done
-		return dto.UploadResponse{}, fmt.Errorf("build request: %w", err)
+		return dto.UploadResponse{}, PackResult{}, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("Authorization", "Bearer "+c.BearerToken)
@@ -120,35 +140,48 @@ func (c *UploadsClient) UploadDir(ctx context.Context, teamSlug, srcPath string,
 	// Wait for the goroutine before deciding which error to surface.
 	<-done
 
-	if packErr != nil {
-		// Pack error is preferred over HTTP error — it's the root cause.
-		// (HTTP error is likely "io: read/write on closed pipe" downstream of pack failure.)
-		// Exception: if the context was canceled, the pipe write error in PackDir
-		// is a symptom of context cancellation, not an independent pack failure.
-		// Surface ctx.Err() so callers can use errors.Is(err, context.Canceled).
+	// 1. ctx cancellation has highest priority (preserves errors.Is(err, context.Canceled))
+	if ctxErr := ctx.Err(); ctxErr != nil {
 		if resp != nil {
 			_ = resp.Body.Close()
 		}
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return dto.UploadResponse{}, ctxErr
+		return dto.UploadResponse{}, PackResult{}, ctxErr
+	}
+
+	// 2. If we have a server response with non-2xx status, that's the actionable
+	//    cause — even if packErr was set as a symptom of the server closing the
+	//    body reader mid-stream. Surface the server's error.
+	if resp != nil && resp.StatusCode/100 != 2 {
+		defer resp.Body.Close()
+		return dto.UploadResponse{}, PackResult{}, decodeUploadError(resp)
+	}
+
+	// 3. Pack error (e.g., MaxBytes cap hit, file unreadable) without server
+	//    response — the root cause.
+	if packErr != nil {
+		if resp != nil {
+			_ = resp.Body.Close()
 		}
-		return dto.UploadResponse{}, packErr
+		return dto.UploadResponse{}, PackResult{}, packErr
 	}
+
+	// 4. HTTP transport error (server unreachable, TLS, etc.)
 	if doErr != nil {
-		return dto.UploadResponse{}, fmt.Errorf("http do: %w", doErr)
+		return dto.UploadResponse{}, PackResult{}, fmt.Errorf("http do: %w", doErr)
 	}
+
 	defer resp.Body.Close()
 
+	// 5. 2xx but unexpected status would also fall here; only 201 is expected.
 	if resp.StatusCode != http.StatusCreated {
-		return dto.UploadResponse{}, decodeUploadError(resp)
+		return dto.UploadResponse{}, PackResult{}, decodeUploadError(resp)
 	}
 
 	var out dto.UploadResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return dto.UploadResponse{}, fmt.Errorf("decode response: %w", err)
+		return dto.UploadResponse{}, PackResult{}, fmt.Errorf("decode response: %w", err)
 	}
-	_ = packResult // available to T18 if needed
-	return out, nil
+	return out, packResult, nil
 }
 
 // decodeUploadError reads the apperror envelope from a non-2xx response body.
