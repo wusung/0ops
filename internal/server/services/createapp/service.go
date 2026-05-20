@@ -24,10 +24,11 @@ const tunnelBackendURL = "http://traefik.kube-system.svc.cluster.local:80"
 // uploadPinTTL is the placeholder expiry applied to an upload row at create_app
 // confirm time. Spec §10 specifies the canonical pinned expiry as
 // "deploy_run.terminal_at + 7d", but at confirm time deploy_run.terminal_at
-// is NULL — the deploy has only just started. A future reconciler should
-// re-pin with the canonical value when the deploy_run transitions to a
-// terminal state. Until that lands, 30 days is generous enough to cover
-// any realistic deploy duration while still bounding orphan ingest trees.
+// is NULL — the deploy has only just started. The T19 GC reconciler (or a
+// future terminal-state reconciler) should re-pin with the canonical value
+// when the deploy_run transitions to a terminal state. Until that lands,
+// 30 days is generous enough to cover any realistic deploy duration while
+// still bounding orphan ingest trees.
 const uploadPinTTL = 30 * 24 * time.Hour
 
 var slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$`)
@@ -275,15 +276,27 @@ func (s *Service) Confirm(ctx context.Context, teamID, actorUserID, teamSlug, pr
 	}
 
 	// Pin the upload row if this create_app consumed an upload source. By this
-	// point the deploy_run is committed and dispatchers have fired; pin failure
-	// must NOT roll back. We log loudly on failure because an unpinned upload
-	// will be GC'd at its 24h inert TTL even though a live deploy depends on it.
+	// point CreateApp + cloudflare + k3s + gitops + dispatcher have all
+	// succeeded; rollback paths are exhausted. Pin failure must NOT roll back
+	// because the deploy is in motion.
+	//
+	// Pin is placed BEFORE ConsumePreviewWithResult so that on retry (if the
+	// consume step fails) the second Confirm call sees the upload already in
+	// 'pinned' status and ErrUploadNotFound from PinUpload — caught above as
+	// a benign skip rather than an error. This makes idempotent replay safe.
 	if payload.Source != nil && payload.Source.Type == dto.SourceKindUpload && payload.Source.Upload != nil {
 		uploadID := payload.Source.Upload.UploadID
 		pinExpires := s.now().UTC().Add(uploadPinTTL)
 		if err := s.store.PinUpload(ctx, teamID, uploadID, pinExpires); err != nil {
-			slog.Error("uploads: pin failed; ingest tree may be GC'd before deploy completes",
-				"team", teamID, "upload", uploadID, "deploy_run", result.DeployRunID, "err", err)
+			if errors.Is(err, db.ErrUploadNotFound) {
+				// Benign: row already pinned by an earlier Confirm attempt, or has
+				// moved to a non-received status. T19 GC handles stale rows.
+				slog.Warn("uploads: pin skipped; row not in 'received' status",
+					"team", teamID, "upload", uploadID, "run_id", result.DeployRunID, "err", err)
+			} else {
+				slog.Error("uploads: pin failed; ingest tree may be GC'd before deploy completes",
+					"team", teamID, "upload", uploadID, "run_id", result.DeployRunID, "err", err)
+			}
 		}
 	}
 
