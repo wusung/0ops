@@ -118,7 +118,19 @@ func main() {
 		MaxEntries:      10000,
 	}
 
-	r.Mount("/", appserver.NewRouterWithIngestion(repo, k3sClient, cfClient, limiter, metrics.RateLimitObserver(), auditSvc, incidentSvc, ingestStore, auditSvc))
+	// Construct the build token signer for the archive download path (M6.9).
+	// runtime.AssertProductionSafe (T4) already ensures buildSecret is non-empty
+	// in production. In dev without OPS_BUILD_TOKEN_SECRET, archiveSigner is nil
+	// and the GET /v1/uploads/{id}/archive route is not registered.
+	var archiveSigner *ingestion.TokenSigner
+	if buildSecret := os.Getenv("OPS_BUILD_TOKEN_SECRET"); buildSecret != "" {
+		archiveSigner = &ingestion.TokenSigner{
+			Secret: []byte(buildSecret),
+			TTL:    15 * time.Minute, // spec §8.2
+		}
+	}
+
+	r.Mount("/", appserver.NewRouterWithIngestion(repo, k3sClient, cfClient, limiter, metrics.RateLimitObserver(), auditSvc, incidentSvc, ingestStore, auditSvc, archiveSigner))
 
 	srv := &http.Server{
 		Addr:              addr,

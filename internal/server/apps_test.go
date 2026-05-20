@@ -1482,6 +1482,22 @@ func (f *fakeStore) InsertUpload(_ context.Context, u db.Upload) error {
 	return nil
 }
 
+// GetUpload satisfies the uploadArchiveStore / appsStore interface (M6.9).
+// Searches uploadRows for a matching (teamID, id) pair.
+func (f *fakeStore) GetUpload(_ context.Context, teamID, id string) (db.Upload, error) {
+	for _, u := range f.uploadRows {
+		if u.TeamID == teamID && u.ID == id {
+			return u, nil
+		}
+	}
+	return db.Upload{}, db.ErrUploadNotFound
+}
+
+// seedUpload adds a db.Upload directly to uploadRows for test setup.
+func (f *fakeStore) seedUpload(u db.Upload) {
+	f.uploadRows = append(f.uploadRows, u)
+}
+
 func newFakeStore() (*fakeStore, string) {
 	token, err := auth.NewBearerToken("device", "token-1")
 	if err != nil {

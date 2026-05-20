@@ -471,6 +471,11 @@ func (f *mcpFakeStore) GetAppRepoURLByTeamAndAppSlug(_ context.Context, _, _ str
 // InsertUpload satisfies the extended appsStore interface (M6.8).
 func (f *mcpFakeStore) InsertUpload(_ context.Context, _ db.Upload) error { return nil }
 
+// GetUpload satisfies the extended appsStore interface (M6.9).
+func (f *mcpFakeStore) GetUpload(_ context.Context, _, _ string) (db.Upload, error) {
+	return db.Upload{}, db.ErrUploadNotFound
+}
+
 func newMCPFakeStore() (*mcpFakeStore, string) {
 	token, err := auth.NewBearerToken("device", "token-1")
 	if err != nil {

@@ -10,8 +10,11 @@ import (
 	"log/slog"
 	"mime/multipart"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/winshare/zeroops/internal/server/apperror"
 	"github.com/winshare/zeroops/internal/server/auth"
@@ -27,10 +30,42 @@ type uploadsStore interface {
 	InsertUpload(ctx context.Context, u db.Upload) error
 }
 
-// ingestionStore is the on-disk boundary for upload streaming.
+// uploadArchiveStore extends uploadsStore with the read methods needed for
+// the archive download path. Production = *db.Repository.
+type uploadArchiveStore interface {
+	uploadsStore
+	GetUpload(ctx context.Context, teamID, id string) (db.Upload, error)
+}
+
+// ingestionWriter is the on-disk boundary for upload streaming (write path only).
 // Production is *ingestion.Store (T6); tests substitute an in-memory fake.
-type ingestionStore interface {
+// Named ingestionWriter (formerly ingestionStore) to distinguish from the read path.
+type ingestionWriter interface {
 	Put(ctx context.Context, teamID, uploadID string, r io.Reader, format string) (ingestion.Stored, error)
+}
+
+// ingestionStore is an alias for ingestionWriter retained for backward compatibility
+// within existing test helpers that reference this name.
+type ingestionStore = ingestionWriter
+
+// archiveReader provides the download read path for the archive bytes.
+// Production = *ingestion.Store. Kept narrow: just the methods T9 needs.
+type archiveReader interface {
+	Archive(ctx context.Context, teamID, uploadID string) (io.ReadCloser, error)
+}
+
+// ingestionStoreFull embeds both write and read paths. The router
+// constructor takes this so it can feed the same *ingestion.Store to both
+// the upload handler (PUT path) and the archive download handler (GET path).
+type ingestionStoreFull interface {
+	ingestionWriter
+	archiveReader
+}
+
+// archiveTokenVerifier verifies short-lived JWTs from the GHA build workflow.
+// Production = *ingestion.TokenSigner (T7).
+type archiveTokenVerifier interface {
+	Verify(raw string) (ingestion.TokenClaims, error)
 }
 
 // uploadAuditWriter is the audit boundary used by the upload handler.
@@ -282,4 +317,139 @@ func strPtrIfNonEmpty(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// uploadArchiveHandler returns the GET /v1/uploads/{id}/archive handler.
+//
+// Authenticated via a short-lived HS256 JWT (scope=download-upload), NOT the
+// user bearer token. The handler:
+//  1. Verifies the JWT (signer enforces HS256, audience, issuer, scope, expiry, subject↔upload_id consistency).
+//  2. Cross-checks the JWT's UploadID against the {id} URL param.
+//  3. Looks up the Upload row scoped by JWT.TeamID; treats cross-team as 404.
+//  4. Refuses 'expired' / 'gc''d' rows.
+//  5. Streams the archive bytes with the recorded ArchiveFormat as Content-Type.
+//  6. Audits app_source.upload.archive_downloaded on success.
+//
+// nil tokenSigner / nil archive store → route is not registered (mirrors T8 nil-guard).
+func uploadArchiveHandler(store uploadArchiveStore, archive archiveReader, signer archiveTokenVerifier, auditSvc uploadAuditWriter) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		urlID := chi.URLParam(r, "id")
+
+		rawAuth := r.Header.Get("Authorization")
+		if !strings.HasPrefix(rawAuth, "Bearer ") {
+			apperror.Write(w, "unauthorized", apperror.ClassUnauthorized, "missing bearer token", nil)
+			return
+		}
+		tokenStr := strings.TrimPrefix(rawAuth, "Bearer ")
+
+		claims, err := signer.Verify(tokenStr)
+		if err != nil {
+			switch {
+			case errors.Is(err, ingestion.ErrTokenExpired):
+				apperror.Write(w, "unauthorized", apperror.ClassUnauthorized, "token expired", nil)
+			case errors.Is(err, ingestion.ErrTokenScopeMismatch):
+				apperror.Write(w, "forbidden", apperror.ClassForbidden, "token scope mismatch", nil)
+			default:
+				apperror.Write(w, "unauthorized", apperror.ClassUnauthorized, "invalid token", nil)
+			}
+			return
+		}
+
+		if claims.UploadID != urlID {
+			apperror.Write(w, "forbidden", apperror.ClassForbidden, "token does not match upload", nil)
+			return
+		}
+
+		upload, err := store.GetUpload(ctx, claims.TeamID, urlID)
+		if err != nil {
+			if errors.Is(err, db.ErrUploadNotFound) {
+				apperror.Write(w, apperror.CodeSourceNotFound, apperror.ClassNotFound, "upload not found", nil)
+				return
+			}
+			apperror.Write(w, "internal_error", apperror.ClassInternal, "lookup failed", nil)
+			return
+		}
+
+		// Status gate. Allowed: 'received' and 'pinned'. Anything else (expired/gc'd) → 404 source_expired.
+		// (apperror.Class has no 410; spec §14 lists "410 source_expired" but we
+		//  map to 404 to fit the existing Class taxonomy. T20 may add a 410 Class.)
+		switch upload.Status {
+		case "received", "pinned":
+			// continue
+		default:
+			apperror.Write(w, apperror.CodeSourceExpired, apperror.ClassNotFound, "upload no longer available", nil)
+			return
+		}
+
+		rc, err := archive.Archive(ctx, upload.TeamID, upload.ID)
+		if err != nil {
+			if auditSvc != nil {
+				_ = logArchiveFailedAudit(ctx, auditSvc, upload)
+			}
+			apperror.Write(w, "internal_error", apperror.ClassInternal, "archive read failed", nil)
+			return
+		}
+		defer rc.Close()
+
+		contentType := "application/zstd"
+		if upload.ArchiveFormat == "tar.gz" {
+			contentType = "application/gzip"
+		}
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Content-Length", strconv.FormatInt(upload.SizeBytes, 10))
+		w.WriteHeader(http.StatusOK)
+
+		if _, err := io.Copy(w, rc); err != nil {
+			// Client disconnect mid-stream is common; do not error-log noisily.
+			slog.Debug("uploads: archive stream truncated", "upload", upload.ID, "err", err)
+			return
+		}
+
+		if auditSvc != nil {
+			httpStatus := http.StatusOK
+			subjID := upload.ID
+			result := map[string]any{
+				"size_bytes": upload.SizeBytes,
+			}
+			if claims.DeployRunID != "" {
+				result["deploy_run_id"] = claims.DeployRunID
+			}
+			entry := audit.Entry{
+				TeamID:      upload.TeamID,
+				ActorUserID: nil, // workflow has no user actor
+				Source:      audit.SourceSystem,
+				SubjectType: "upload",
+				SubjectID:   &subjID,
+				Action:      "app_source.upload.archive_downloaded",
+				Args:        nil,
+				Result:      result,
+				Outcome:     audit.OutcomeSuccess,
+				HTTPStatus:  &httpStatus,
+			}
+			if err := auditSvc.Log(ctx, entry); err != nil {
+				slog.Warn("uploads: archive download audit log failed",
+					"team", upload.TeamID, "upload", upload.ID, "err", err)
+			}
+		}
+	}
+}
+
+// logArchiveFailedAudit writes an audit entry for archive read failures
+// (file missing on disk despite DB row existing).
+func logArchiveFailedAudit(ctx context.Context, auditSvc uploadAuditWriter, upload db.Upload) error {
+	subjID := upload.ID
+	httpStatus := http.StatusInternalServerError
+	return auditSvc.Log(ctx, audit.Entry{
+		TeamID:      upload.TeamID,
+		ActorUserID: nil,
+		Source:      audit.SourceSystem,
+		SubjectType: "upload",
+		SubjectID:   &subjID,
+		Action:      "app_source.upload.archive_downloaded",
+		Args:        nil,
+		Result:      nil,
+		Outcome:     audit.OutcomeFailure,
+		HTTPStatus:  &httpStatus,
+	})
 }

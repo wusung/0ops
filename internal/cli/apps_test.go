@@ -356,6 +356,11 @@ func (f *cliFakeStore) GetOrCreateUserAndPersonalTeam(ctx context.Context, githu
 // InsertUpload satisfies the extended appsStore interface (M6.8).
 func (f *cliFakeStore) InsertUpload(_ context.Context, _ db.Upload) error { return nil }
 
+// GetUpload satisfies the extended appsStore interface (M6.9).
+func (f *cliFakeStore) GetUpload(_ context.Context, _, _ string) (db.Upload, error) {
+	return db.Upload{}, db.ErrUploadNotFound
+}
+
 func TestAppsListCommand(t *testing.T) {
 	store, token := newCLIFakeStore()
 	srv := httptest.NewServer(serverpkg.NewRouter(store))
