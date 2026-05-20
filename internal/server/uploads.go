@@ -45,6 +45,12 @@ type uploadAuditWriter interface {
 // time (T13) extends the deadline to deploy_run.terminal_at + 7d.
 const uploadInertTTL = 24 * time.Hour
 
+// maxMultipartParts limits the number of multipart parts the upload handler
+// will process. The protocol only needs two (sha256 + archive); the cap
+// guards against an attacker streaming thousands of unknown parts to exhaust
+// goroutine time.
+const maxMultipartParts = 10
+
 // errUnrecognizedFormat is the package-local sentinel returned by
 // detectArchiveFormat when the leading magic bytes don't match any
 // supported archive container. writeIngestError matches via errors.Is.
@@ -92,6 +98,10 @@ func uploadHandler(uploadStore uploadsStore, ingest ingestionStore, auditSvc upl
 		ctx := r.Context()
 		teamID := auth.TeamID(ctx)
 		actorUserID := auth.ActorUserID(ctx)
+		if actorUserID == "" {
+			apperror.Write(w, "unauthorized", apperror.ClassUnauthorized, "missing actor identity", nil)
+			return
+		}
 
 		mr, err := r.MultipartReader()
 		if err != nil {
@@ -109,6 +119,7 @@ func uploadHandler(uploadStore uploadsStore, ingest ingestionStore, auditSvc upl
 		var stored ingestion.Stored
 		var format string
 		archiveReceived := false
+		partCount := 0
 
 		for {
 			part, err := mr.NextPart()
@@ -117,6 +128,12 @@ func uploadHandler(uploadStore uploadsStore, ingest ingestionStore, auditSvc upl
 			}
 			if err != nil {
 				apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "malformed multipart payload", nil)
+				return
+			}
+			partCount++
+			if partCount > maxMultipartParts {
+				_ = part.Close()
+				apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "too many multipart parts", nil)
 				return
 			}
 
@@ -128,6 +145,11 @@ func uploadHandler(uploadStore uploadsStore, ingest ingestionStore, auditSvc upl
 				_ = part.Close()
 
 			case "archive":
+				if archiveReceived {
+					_ = part.Close()
+					apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "duplicate archive part", nil)
+					return
+				}
 				stored, format, err = streamArchivePart(ctx, ingest, teamID, uploadID, part)
 				_ = part.Close()
 				if err != nil {

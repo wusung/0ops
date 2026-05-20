@@ -571,3 +571,108 @@ func TestUploadsPostSHA256MatchPassthrough(t *testing.T) {
 		t.Fatalf("second request status = %d; body: %s", resp2.StatusCode, raw)
 	}
 }
+
+func TestUploadsPostRejectsTooManyParts(t *testing.T) {
+	// Multipart body with more than maxMultipartParts parts.
+	// The handler must reject with 400 validation_failed before finishing the loop.
+	fi := &fakeIngest{}
+	srv, token, store := newUploadRouter(t, fi, nil)
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	// Write maxMultipartParts+1 noise fields — exceeds the cap.
+	for i := 0; i < maxMultipartParts+1; i++ {
+		f, err := mw.CreateFormField(fmt.Sprintf("noise%d", i))
+		if err != nil {
+			t.Fatalf("create noise field: %v", err)
+		}
+		if _, err := f.Write([]byte("x")); err != nil {
+			t.Fatalf("write noise field: %v", err)
+		}
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/teams/"+store.team.Slug+"/uploads", &buf)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 400; body: %s", resp.StatusCode, raw)
+	}
+	var errBody map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&errBody)
+	code, _ := errBody["error"].(map[string]any)["code"].(string)
+	if code != "validation_failed" {
+		t.Errorf("error code = %q, want validation_failed", code)
+	}
+	msg, _ := errBody["error"].(map[string]any)["message"].(string)
+	if !strings.Contains(msg, "too many multipart parts") {
+		t.Errorf("error message = %q, want to contain 'too many multipart parts'", msg)
+	}
+}
+
+func TestUploadsPostRejectsDuplicateArchive(t *testing.T) {
+	// Multipart body with two "archive" parts — handler must reject the second.
+	archive := makeTarZst(t, "dup.txt", "duplicate")
+	fi := &fakeIngest{}
+	srv, token, store := newUploadRouter(t, fi, nil)
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+
+	// Write archive part once.
+	pw1, err := mw.CreateFormFile("archive", "app.tar.zst")
+	if err != nil {
+		t.Fatalf("create first archive part: %v", err)
+	}
+	if _, err := pw1.Write(archive); err != nil {
+		t.Fatalf("write first archive: %v", err)
+	}
+
+	// Write archive part a second time.
+	pw2, err := mw.CreateFormFile("archive", "app2.tar.zst")
+	if err != nil {
+		t.Fatalf("create second archive part: %v", err)
+	}
+	if _, err := pw2.Write(archive); err != nil {
+		t.Fatalf("write second archive: %v", err)
+	}
+
+	if err := mw.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/teams/"+store.team.Slug+"/uploads", &buf)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 400; body: %s", resp.StatusCode, raw)
+	}
+	var errBody map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&errBody)
+	code, _ := errBody["error"].(map[string]any)["code"].(string)
+	if code != "validation_failed" {
+		t.Errorf("error code = %q, want validation_failed", code)
+	}
+	msg, _ := errBody["error"].(map[string]any)["message"].(string)
+	if !strings.Contains(msg, "duplicate archive part") {
+		t.Errorf("error message = %q, want to contain 'duplicate archive part'", msg)
+	}
+}
