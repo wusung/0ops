@@ -410,7 +410,7 @@ func previewCreateAppHandler(store appsStore) http.HandlerFunc {
 	}
 }
 
-func createAppHandler(store appsStore, k3sClient infraK3sClient, cfClient infraCloudflareClient) http.HandlerFunc {
+func createAppHandler(store appsStore, k3sClient infraK3sClient, cfClient infraCloudflareClient, inspector createappsvc.Inspector) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		outcome := "error"
 		idempotentReplay := false
@@ -420,7 +420,7 @@ func createAppHandler(store appsStore, k3sClient infraK3sClient, cfClient infraC
 		if !decodeJSON(w, r, &req) {
 			return
 		}
-		service := createappsvc.New(store, k3sClient, cfClient, newGitOpsService(), newWorkflowDispatchClient(store), newWorkflowDispatchTokenSigner(), callbackBaseURL())
+		service := createappsvc.New(store, k3sClient, cfClient, newGitOpsService(), newWorkflowDispatchClient(store), newWorkflowDispatchTokenSigner(), callbackBaseURL()).WithInspector(inspector)
 		confirmResult, err := service.Confirm(
 			r.Context(),
 			auth.TeamID(r.Context()),
@@ -1351,6 +1351,21 @@ func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient 
 		rateLimitFn = ratelimit.NewMiddleware(limiter, observer).Handler
 	}
 
+	// Build the Inspector chain for createAppHandler (T12).
+	// uploadInspector is nil when uploadIngest is nil (non-ingestion router
+	// constructors), making createApp fall back to the legacy github-only path.
+	var uploadInspector createappsvc.Inspector
+	if uploadIngest != nil {
+		uploadInspector = createappsvc.NewInspector(
+			nil, // github inspector — wired by T13/T14 if needed
+			createappsvc.LocalInspector{},
+			createappsvc.UploadInspector{
+				Repo:  store,         // routerStore.GetUpload satisfies uploadInspectStore
+				Store: uploadIngest,  // ingestionStoreFull.Open satisfies uploadArchiveReader
+			},
+		)
+	}
+
 	r := chi.NewRouter()
 	r.Post("/v1/admin/bootstrap-owner", bootstrapOwnerHandler(store))
 	r.Post("/internal/deploy-runs/{run_id}/callback", deployRunCallbackHandler(store))
@@ -1403,7 +1418,7 @@ func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient 
 		}).Post("/apps:preview", previewCreateAppHandler(store))
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionCreateApp, next)
-		}).Post("/apps", createAppHandler(store, k3sClient, cfClient))
+		}).Post("/apps", createAppHandler(store, k3sClient, cfClient, uploadInspector))
 		if uploadIngest != nil {
 			sr.With(func(next http.Handler) http.Handler {
 				return mw.CheckTokenScope(rbac.ActionCreateUpload, next)

@@ -80,6 +80,11 @@ type Service struct {
 	callbackBaseURL string
 	planTier        string
 	now             func() time.Time
+
+	// inspector resolves repo metadata for a Source / repoURL. nil is allowed
+	// for backward compatibility with callers that don't yet have a router
+	// wired (test fakes, the legacy redeploy path). T13/T14 consume this field.
+	inspector Inspector
 }
 
 // ConfirmResult is the durable create_app response plus replay metadata.
@@ -89,7 +94,8 @@ type ConfirmResult struct {
 	PreviewCreatedAt time.Time
 }
 
-// New returns a create_app orchestration service.
+// New returns a create_app orchestration service with no inspector.
+// Use WithInspector to install one for upload/file source dispatch.
 func New(store Store, k3sClient K3sClient, cfClient CloudflareClient, gitops gitopssvc.Service, dispatcher Dispatcher, tokenSigner OpsTokenSigner, callbackBaseURL string) *Service {
 	return &Service{
 		store:           store,
@@ -102,6 +108,20 @@ func New(store Store, k3sClient K3sClient, cfClient CloudflareClient, gitops git
 		planTier:        "free",
 		now:             time.Now,
 	}
+}
+
+// WithInspector installs the Inspector router used by T13/T14 to dispatch
+// upload/file/github sources. Returns the receiver for chained construction.
+func (s *Service) WithInspector(insp Inspector) *Service {
+	s.inspector = insp
+	return s
+}
+
+// Inspector returns the Service's installed Inspector, or nil if not wired.
+// Exposed for orchestration / dispatcher wire-up; callers should NOT call
+// Inspect directly through this — go through the planned T13/T14 paths.
+func (s *Service) Inspector() Inspector {
+	return s.inspector
 }
 
 // Confirm executes the create_app confirm flow for a validated preview.

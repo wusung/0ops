@@ -54,12 +54,20 @@ type archiveReader interface {
 	Archive(ctx context.Context, teamID, uploadID string) (io.ReadCloser, error)
 }
 
-// ingestionStoreFull embeds both write and read paths. The router
-// constructor takes this so it can feed the same *ingestion.Store to both
-// the upload handler (PUT path) and the archive download handler (GET path).
+// ingestionReadOpener provides the file-tree open path used by UploadInspector.
+// Production = *ingestion.Store (T6). Tests substitute an in-memory fake.
+type ingestionReadOpener interface {
+	Open(ctx context.Context, teamID, uploadID, relPath string) (io.ReadCloser, error)
+}
+
+// ingestionStoreFull embeds write, archive-read, and file-open paths. The
+// router constructor takes this so it can feed the same *ingestion.Store to
+// the upload handler (PUT path), the archive download handler (GET path), and
+// the UploadInspector (Open path, T12).
 type ingestionStoreFull interface {
 	ingestionWriter
 	archiveReader
+	ingestionReadOpener
 }
 
 // archiveTokenVerifier verifies short-lived JWTs from the GHA build workflow.

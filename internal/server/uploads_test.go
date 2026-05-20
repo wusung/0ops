@@ -188,6 +188,12 @@ func (f *fakeIngestFull) Archive(_ context.Context, teamID, uploadID string) (io
 	return io.NopCloser(bytes.NewReader(data)), nil
 }
 
+// Open satisfies ingestionReadOpener (widened in T12). Returns ErrUploadNotFound
+// for all paths — fakeIngestFull tests don't exercise the Open path.
+func (f *fakeIngestFull) Open(_ context.Context, _, _, _ string) (io.ReadCloser, error) {
+	return nil, ingestion.ErrUploadNotFound
+}
+
 // fakeArchiveReader is a standalone archiveReader fake used for archive tests.
 type fakeArchiveReader struct {
 	contents map[string][]byte // key: teamID+"/"+uploadID
@@ -204,6 +210,12 @@ func (f *fakeArchiveReader) Archive(_ context.Context, teamID, uploadID string) 
 		return nil, ingestion.ErrUploadNotFound
 	}
 	return io.NopCloser(bytes.NewReader(data)), nil
+}
+
+// Open satisfies ingestionReadOpener (widened in T12). Returns ErrUploadNotFound
+// for all paths — archive reader tests don't exercise the Open path.
+func (f *fakeArchiveReader) Open(_ context.Context, _, _, _ string) (io.ReadCloser, error) {
+	return nil, ingestion.ErrUploadNotFound
 }
 
 // newUploadRouter wires a Router+fakeStore pair for upload handler tests.
