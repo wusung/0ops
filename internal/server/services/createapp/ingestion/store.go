@@ -32,6 +32,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -114,13 +115,13 @@ func (s *Store) Put(ctx context.Context, teamID, uploadID string, r io.Reader, f
 		return Stored{}, fmt.Errorf("create tree dir: %w", err)
 	}
 
-	archiveTmp := filepath.Join(uploadDir, "_archive."+format+".tmp")
 	archiveFinal := filepath.Join(uploadDir, "_archive."+format)
 
-	archiveFile, err := os.OpenFile(archiveTmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	archiveFile, err := os.CreateTemp(uploadDir, "_archive."+format+".tmp.*")
 	if err != nil {
-		return Stored{}, fmt.Errorf("open archive tmp: %w", err)
+		return Stored{}, fmt.Errorf("create archive tmp: %w", err)
 	}
+	archiveTmp := archiveFile.Name()
 
 	// Clean up the tmp file on failure; ignore close errors on happy path.
 	tmpRemoved := false
@@ -166,6 +167,8 @@ func (s *Store) Put(ctx context.Context, teamID, uploadID string, r io.Reader, f
 
 	entryCount, err := s.extractTar(ctx, dec, treeDir)
 	if err != nil {
+		// Wipe partial tree so retry starts clean.
+		_ = os.RemoveAll(treeDir)
 		return Stored{}, err
 	}
 
@@ -187,7 +190,10 @@ func (s *Store) Put(ctx context.Context, teamID, uploadID string, r io.Reader, f
 	if err := s.writeMeta(uploadDir, stored); err != nil {
 		// Non-fatal: metadata write failure should not abort the upload.
 		// The archive and tree are already written.
-		_ = err
+		slog.Warn("ingestion: writeMeta failed",
+			"team", teamID,
+			"upload", uploadID,
+			"err", err)
 	}
 
 	return stored, nil
@@ -442,6 +448,14 @@ func (s *Store) extractTar(ctx context.Context, dec io.Reader, treeDir string) (
 // writeSymlink creates a symlink at treeDir/name → linkTarget, after verifying
 // that the resolved target stays within treeDir.
 func (s *Store) writeSymlink(treeDir, name, linkTarget string) error {
+	// Reject absolute symlink targets immediately — os.Symlink writes the target
+	// verbatim, so an absolute target (e.g. "/etc/passwd") would be planted on
+	// disk pointing directly outside the sandbox regardless of where filepath.Join
+	// resolves the path.
+	if filepath.IsAbs(linkTarget) {
+		return fmt.Errorf("symlink %q → %q: %w", name, linkTarget, ErrPathEscape)
+	}
+
 	// Resolve where the symlink would point relative to its directory inside the tree.
 	symlinkDir := filepath.Dir(filepath.Join(treeDir, name))
 	resolved := filepath.Join(symlinkDir, linkTarget)

@@ -221,6 +221,26 @@ func TestStore_Put_RejectsSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestStore_Put_RejectsSymlinkAbsoluteTarget(t *testing.T) {
+	root := t.TempDir()
+	s := &Store{
+		Root:            root,
+		MaxArchiveBytes: 1 << 20,
+		MaxEntryBytes:   1 << 20,
+		MaxEntries:      10,
+	}
+	archive := syntheticTarZstWithSymlink(t, "evil", "/etc/passwd")
+	_, err := s.Put(context.Background(), "team_a", "upl_x", bytes.NewReader(archive), "tar.zst")
+	if !errors.Is(err, ErrPathEscape) {
+		t.Fatalf("expected ErrPathEscape, got %v", err)
+	}
+	// Verify the symlink was NOT created on disk.
+	linkPath := filepath.Join(root, "team_a", "upl_x", "tree", "evil")
+	if _, statErr := os.Lstat(linkPath); statErr == nil {
+		t.Fatalf("symlink to /etc/passwd was created on disk; absolute-target check failed")
+	}
+}
+
 func TestStore_Put_AcceptsInTreeSymlink(t *testing.T) {
 	s := newStore(t)
 	// First create the regular file, then a symlink pointing to it.
@@ -648,5 +668,81 @@ func TestStore_Put_ContextCancelled(t *testing.T) {
 		// with a cancelled context we expect an error eventually. If the archive
 		// is small enough to finish first, that's acceptable — just log.
 		t.Log("Put completed despite cancelled context (archive too small to trigger mid-extraction check)")
+	}
+}
+
+// syntheticTarZstOrdered builds a tar.zst from entries in the given order.
+// Unlike syntheticTarZst (map-based), this guarantees deterministic entry ordering.
+type tarEntry struct{ name, body string }
+
+func syntheticTarZstOrdered(t *testing.T, entries []tarEntry) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	enc, err := zstd.NewWriter(&buf)
+	if err != nil {
+		t.Fatalf("zstd writer: %v", err)
+	}
+	tw := tar.NewWriter(enc)
+	for _, e := range entries {
+		if err := tw.WriteHeader(&tar.Header{
+			Name:     e.name,
+			Mode:     0644,
+			Size:     int64(len(e.body)),
+			Typeflag: tar.TypeReg,
+		}); err != nil {
+			t.Fatalf("tar header %q: %v", e.name, err)
+		}
+		if _, err := tw.Write([]byte(e.body)); err != nil {
+			t.Fatalf("tar body %q: %v", e.name, err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("tar close: %v", err)
+	}
+	if err := enc.Close(); err != nil {
+		t.Fatalf("zstd close: %v", err)
+	}
+	return buf.Bytes()
+}
+
+func TestStore_Put_RetryAfterExtractionFailureProducesCleanTree(t *testing.T) {
+	root := t.TempDir()
+	s := &Store{Root: root, MaxArchiveBytes: 1 << 20, MaxEntryBytes: 1 << 20, MaxEntries: 10}
+
+	// First Put: deterministically ordered — good-file.txt is written first,
+	// then ../escape.txt triggers ErrPathEscape. This guarantees a partial tree
+	// exists before the error so the cleanup path is exercised.
+	bad := syntheticTarZstOrdered(t, []tarEntry{
+		{"good-file.txt", "hello"},
+		{"../escape.txt", "evil"},
+	})
+	_, err := s.Put(context.Background(), "team_a", "upl_x", bytes.NewReader(bad), "tar.zst")
+	if !errors.Is(err, ErrPathEscape) {
+		t.Fatalf("expected ErrPathEscape from first Put, got %v", err)
+	}
+
+	// Tree directory should NOT exist after partial-tree cleanup.
+	treeDir := filepath.Join(root, "team_a", "upl_x", "tree")
+	if _, statErr := os.Stat(treeDir); statErr == nil {
+		t.Fatalf("treeDir still exists after failed Put; partial cleanup did not run")
+	}
+
+	// Second Put: clean archive must succeed and produce only its own files.
+	good := syntheticTarZstOrdered(t, []tarEntry{
+		{"main.js", "console.log('hi')"},
+	})
+	_, err = s.Put(context.Background(), "team_a", "upl_x", bytes.NewReader(good), "tar.zst")
+	if err != nil {
+		t.Fatalf("retry Put failed: %v", err)
+	}
+
+	// Orphan from the failed first attempt must NOT be present.
+	if _, statErr := os.Stat(filepath.Join(treeDir, "good-file.txt")); statErr == nil {
+		t.Fatalf("orphan good-file.txt from failed first Put still present after retry")
+	}
+
+	// The file from the successful second Put must exist.
+	if _, statErr := os.Stat(filepath.Join(treeDir, "main.js")); statErr != nil {
+		t.Fatalf("main.js from successful retry Put not found: %v", statErr)
 	}
 }
