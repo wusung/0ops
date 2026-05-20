@@ -13,6 +13,12 @@ import (
 	"github.com/winshare/zeroops/internal/shared/dto"
 )
 
+type fakePinCall struct {
+	teamID    string
+	uploadID  string
+	expiresAt time.Time
+}
+
 type fakeStore struct {
 	preview      db.Preview
 	app          db.App
@@ -20,6 +26,8 @@ type fakeStore struct {
 	deleteCalls  int
 	deletedAppID string
 	consumeArgs  []json.RawMessage
+	pinCalls     []fakePinCall
+	pinErr       error
 }
 
 func (f *fakeStore) GetTeamAppBySlug(context.Context, string, string) (db.App, error) {
@@ -62,6 +70,11 @@ func (f *fakeStore) DeleteAppByID(_ context.Context, appID string) error {
 	f.deleteCalls++
 	f.deletedAppID = appID
 	return nil
+}
+
+func (f *fakeStore) PinUpload(_ context.Context, teamID, id string, expiresAt time.Time) error {
+	f.pinCalls = append(f.pinCalls, fakePinCall{teamID, id, expiresAt})
+	return f.pinErr
 }
 
 type noopK3s struct{}
@@ -359,6 +372,213 @@ func mustJSON(t *testing.T, v any) json.RawMessage {
 		t.Fatalf("marshal: %v", err)
 	}
 	return b
+}
+
+// TestConfirm_PinsUploadOnSuccess verifies that a successful confirm with an
+// upload-source payload calls PinUpload exactly once with the correct args.
+func TestConfirm_PinsUploadOnSuccess(t *testing.T) {
+	now := time.Now().UTC()
+	fixedNow := now
+	store := &fakeStore{
+		preview: db.Preview{
+			ID:          "preview-1",
+			TeamID:      "team-1",
+			ActorUserID: "user-1",
+			Action:      previewAction,
+			Args: mustJSON(t, dto.AppCreateRequest{
+				Slug: "nextdemo",
+				Source: &dto.Source{
+					Type:   dto.SourceKindUpload,
+					Upload: &dto.SourceUpload{UploadID: "upl_x"},
+				},
+			}),
+			ExpiresAt: now.Add(10 * time.Minute),
+		},
+	}
+
+	svc := New(store, noopK3s{}, noopCF{}, nil, nil, nil, "")
+	svc.now = func() time.Time { return fixedNow }
+	result, err := svc.Confirm(context.Background(), "team-1", "user-1", "team-slug", "preview-1", "trace-1")
+	if err != nil {
+		t.Fatalf("Confirm() error = %v", err)
+	}
+	if result.Replayed {
+		t.Fatal("expected fresh result, not replay")
+	}
+	if len(store.pinCalls) != 1 {
+		t.Fatalf("PinUpload calls = %d, want 1", len(store.pinCalls))
+	}
+	got := store.pinCalls[0]
+	if got.teamID != "team-1" {
+		t.Fatalf("pin teamID = %q, want team-1", got.teamID)
+	}
+	if got.uploadID != "upl_x" {
+		t.Fatalf("pin uploadID = %q, want upl_x", got.uploadID)
+	}
+	wantExpiry := fixedNow.UTC().Add(uploadPinTTL)
+	if !got.expiresAt.Equal(wantExpiry) {
+		t.Fatalf("pin expiresAt = %v, want %v", got.expiresAt, wantExpiry)
+	}
+}
+
+// TestConfirm_NoPinForGitHubSource verifies that a GitHub-source confirm
+// does NOT call PinUpload.
+func TestConfirm_NoPinForGitHubSource(t *testing.T) {
+	now := time.Now().UTC()
+	store := &fakeStore{
+		preview: db.Preview{
+			ID:          "preview-1",
+			TeamID:      "team-1",
+			ActorUserID: "user-1",
+			Action:      previewAction,
+			Args: mustJSON(t, dto.AppCreateRequest{
+				Slug: "nextdemo",
+				Source: &dto.Source{
+					Type:   dto.SourceKindGitHub,
+					GitHub: &dto.SourceGitHub{URL: "https://github.com/example/nextdemo", Ref: "main"},
+				},
+			}),
+			ExpiresAt: now.Add(10 * time.Minute),
+		},
+	}
+
+	svc := New(store, noopK3s{}, noopCF{}, nil, nil, nil, "")
+	_, err := svc.Confirm(context.Background(), "team-1", "user-1", "team-slug", "preview-1", "trace-1")
+	if err != nil {
+		t.Fatalf("Confirm() error = %v", err)
+	}
+	if len(store.pinCalls) != 0 {
+		t.Fatalf("PinUpload calls = %d, want 0 for github source", len(store.pinCalls))
+	}
+}
+
+// TestConfirm_NoPinForLegacyRepoURL verifies that a legacy repo_url confirm
+// (Source=nil) does NOT call PinUpload.
+func TestConfirm_NoPinForLegacyRepoURL(t *testing.T) {
+	now := time.Now().UTC()
+	store := &fakeStore{
+		preview: db.Preview{
+			ID:          "preview-1",
+			TeamID:      "team-1",
+			ActorUserID: "user-1",
+			Action:      previewAction,
+			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", RepoURL: "https://github.com/example/nextdemo", Ref: "main"}),
+			ExpiresAt:   now.Add(10 * time.Minute),
+		},
+	}
+
+	svc := New(store, noopK3s{}, noopCF{}, nil, nil, nil, "")
+	_, err := svc.Confirm(context.Background(), "team-1", "user-1", "team-slug", "preview-1", "trace-1")
+	if err != nil {
+		t.Fatalf("Confirm() error = %v", err)
+	}
+	if len(store.pinCalls) != 0 {
+		t.Fatalf("PinUpload calls = %d, want 0 for legacy repo_url", len(store.pinCalls))
+	}
+}
+
+// TestConfirm_PinFailureDoesNotRollback verifies that a PinUpload failure
+// does NOT cause the confirm to fail — the deploy_run continues and the
+// response is returned normally.
+func TestConfirm_PinFailureDoesNotRollback(t *testing.T) {
+	now := time.Now().UTC()
+	store := &fakeStore{
+		preview: db.Preview{
+			ID:          "preview-1",
+			TeamID:      "team-1",
+			ActorUserID: "user-1",
+			Action:      previewAction,
+			Args: mustJSON(t, dto.AppCreateRequest{
+				Slug: "nextdemo",
+				Source: &dto.Source{
+					Type:   dto.SourceKindUpload,
+					Upload: &dto.SourceUpload{UploadID: "upl_fail"},
+				},
+			}),
+			ExpiresAt: now.Add(10 * time.Minute),
+		},
+		pinErr: errors.New("simulated db down"),
+	}
+
+	svc := New(store, noopK3s{}, noopCF{}, nil, nil, nil, "")
+	result, err := svc.Confirm(context.Background(), "team-1", "user-1", "team-slug", "preview-1", "trace-1")
+	if err != nil {
+		t.Fatalf("Confirm() must succeed despite pin failure, got error = %v", err)
+	}
+	if result.Response.DeployRunID == "" {
+		t.Fatal("expected non-empty DeployRunID in response")
+	}
+	if store.createCalls != 1 {
+		t.Fatalf("CreateApp calls = %d, want 1", store.createCalls)
+	}
+	if store.deleteCalls != 0 {
+		t.Fatalf("DeleteAppByID calls = %d, want 0 (no rollback)", store.deleteCalls)
+	}
+	if len(store.pinCalls) != 1 {
+		t.Fatalf("PinUpload calls = %d, want 1 (attempted despite failure)", len(store.pinCalls))
+	}
+}
+
+// TestValidateRequest_AcceptsSourceUploadOnly verifies that a request with
+// Source set to upload and an empty RepoURL passes validation.
+func TestValidateRequest_AcceptsSourceUploadOnly(t *testing.T) {
+	req := dto.AppCreateRequest{
+		Slug: "nextdemo",
+		Source: &dto.Source{
+			Type:   dto.SourceKindUpload,
+			Upload: &dto.SourceUpload{UploadID: "upl_abc"},
+		},
+	}
+	if err := validateRequest(req); err != nil {
+		t.Fatalf("validateRequest() error = %v, want nil", err)
+	}
+}
+
+// TestValidateRequest_AcceptsSourceGitHub verifies that a request with
+// Source set to github passes validation.
+func TestValidateRequest_AcceptsSourceGitHub(t *testing.T) {
+	req := dto.AppCreateRequest{
+		Slug: "nextdemo",
+		Source: &dto.Source{
+			Type:   dto.SourceKindGitHub,
+			GitHub: &dto.SourceGitHub{URL: "https://github.com/example/nextdemo", Ref: "main"},
+		},
+	}
+	if err := validateRequest(req); err != nil {
+		t.Fatalf("validateRequest() error = %v, want nil", err)
+	}
+}
+
+// TestValidateRequest_RejectsSourceInvalid verifies that a github source with
+// a nil GitHub payload fails validation.
+func TestValidateRequest_RejectsSourceInvalid(t *testing.T) {
+	req := dto.AppCreateRequest{
+		Slug: "nextdemo",
+		Source: &dto.Source{
+			Type:   dto.SourceKindGitHub,
+			GitHub: nil,
+		},
+	}
+	err := validateRequest(req)
+	if err == nil {
+		t.Fatal("validateRequest() error = nil, want github source incomplete")
+	}
+	if err.Error() != "github source incomplete" {
+		t.Fatalf("err = %q, want %q", err.Error(), "github source incomplete")
+	}
+}
+
+// TestValidateRequest_AcceptsLegacyRepoURL verifies that the legacy
+// repo_url + ref path still passes when Source is nil.
+func TestValidateRequest_AcceptsLegacyRepoURL(t *testing.T) {
+	req := dto.AppCreateRequest{
+		Slug:    "nextdemo",
+		RepoURL: "https://github.com/example/nextdemo",
+		Ref:     "main",
+	}
+	if err := validateRequest(req); err != nil {
+		t.Fatalf("validateRequest() error = %v, want nil", err)
+	}
 }
 
 // fakeRecordingInspector is a minimal Inspector stub that records calls.

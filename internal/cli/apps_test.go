@@ -361,6 +361,9 @@ func (f *cliFakeStore) GetUpload(_ context.Context, _, _ string) (db.Upload, err
 	return db.Upload{}, db.ErrUploadNotFound
 }
 
+// PinUpload satisfies the extended appsStore interface (M6.13).
+func (f *cliFakeStore) PinUpload(_ context.Context, _, _ string, _ time.Time) error { return nil }
+
 func TestAppsListCommand(t *testing.T) {
 	store, token := newCLIFakeStore()
 	srv := httptest.NewServer(serverpkg.NewRouter(store))

@@ -1499,6 +1499,9 @@ func (f *fakeStore) seedUpload(u db.Upload) {
 	f.uploadRows = append(f.uploadRows, u)
 }
 
+// PinUpload satisfies the extended appsStore interface (M6.13).
+func (f *fakeStore) PinUpload(_ context.Context, _, _ string, _ time.Time) error { return nil }
+
 func newFakeStore() (*fakeStore, string) {
 	token, err := auth.NewBearerToken("device", "token-1")
 	if err != nil {
