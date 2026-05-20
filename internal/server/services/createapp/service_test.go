@@ -360,3 +360,42 @@ func mustJSON(t *testing.T, v any) json.RawMessage {
 	}
 	return b
 }
+
+// fakeRecordingInspector is a minimal Inspector stub that records calls.
+type fakeRecordingInspector struct {
+	calls    int
+	lastURL  string
+	lastRef  string
+	returnMd RepoMetadata
+	returnErr error
+}
+
+func (f *fakeRecordingInspector) Inspect(_ context.Context, repoURL, ref string) (RepoMetadata, error) {
+	f.calls++
+	f.lastURL = repoURL
+	f.lastRef = ref
+	return f.returnMd, f.returnErr
+}
+
+// TestService_InspectorWireUp verifies the builder pattern (T12).
+func TestService_InspectorWireUp(t *testing.T) {
+	// Default construction: inspector must be nil.
+	s := New(nil, nil, nil, nil, nil, nil, "")
+	if s.Inspector() != nil {
+		t.Fatalf("expected nil inspector by default, got %v", s.Inspector())
+	}
+
+	// WithInspector installs the inspector and returns the same receiver.
+	fake := &fakeRecordingInspector{}
+	s2 := New(nil, nil, nil, nil, nil, nil, "").WithInspector(fake)
+	if s2.Inspector() != fake {
+		t.Fatalf("expected installed inspector, got %v", s2.Inspector())
+	}
+
+	// WithInspector is chainable and returns the same pointer.
+	s3 := New(nil, nil, nil, nil, nil, nil, "")
+	got := s3.WithInspector(fake)
+	if got != s3 {
+		t.Fatal("WithInspector must return the receiver")
+	}
+}

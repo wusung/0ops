@@ -54,12 +54,28 @@ type archiveReader interface {
 	Archive(ctx context.Context, teamID, uploadID string) (io.ReadCloser, error)
 }
 
-// ingestionStoreFull embeds both write and read paths. The router
-// constructor takes this so it can feed the same *ingestion.Store to both
-// the upload handler (PUT path) and the archive download handler (GET path).
+// ingestionReadOpener exposes per-file read access on an ingest tree.
+// Production: *ingestion.Store (T6).
+//
+// Why this is separate from archiveReader: archiveReader.Archive returns
+// the full archive blob (consumed by T9's GET /v1/uploads/{id}/archive
+// handler), while Open returns a single file inside the extracted tree
+// (consumed by T10's UploadInspector to read package.json, .git/HEAD etc.).
+// They serve different consumers and have different cap semantics; keeping
+// them as separate one-method interfaces follows the existing ingestionWriter
+// / archiveReader decomposition pattern in this file.
+type ingestionReadOpener interface {
+	Open(ctx context.Context, teamID, uploadID, relPath string) (io.ReadCloser, error)
+}
+
+// ingestionStoreFull embeds write, archive-read, and file-open paths. The
+// router constructor takes this so it can feed the same *ingestion.Store to
+// the upload handler (PUT path), the archive download handler (GET path), and
+// the UploadInspector (Open path, T12).
 type ingestionStoreFull interface {
 	ingestionWriter
 	archiveReader
+	ingestionReadOpener
 }
 
 // archiveTokenVerifier verifies short-lived JWTs from the GHA build workflow.
