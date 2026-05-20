@@ -30,8 +30,13 @@ type TokenClaims struct {
 }
 
 // TokenSigner mints and verifies short-lived JWTs for the GHA upload-fetch
-// path. The TTL value applies to both signing (sets exp) and verifying
-// (zero-tolerance on expiry).
+// path. The TTL value applies to signing only (sets ExpiresAt); Verify does
+// not read TTL — token expiry is determined by the exp claim itself.
+//
+// TokenSigner is safe for concurrent use by multiple goroutines provided
+// Secret and TTL are not mutated after the signer is constructed. Callers
+// requiring secret rotation must construct a fresh TokenSigner rather than
+// modifying an existing one.
 type TokenSigner struct {
 	Secret []byte
 	TTL    time.Duration
@@ -48,12 +53,14 @@ var (
 	ErrTokenScopeMismatch = errors.New("token scope mismatch")
 )
 
+var errEmptySecret = errors.New("ingestion: token signer has empty secret")
+
 // Sign returns a signed token containing the supplied claims. The Scope
 // field on the input is ignored; the constant ScopeDownloadUpload is set
 // instead. IssuedAt and ExpiresAt are derived from s.TTL.
 func (s *TokenSigner) Sign(c TokenClaims) (string, error) {
 	if len(s.Secret) == 0 {
-		return "", errors.New("ingestion: token signer has empty secret")
+		return "", errEmptySecret
 	}
 	now := time.Now().UTC()
 	c.Scope = ScopeDownloadUpload // always forced
@@ -72,6 +79,9 @@ func (s *TokenSigner) Sign(c TokenClaims) (string, error) {
 // expiry, audience (gha-build), issuer (0ops), and scope (download-upload).
 // Returns the decoded claims on success.
 func (s *TokenSigner) Verify(raw string) (TokenClaims, error) {
+	if len(s.Secret) == 0 {
+		return TokenClaims{}, errEmptySecret
+	}
 	var claims TokenClaims
 	_, err := jwt.ParseWithClaims(raw, &claims,
 		func(t *jwt.Token) (any, error) {
@@ -95,6 +105,9 @@ func (s *TokenSigner) Verify(raw string) (TokenClaims, error) {
 	}
 	if claims.Scope != ScopeDownloadUpload {
 		return TokenClaims{}, ErrTokenScopeMismatch
+	}
+	if claims.Subject != subjectPrefix+claims.UploadID {
+		return TokenClaims{}, ErrTokenInvalid
 	}
 	return claims, nil
 }

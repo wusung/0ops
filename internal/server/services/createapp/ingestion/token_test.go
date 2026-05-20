@@ -199,3 +199,40 @@ func TestTokenSigner_SignFailsOnEmptySecret(t *testing.T) {
 		t.Fatalf("expected error signing with empty secret")
 	}
 }
+
+func TestTokenSigner_VerifyFailsOnEmptySecret(t *testing.T) {
+	// First mint a token with a real secret so we have something parseable.
+	real := &TokenSigner{Secret: []byte("real"), TTL: time.Hour}
+	tok, err := real.Sign(TokenClaims{TeamID: "t", UploadID: "u", DeployRunID: "r"})
+	if err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	// Then verify with an empty secret — must fail closed.
+	empty := &TokenSigner{Secret: nil, TTL: time.Hour}
+	_, err = empty.Verify(tok)
+	if err == nil {
+		t.Fatalf("Verify with empty secret must fail closed")
+	}
+}
+
+func TestTokenSigner_VerifyRejectsSubjectUploadIDMismatch(t *testing.T) {
+	s := []byte("s")
+	claims := TokenClaims{
+		TeamID: "t", UploadID: "actual-upload-id", DeployRunID: "r",
+		Scope: ScopeDownloadUpload,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    issuerOps,
+			Audience:  jwt.ClaimStrings{audienceGHA},
+			Subject:   subjectPrefix + "different-upload-id", // mismatch
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		},
+	}
+	raw, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(s)
+
+	signer := &TokenSigner{Secret: s, TTL: time.Hour}
+	_, err := signer.Verify(raw)
+	if !errors.Is(err, ErrTokenInvalid) {
+		t.Fatalf("expected ErrTokenInvalid on Subject/UploadID mismatch, got %v", err)
+	}
+}
