@@ -14,6 +14,7 @@ const (
 // Constructing a Source with both set or neither set is invalid and will be
 // rejected with HTTP 422.
 type Source struct {
+	// Type is the discriminator; must be SourceKindGitHub or SourceKindUpload.
 	Type   SourceKind    `json:"type"`
 	GitHub *SourceGitHub `json:"github,omitempty"`
 	Upload *SourceUpload `json:"upload,omitempty"`
@@ -31,6 +32,9 @@ type SourceGitHub struct {
 
 // SourceUpload references a pre-uploaded tarball by its upload ID.
 type SourceUpload struct {
+	// UploadID is the opaque identifier returned by POST /v1/uploads.
 	UploadID string `json:"upload_id"`
+	// Ref is an optional audit tag (branch / tag / version label) recorded for
+	// traceability. Unlike SourceGitHub.Ref it does not drive any build step.
 	Ref      string `json:"ref,omitempty"`
 }
