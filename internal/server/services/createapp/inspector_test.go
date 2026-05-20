@@ -6,7 +6,9 @@ import (
 	"testing"
 )
 
-// fakeInspectorRecord records Inspect call count and delegates to a stub result.
+// fakeInspectorRecord counts the number of Inspect calls; used to verify
+// router dispatch picked the right inspector. See stubInspector in
+// source_test.go for the URL/ref-recording variant.
 type fakeInspectorRecord struct {
 	calls  int
 	result RepoMetadata

@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/winshare/zeroops/internal/server/auth"
 	"github.com/winshare/zeroops/internal/server/db"
+	"github.com/winshare/zeroops/internal/server/services/createapp/ingestion"
 )
 
 // fakeUploadStore satisfies uploadInspectStore using an in-memory map.
@@ -24,6 +26,14 @@ func (f *fakeUploadStore) GetUpload(_ context.Context, team, id string) (db.Uplo
 }
 
 // fakeArchiveReader satisfies uploadArchiveReader using an in-memory map.
+// Open returns ingestion.ErrUploadNotFound when no files are registered under
+// the given team+uploadID prefix (simulating a GC'd tree), or a generic
+// "file not found" error when the tree exists but the specific file is absent
+// (simulating a live tree with no matching language marker). This mirrors the
+// real ingestion.Store, which distinguishes "tree directory missing" (returns
+// ErrUploadNotFound) from "file within tree missing" (also ErrUploadNotFound)
+// — the fake uses os.ErrNotExist for the latter to let detectPaketoUpload
+// discriminate the two cases.
 type fakeArchiveReader struct {
 	files map[string]string // key = team+"/"+id+"/"+relPath
 }
@@ -32,7 +42,17 @@ func (f *fakeArchiveReader) Open(_ context.Context, team, id, rel string) (io.Re
 	if body, ok := f.files[team+"/"+id+"/"+rel]; ok {
 		return io.NopCloser(strings.NewReader(body)), nil
 	}
-	return nil, errors.New("not found")
+	// Check whether any file exists under this team+upload prefix.
+	// If yes, the tree is live but the specific file is absent; return a
+	// non-ErrUploadNotFound error so detectPaketoUpload knows the tree exists.
+	prefix := team + "/" + id + "/"
+	for k := range f.files {
+		if strings.HasPrefix(k, prefix) {
+			return nil, os.ErrNotExist
+		}
+	}
+	// No files at all under this prefix: tree is missing.
+	return nil, ingestion.ErrUploadNotFound
 }
 
 // ctxWithTeam injects a team ID into ctx using the test export from auth.
@@ -284,5 +304,24 @@ func TestUploadInspector_MissingArchiveReader(t *testing.T) {
 	_, err := ins.Inspect(ctx, "upload://upl_x", "")
 	if !errors.Is(err, ErrUploadStoreNotConfigured) {
 		t.Fatalf("err=%v want ErrUploadStoreNotConfigured", err)
+	}
+}
+
+// TestUploadInspector_TreeMissingDespiteValidDBRow verifies the DB/disk
+// divergence path: the DB row exists with status "received" but every
+// Store.Open probe returns ingestion.ErrUploadNotFound (the upload tree has
+// been GC'd from disk). The inspector must surface
+// ErrUploadInspectionUnavailable rather than ErrBuildpackDetectFailed.
+func TestUploadInspector_TreeMissingDespiteValidDBRow(t *testing.T) {
+	ctx := ctxWithTeam("team-1")
+	// DB row is live ("received") but the archive reader has no files at all —
+	// every Open call returns ingestion.ErrUploadNotFound.
+	ins := newInspector(
+		map[string]db.Upload{"team-1/upl_x": {ID: "upl_x", TeamID: "team-1", Status: "received"}},
+		map[string]string{}, // empty: all probes will hit ingestion.ErrUploadNotFound
+	)
+	_, err := ins.Inspect(ctx, "upload://upl_x", "")
+	if !errors.Is(err, ErrUploadInspectionUnavailable) {
+		t.Fatalf("expected ErrUploadInspectionUnavailable for missing tree, got %v", err)
 	}
 }

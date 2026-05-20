@@ -8,7 +8,14 @@ import (
 
 	"github.com/winshare/zeroops/internal/server/auth"
 	"github.com/winshare/zeroops/internal/server/db"
+	"github.com/winshare/zeroops/internal/server/services/createapp/ingestion"
 )
+
+// maxUploadFileReadBytes caps any single file read from an ingest tree.
+// 64 KiB is sufficient for package.json / go.mod / .git/HEAD / refs files
+// (all small text). The cap defends against pathological config files
+// without affecting normal builds.
+const maxUploadFileReadBytes = 64 << 10
 
 // UploadInspector inspects an upload://<upload_id> repo by reading the
 // server-side ingest tree (T6) under <APP_SOURCE_INGEST_ROOT>/<team>/<upload>/tree.
@@ -98,8 +105,11 @@ func (u UploadInspector) Inspect(ctx context.Context, repoURL, _ string) (RepoMe
 		meta.DefaultBranch = "main"
 	}
 
-	builder, port, ok := detectPaketoUpload(ctx, u.Store, teamID, uploadID)
+	builder, port, ok, treeMissing := detectPaketoUpload(ctx, u.Store, teamID, uploadID)
 	if !ok {
+		if treeMissing {
+			return RepoMetadata{}, ErrUploadInspectionUnavailable
+		}
 		return RepoMetadata{}, ErrBuildpackDetectFailed
 	}
 	meta.Builder = builder
@@ -119,15 +129,14 @@ func parseUploadURL(repoURL string) (string, error) {
 }
 
 // readUploadFile reads a single file's content from the ingest tree (capped
-// at 64 KiB to defend against arbitrarily-large config files).
+// at maxUploadFileReadBytes to defend against arbitrarily-large config files).
 func readUploadFile(ctx context.Context, store uploadArchiveReader, teamID, uploadID, relPath string) (string, error) {
 	rc, err := store.Open(ctx, teamID, uploadID, relPath)
 	if err != nil {
 		return "", err
 	}
 	defer rc.Close()
-	const maxRead = 64 << 10
-	buf, err := io.ReadAll(io.LimitReader(rc, maxRead))
+	buf, err := io.ReadAll(io.LimitReader(rc, maxUploadFileReadBytes))
 	if err != nil {
 		return "", err
 	}
@@ -161,7 +170,14 @@ func parseGitHEAD(ctx context.Context, store uploadArchiveReader, teamID, upload
 // detectPaketoUpload is the upload-tree analogue of detectPaketo in
 // local_inspect.go. It probes for known language markers via Store.Open;
 // the existence test is "Open returns nil error."
-func detectPaketoUpload(ctx context.Context, store uploadArchiveReader, teamID, uploadID string) (string, int, bool) {
+// NOTE: keep the marker list in sync with detectPaketo in local_inspect.go.
+// If a new language is added, edit both functions.
+//
+// treeMissing is true when every probe returns ingestion.ErrUploadNotFound,
+// indicating that the upload tree has been GC'd from disk while the DB row
+// still shows a live status. Callers should surface this as
+// ErrUploadInspectionUnavailable rather than ErrBuildpackDetectFailed.
+func detectPaketoUpload(ctx context.Context, store uploadArchiveReader, teamID, uploadID string) (builder string, port int, ok bool, treeMissing bool) {
 	type marker struct {
 		path    string
 		builder string
@@ -173,12 +189,16 @@ func detectPaketoUpload(ctx context.Context, store uploadArchiveReader, teamID, 
 		{"pyproject.toml", "paketobuildpacks/builder-jammy-base", 8000},
 		{"requirements.txt", "paketobuildpacks/builder-jammy-base", 8000},
 	}
+	allMissing := true
 	for _, m := range markers {
 		rc, err := store.Open(ctx, teamID, uploadID, m.path)
 		if err == nil {
 			_ = rc.Close()
-			return m.builder, m.port, true
+			return m.builder, m.port, true, false
+		}
+		if !errors.Is(err, ingestion.ErrUploadNotFound) {
+			allMissing = false
 		}
 	}
-	return "", 0, false
+	return "", 0, false, allMissing
 }

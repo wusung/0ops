@@ -66,6 +66,8 @@ func runGit(ctx context.Context, dir string, args ...string) (string, error) {
 
 // detectPaketo runs a minimal language heuristic. The matrix expansion plan
 // is tracked in ADR-0012 § 9 Open Q #5; v1 covers Node / Go / Python only.
+// NOTE: keep the marker list in sync with detectPaketoUpload in
+// upload_inspect.go. If a new language is added, edit both functions.
 func detectPaketo(dir string) (string, int, bool) {
 	switch {
 	case fileExists(dir, "package.json"):

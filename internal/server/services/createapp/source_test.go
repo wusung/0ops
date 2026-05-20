@@ -97,7 +97,9 @@ func TestSourceRef_Unknown(t *testing.T) {
 	}
 }
 
-// stubInspector records call arguments for SourceFactory delegation tests.
+// stubInspector captures the URL and ref it was called with; used to verify
+// SourceFactory's Source→URL translation. See fakeInspectorRecord in
+// inspector_test.go for the call-counting variant.
 type stubInspector struct {
 	gotURL string
 	gotRef string
