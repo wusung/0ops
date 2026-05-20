@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -1546,6 +1547,352 @@ func newFakeStore() (*fakeStore, string) {
 		previews:   map[string]db.Preview{},
 		deliveries: map[string]struct{}{},
 	}, token
+}
+
+// ---------------------------------------------------------------------------
+// validateAppCreateRequest unit tests (T11)
+// ---------------------------------------------------------------------------
+
+// decodeErrorCode extracts error.code from a JSON error envelope.
+func decodeErrorCode(t *testing.T, body []byte) string {
+	t.Helper()
+	var resp struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("decode error body: %v (body=%s)", err, body)
+	}
+	return resp.Error.Code
+}
+
+func callValidate(req *dto.AppCreateRequest) (bool, *httptest.ResponseRecorder) {
+	w := httptest.NewRecorder()
+	ok := validateAppCreateRequest(w, req)
+	return ok, w
+}
+
+func TestValidateAppCreate_AcceptsSourceGitHub(t *testing.T) {
+	req := &dto.AppCreateRequest{
+		Slug: "my-app",
+		Source: &dto.Source{
+			Type:   dto.SourceKindGitHub,
+			GitHub: &dto.SourceGitHub{URL: "https://github.com/example/repo", Ref: "main"},
+		},
+	}
+	ok, _ := callValidate(req)
+	if !ok {
+		t.Fatal("expected true for valid github source")
+	}
+}
+
+func TestValidateAppCreate_AcceptsSourceUpload(t *testing.T) {
+	req := &dto.AppCreateRequest{
+		Slug: "my-app",
+		Source: &dto.Source{
+			Type:   dto.SourceKindUpload,
+			Upload: &dto.SourceUpload{UploadID: "upload-abc-123"},
+		},
+	}
+	ok, _ := callValidate(req)
+	if !ok {
+		t.Fatal("expected true for valid upload source")
+	}
+}
+
+func TestValidateAppCreate_NormalizesRepoURLToGitHubSource(t *testing.T) {
+	req := &dto.AppCreateRequest{
+		Slug:    "my-app",
+		RepoURL: "https://github.com/example/repo",
+		Ref:     "main",
+	}
+	ok, _ := callValidate(req)
+	if !ok {
+		t.Fatal("expected true for legacy repo_url + ref")
+	}
+	if req.Source == nil {
+		t.Fatal("expected req.Source to be populated after normalization")
+	}
+	if req.Source.Type != dto.SourceKindGitHub {
+		t.Fatalf("source.type = %q, want github", req.Source.Type)
+	}
+}
+
+func TestValidateAppCreate_NormalizationPreservesRef(t *testing.T) {
+	req := &dto.AppCreateRequest{
+		Slug:    "my-app",
+		RepoURL: "https://github.com/example/repo",
+		Ref:     "v1.2.3",
+	}
+	ok, _ := callValidate(req)
+	if !ok {
+		t.Fatal("expected true")
+	}
+	if req.Source == nil || req.Source.GitHub == nil {
+		t.Fatal("expected req.Source.GitHub to be set")
+	}
+	if req.Source.GitHub.Ref != "v1.2.3" {
+		t.Fatalf("source.github.ref = %q, want v1.2.3", req.Source.GitHub.Ref)
+	}
+	if req.Source.GitHub.URL != "https://github.com/example/repo" {
+		t.Fatalf("source.github.url = %q, want https://github.com/example/repo", req.Source.GitHub.URL)
+	}
+}
+
+func TestValidateAppCreate_RejectsSourceAndRepoURLTogether(t *testing.T) {
+	req := &dto.AppCreateRequest{
+		Slug:    "my-app",
+		RepoURL: "https://github.com/example/repo",
+		Source: &dto.Source{
+			Type:   dto.SourceKindGitHub,
+			GitHub: &dto.SourceGitHub{URL: "https://github.com/example/repo", Ref: "main"},
+		},
+	}
+	ok, w := callValidate(req)
+	if ok {
+		t.Fatal("expected false for source + repo_url conflict")
+	}
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("http status = %d, want 422", w.Code)
+	}
+	if code := decodeErrorCode(t, w.Body.Bytes()); code != "source_conflict" {
+		t.Fatalf("error.code = %q, want source_conflict", code)
+	}
+}
+
+func TestValidateAppCreate_RejectsEmptyEverything(t *testing.T) {
+	req := &dto.AppCreateRequest{Slug: "my-app"}
+	ok, w := callValidate(req)
+	if ok {
+		t.Fatal("expected false when neither source nor repo_url provided")
+	}
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("http status = %d, want 400", w.Code)
+	}
+	if code := decodeErrorCode(t, w.Body.Bytes()); code != "source_required" {
+		t.Fatalf("error.code = %q, want source_required", code)
+	}
+}
+
+func TestValidateAppCreate_RejectsFileURLInProduction(t *testing.T) {
+	t.Setenv("OPS_ENV", "production")
+	// AssertProductionSafe requires these two; set them so startup doesn't panic
+	// if something calls it, and to prevent false positives in any boot path.
+	t.Setenv("APP_SOURCE_INGEST_ROOT", "/tmp")
+	t.Setenv("OPS_BUILD_TOKEN_SECRET", "testsecret")
+
+	req := &dto.AppCreateRequest{
+		Slug:    "my-app",
+		RepoURL: "file:///some/local/path",
+	}
+	ok, w := callValidate(req)
+	if ok {
+		t.Fatal("expected false for file:// in production")
+	}
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("http status = %d, want 422", w.Code)
+	}
+	if code := decodeErrorCode(t, w.Body.Bytes()); code != "unsupported_source" {
+		t.Fatalf("error.code = %q, want unsupported_source", code)
+	}
+}
+
+func TestValidateAppCreate_AcceptsFileURLInDev(t *testing.T) {
+	t.Setenv("OPS_ENV", "")
+
+	// Create a real temp dir to serve as the local repo root.
+	root := t.TempDir()
+	repoDir := root + "/myrepo"
+	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	t.Setenv("LOCAL_FILE_REPO_ENABLED", "true")
+	t.Setenv("LOCAL_FILE_REPO_ROOT", root)
+
+	req := &dto.AppCreateRequest{
+		Slug:    "my-app",
+		RepoURL: "file://" + repoDir,
+	}
+	ok, _ := callValidate(req)
+	if !ok {
+		t.Fatal("expected true for valid file:// in dev")
+	}
+	// Source must remain nil for the dev file:// path — T12 detects it.
+	if req.Source != nil {
+		t.Fatal("expected req.Source to remain nil for dev file:// path")
+	}
+}
+
+func TestValidateAppCreate_RejectsSourceGitHubMissingPayload(t *testing.T) {
+	req := &dto.AppCreateRequest{
+		Slug:   "my-app",
+		Source: &dto.Source{Type: dto.SourceKindGitHub, GitHub: nil},
+	}
+	ok, w := callValidate(req)
+	if ok {
+		t.Fatal("expected false")
+	}
+	if code := decodeErrorCode(t, w.Body.Bytes()); code != "source_invalid" {
+		t.Fatalf("error.code = %q, want source_invalid", code)
+	}
+}
+
+func TestValidateAppCreate_RejectsSourceGitHubMissingURL(t *testing.T) {
+	req := &dto.AppCreateRequest{
+		Slug:   "my-app",
+		Source: &dto.Source{Type: dto.SourceKindGitHub, GitHub: &dto.SourceGitHub{URL: "", Ref: "main"}},
+	}
+	ok, w := callValidate(req)
+	if ok {
+		t.Fatal("expected false")
+	}
+	if code := decodeErrorCode(t, w.Body.Bytes()); code != "source_invalid" {
+		t.Fatalf("error.code = %q, want source_invalid", code)
+	}
+}
+
+func TestValidateAppCreate_RejectsSourceGitHubMissingRef(t *testing.T) {
+	req := &dto.AppCreateRequest{
+		Slug:   "my-app",
+		Source: &dto.Source{Type: dto.SourceKindGitHub, GitHub: &dto.SourceGitHub{URL: "https://github.com/example/repo", Ref: ""}},
+	}
+	ok, w := callValidate(req)
+	if ok {
+		t.Fatal("expected false")
+	}
+	if code := decodeErrorCode(t, w.Body.Bytes()); code != "source_invalid" {
+		t.Fatalf("error.code = %q, want source_invalid", code)
+	}
+}
+
+func TestValidateAppCreate_RejectsSourceUploadMissingPayload(t *testing.T) {
+	req := &dto.AppCreateRequest{
+		Slug:   "my-app",
+		Source: &dto.Source{Type: dto.SourceKindUpload, Upload: nil},
+	}
+	ok, w := callValidate(req)
+	if ok {
+		t.Fatal("expected false")
+	}
+	if code := decodeErrorCode(t, w.Body.Bytes()); code != "source_invalid" {
+		t.Fatalf("error.code = %q, want source_invalid", code)
+	}
+}
+
+func TestValidateAppCreate_RejectsSourceUploadMissingUploadID(t *testing.T) {
+	req := &dto.AppCreateRequest{
+		Slug:   "my-app",
+		Source: &dto.Source{Type: dto.SourceKindUpload, Upload: &dto.SourceUpload{UploadID: ""}},
+	}
+	ok, w := callValidate(req)
+	if ok {
+		t.Fatal("expected false")
+	}
+	if code := decodeErrorCode(t, w.Body.Bytes()); code != "source_invalid" {
+		t.Fatalf("error.code = %q, want source_invalid", code)
+	}
+}
+
+func TestValidateAppCreate_RejectsUnknownSourceKind(t *testing.T) {
+	req := &dto.AppCreateRequest{
+		Slug:   "my-app",
+		Source: &dto.Source{Type: "weird"},
+	}
+	ok, w := callValidate(req)
+	if ok {
+		t.Fatal("expected false")
+	}
+	if code := decodeErrorCode(t, w.Body.Bytes()); code != "source_kind_unsupported" {
+		t.Fatalf("error.code = %q, want source_kind_unsupported", code)
+	}
+}
+
+func TestValidateAppCreate_RejectsGitHubSourceWithBadURLScheme(t *testing.T) {
+	req := &dto.AppCreateRequest{
+		Slug: "my-app",
+		Source: &dto.Source{
+			Type:   dto.SourceKindGitHub,
+			GitHub: &dto.SourceGitHub{URL: "https://gitlab.com/x/y", Ref: "main"},
+		},
+	}
+	ok, w := callValidate(req)
+	if ok {
+		t.Fatal("expected false for non-github URL")
+	}
+	if code := decodeErrorCode(t, w.Body.Bytes()); code != "unsupported_source" {
+		t.Fatalf("error.code = %q, want unsupported_source", code)
+	}
+}
+
+func TestValidateAppCreate_RejectsLegacyRepoURLWithUnknownScheme(t *testing.T) {
+	req := &dto.AppCreateRequest{
+		Slug:    "my-app",
+		RepoURL: "https://gitlab.com/x/y",
+		Ref:     "main",
+	}
+	ok, w := callValidate(req)
+	if ok {
+		t.Fatal("expected false for unsupported repo_url scheme")
+	}
+	if code := decodeErrorCode(t, w.Body.Bytes()); code != "unsupported_source" {
+		t.Fatalf("error.code = %q, want unsupported_source", code)
+	}
+}
+
+func TestValidateAppCreate_RejectsLegacyRepoURLMissingRef(t *testing.T) {
+	req := &dto.AppCreateRequest{
+		Slug:    "valid-slug",
+		RepoURL: "https://github.com/example/repo",
+		// Ref intentionally empty
+	}
+	ok, w := callValidate(req)
+	if ok {
+		t.Fatalf("expected validateAppCreateRequest to return false for missing Ref on legacy path")
+	}
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+	body := w.Body.Bytes()
+	if !strings.Contains(string(body), "ref is required") {
+		t.Fatalf("expected 'ref is required' message, body=%s", body)
+	}
+}
+
+func TestValidateAppCreate_AcceptsSourceGitHubWithSSHURL(t *testing.T) {
+	req := &dto.AppCreateRequest{
+		Slug: "valid-slug",
+		Source: &dto.Source{
+			Type: dto.SourceKindGitHub,
+			GitHub: &dto.SourceGitHub{
+				URL: "git@github.com:example/repo.git",
+				Ref: "main",
+			},
+		},
+	}
+	ok, w := callValidate(req)
+	if !ok {
+		t.Fatalf("expected true for git@github.com URL, got body=%s", w.Body.String())
+	}
+}
+
+func TestValidateAppCreate_NormalizesLegacySSHURL(t *testing.T) {
+	req := &dto.AppCreateRequest{
+		Slug:    "valid-slug",
+		RepoURL: "git@github.com:example/repo.git",
+		Ref:     "main",
+	}
+	ok, w := callValidate(req)
+	if !ok {
+		t.Fatalf("expected true for legacy SSH URL, got body=%s", w.Body.String())
+	}
+	if req.Source == nil || req.Source.Type != dto.SourceKindGitHub || req.Source.GitHub == nil {
+		t.Fatalf("expected normalized Source, got %+v", req.Source)
+	}
+	if req.Source.GitHub.URL != "git@github.com:example/repo.git" {
+		t.Fatalf("URL not preserved, got %q", req.Source.GitHub.URL)
+	}
 }
 
 func strPtr(v string) *string { return &v }

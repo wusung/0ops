@@ -39,6 +39,7 @@ import (
 	workflowdispatch "github.com/winshare/zeroops/internal/server/services/workflowdispatch"
 	"github.com/winshare/zeroops/internal/shared/dto"
 	"github.com/winshare/zeroops/internal/shared/rbac"
+	opsruntime "github.com/winshare/zeroops/internal/shared/runtime"
 )
 
 type appsStore interface {
@@ -346,7 +347,7 @@ func previewCreateAppHandler(store appsStore) http.HandlerFunc {
 		if !decodeJSON(w, r, &req) {
 			return
 		}
-		if !validateAppCreateRequest(w, req) {
+		if !validateAppCreateRequest(w, &req) {
 			return
 		}
 
@@ -381,7 +382,16 @@ func previewCreateAppHandler(store appsStore) http.HandlerFunc {
 			return
 		}
 
-		summary := fmt.Sprintf("Create app %q from %s", req.Slug, req.RepoURL)
+		sourceLabel := req.RepoURL
+		if req.Source != nil {
+			switch req.Source.Type {
+			case dto.SourceKindGitHub:
+				sourceLabel = req.Source.GitHub.URL
+			case dto.SourceKindUpload:
+				sourceLabel = "upload://" + req.Source.Upload.UploadID
+			}
+		}
+		summary := fmt.Sprintf("Create app %q from %s", req.Slug, sourceLabel)
 		out, err := store.CreatePreview(
 			r.Context(),
 			auth.TeamID(r.Context()),
@@ -1793,7 +1803,22 @@ func validMemberRole(role string) bool {
 	}
 }
 
-func validateAppCreateRequest(w http.ResponseWriter, req dto.AppCreateRequest) bool {
+// validateAppCreateRequest validates a create_app preview payload against the
+// app-source-ingestion contract (ADR-0013 §4) and normalizes legacy
+// repo_url+ref input into the Source sum type IN PLACE.
+//
+// Returns true on success and false on any failure (it also writes the
+// appropriate HTTP error response before returning false). On success the
+// caller can rely on:
+//   - req.Slug is non-empty and passes appSlugPattern
+//   - Either req.Source is set with a fully-validated kind-specific payload,
+//     OR (legacy dev file:// path) req.Source is nil and req.RepoURL starts
+//     with "file://" and has passed createappsvc.ValidateLocalRepoURL.
+//
+// T12 (createapp.Service) consumes req.Source for the new pipeline and
+// keeps the legacy file:// dev path on req.RepoURL.
+func validateAppCreateRequest(w http.ResponseWriter, req *dto.AppCreateRequest) bool {
+	// --- Slug validation (unchanged) ---
 	slug := strings.TrimSpace(req.Slug)
 	if !appSlugPattern.MatchString(slug) {
 		apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "invalid slug", map[string]any{"field": "slug"})
@@ -1804,36 +1829,96 @@ func validateAppCreateRequest(w http.ResponseWriter, req dto.AppCreateRequest) b
 		apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "reserved slug", map[string]any{"field": "slug"})
 		return false
 	}
-	if strings.TrimSpace(req.RepoURL) == "" {
-		apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "repo_url is required", map[string]any{"field": "repo_url"})
+
+	hasSource := req.Source != nil
+	hasRepoURL := strings.TrimSpace(req.RepoURL) != ""
+
+	// --- Conflict: both Source and RepoURL supplied ---
+	if hasSource && hasRepoURL {
+		apperror.Write(w, apperror.CodeSourceConflict, apperror.ClassUnprocessable, "provide source or repo_url, not both", nil)
 		return false
 	}
-	repoURL := strings.TrimSpace(req.RepoURL)
-	switch {
-	case strings.HasPrefix(repoURL, "file://"):
-		// ADR-0012 dev mode: file:// only valid when LOCAL_FILE_REPO_ENABLED
-		// is set and the path passes the LOCAL_FILE_REPO_ROOT whitelist.
-		if err := createappsvc.ValidateLocalRepoURL(repoURL); err != nil {
-			switch {
-			case errors.Is(err, createappsvc.ErrLocalFileRepoDisabled):
-				apperror.Write(w, "unsupported_repo_url", apperror.ClassUnprocessable, "file:// repo_url is disabled (set LOCAL_FILE_REPO_ENABLED=true in dev only)", map[string]any{"field": "repo_url"})
-			case errors.Is(err, createappsvc.ErrRepoPathNotFound):
-				apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "repo_url path not found", map[string]any{"field": "repo_url"})
-			default:
-				apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "repo_url path invalid", map[string]any{"field": "repo_url"})
+
+	// --- Neither provided ---
+	if !hasSource && !hasRepoURL {
+		apperror.Write(w, apperror.CodeSourceRequired, apperror.ClassBadRequest, "source or repo_url is required", nil)
+		return false
+	}
+
+	if hasSource {
+		// --- New Source sum-type path ---
+		switch req.Source.Type {
+		case dto.SourceKindGitHub:
+			if req.Source.GitHub == nil || strings.TrimSpace(req.Source.GitHub.URL) == "" || strings.TrimSpace(req.Source.GitHub.Ref) == "" {
+				apperror.Write(w, apperror.CodeSourceInvalid, apperror.ClassUnprocessable, "source.github must have url and ref", map[string]any{"field": "source.github"})
+				return false
 			}
+			url := strings.TrimSpace(req.Source.GitHub.URL)
+			ref := strings.TrimSpace(req.Source.GitHub.Ref)
+			if !strings.HasPrefix(url, "https://github.com/") && !strings.HasPrefix(url, "git@github.com:") {
+				apperror.Write(w, apperror.CodeUnsupportedSource, apperror.ClassUnprocessable, "source.github.url must be a github.com URL", map[string]any{"field": "source.github.url"})
+				return false
+			}
+			req.Source.GitHub.URL = url
+			req.Source.GitHub.Ref = ref
+		case dto.SourceKindUpload:
+			if req.Source.Upload == nil || strings.TrimSpace(req.Source.Upload.UploadID) == "" {
+				apperror.Write(w, apperror.CodeSourceInvalid, apperror.ClassUnprocessable, "source.upload must have upload_id", map[string]any{"field": "source.upload"})
+				return false
+			}
+			uploadID := strings.TrimSpace(req.Source.Upload.UploadID)
+			req.Source.Upload.UploadID = uploadID
+			req.Source.Upload.Ref = strings.TrimSpace(req.Source.Upload.Ref)
+		default:
+			apperror.Write(w, apperror.CodeSourceKindUnsupported, apperror.ClassUnprocessable, "unknown source type", map[string]any{"field": "source.type"})
 			return false
 		}
-	case strings.HasPrefix(repoURL, "https://github.com/"), strings.HasPrefix(repoURL, "git@github.com:"):
-		// allowed
-	default:
-		apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "unsupported repo_url", map[string]any{"field": "repo_url"})
-		return false
+	} else {
+		// --- Legacy RepoURL path ---
+		repoURL := strings.TrimSpace(req.RepoURL)
+		switch {
+		case strings.HasPrefix(repoURL, "file://"):
+			// Production: reject file:// entirely.
+			if opsruntime.IsProduction() {
+				apperror.Write(w, apperror.CodeUnsupportedSource, apperror.ClassUnprocessable, "file:// repo_url is not supported in production; use the upload pipeline", map[string]any{"field": "repo_url"})
+				return false
+			}
+			// Dev: existing gate via createappsvc.ValidateLocalRepoURL.
+			if err := createappsvc.ValidateLocalRepoURL(repoURL); err != nil {
+				switch {
+				case errors.Is(err, createappsvc.ErrLocalFileRepoDisabled):
+					apperror.Write(w, "unsupported_repo_url", apperror.ClassUnprocessable, "file:// repo_url is disabled (set LOCAL_FILE_REPO_ENABLED=true in dev only)", map[string]any{"field": "repo_url"})
+				case errors.Is(err, createappsvc.ErrRepoPathNotFound):
+					apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "repo_url path not found", map[string]any{"field": "repo_url"})
+				default:
+					apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "repo_url path invalid", map[string]any{"field": "repo_url"})
+				}
+				return false
+			}
+			// Dev file:// passes — leave req.Source nil; T12 detects via
+			// req.Source == nil && strings.HasPrefix(req.RepoURL, "file://").
+
+		case strings.HasPrefix(repoURL, "https://github.com/"), strings.HasPrefix(repoURL, "git@github.com:"):
+			// Require ref for github legacy path.
+			if strings.TrimSpace(req.Ref) == "" {
+				apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "ref is required", map[string]any{"field": "ref"})
+				return false
+			}
+			// Normalize into req.Source (in-place mutation).
+			req.Source = &dto.Source{
+				Type: dto.SourceKindGitHub,
+				GitHub: &dto.SourceGitHub{
+					URL: repoURL,
+					Ref: strings.TrimSpace(req.Ref),
+				},
+			}
+
+		default:
+			apperror.Write(w, apperror.CodeUnsupportedSource, apperror.ClassUnprocessable, "unsupported repo_url scheme", map[string]any{"field": "repo_url"})
+			return false
+		}
 	}
-	if strings.TrimSpace(req.Ref) == "" {
-		apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "ref is required", map[string]any{"field": "ref"})
-		return false
-	}
+
 	return true
 }
 
