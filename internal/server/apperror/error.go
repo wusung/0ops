@@ -30,6 +30,26 @@ const (
 	ClassUnavailable Class = "unavailable"
 )
 
+// Source / upload validation codes used by the app-source-ingestion
+// feature (ADR-0013). String values are part of the stable API contract;
+// tests in error_test.go assert each constant matches its string key.
+const (
+	CodeSourceRequired        = "source_required"
+	CodeSourceConflict        = "source_conflict"
+	CodeSourceInvalid         = "source_invalid"
+	CodeSourceKindUnsupported = "source_kind_unsupported"
+	CodeUnsupportedSource     = "unsupported_source"
+	CodePayloadTooLarge       = "payload_too_large"
+	CodeUnsupportedArchive    = "unsupported_archive_format"
+	CodeArchiveCorrupt        = "archive_corrupt"
+	CodeSHA256Mismatch        = "sha256_mismatch"
+	CodeUploadRateLimited     = "upload_rate_limited"
+	CodeTeamQuotaExceeded     = "team_quota_exceeded"
+	CodeSourceNotFound        = "source_not_found"
+	CodeSourceExpired         = "source_expired"
+	CodeUploadCrossTeam       = "upload_cross_team"
+)
+
 // Error is the server error envelope source.
 type Error struct {
 	Class   Class
