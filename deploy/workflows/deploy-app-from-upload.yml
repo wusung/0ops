@@ -1,0 +1,143 @@
+name: deploy-app-from-upload
+on:
+  repository_dispatch:
+    types: [deploy-app-from-upload]
+
+permissions:
+  contents: write       # checkout 0ops repo + push 0ops-gitops
+  packages: write       # GHCR push（與 ops_token 互補）
+  id-token: write       # OIDC（v1 不用，留 v1.1 evaluation）
+
+env:
+  RUN_ID:        ${{ github.event.client_payload.run_id }}
+  APP_SLUG:      ${{ github.event.client_payload.app_slug }}
+  TEAM_SLUG:     ${{ github.event.client_payload.team_slug }}
+  COMMIT_SHA:    ${{ github.event.client_payload.commit_sha }}
+  REF:           ${{ github.event.client_payload.ref }}
+  IMAGE_REF:     ${{ github.event.client_payload.image_ref }}
+  OPS_TOKEN:     ${{ github.event.client_payload.ops_token }}
+  CALLBACK_URL:  ${{ github.event.client_payload.callback_url }}
+  TRACE_ID:      ${{ github.event.client_payload.trace_id }}
+  UPLOAD_ID:     ${{ github.event.client_payload.upload_id }}
+  FETCH_URL:     ${{ github.event.client_payload.fetch_url }}
+  FETCH_TOKEN:   ${{ github.event.client_payload.fetch_token }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20            # 硬上限；超過自動 cancel → callback failure
+    steps:
+      # 1. Fetch source archive from 0ops upload store (replaces user-repo checkout)
+      - name: Fetch source archive from 0ops
+        run: |
+          set -euo pipefail
+          mkdir -p target
+          HEADERS_FILE=$(mktemp)
+          HTTP_CODE=$(curl -sS -o /tmp/source.archive -D "$HEADERS_FILE" -w "%{http_code}" \
+            --retry 3 --retry-delay 2 --max-time 60 \
+            -H "Authorization: Bearer $FETCH_TOKEN" \
+            "$FETCH_URL" || true)
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "fetch failed: HTTP $HTTP_CODE" >&2
+            cat "$HEADERS_FILE" >&2
+            exit 1
+          fi
+          # Detect archive format from Content-Type header (set by T9 archive handler).
+          CTYPE=$(grep -i '^content-type:' "$HEADERS_FILE" | tail -1 | awk '{print $2}' | tr -d '\r')
+          case "$CTYPE" in
+            application/zstd)
+              zstd -d /tmp/source.archive -o /tmp/source.tar
+              ;;
+            application/gzip)
+              gunzip -c /tmp/source.archive > /tmp/source.tar
+              ;;
+            *)
+              echo "unsupported Content-Type: $CTYPE" >&2
+              exit 1
+              ;;
+          esac
+          tar -xf /tmp/source.tar -C target
+          rm -f /tmp/source.archive /tmp/source.tar "$HEADERS_FILE"
+          echo "Extracted upload $UPLOAD_ID to target/"
+          ls -la target | head -20
+
+      # 2. GHCR login（用 ops_token，TTL 20 min）
+      - name: Login GHCR
+        run: |
+          echo "${OPS_TOKEN}" | docker login ghcr.io -u ops-bot --password-stdin
+
+      # 3. CNB build
+      - name: Pack build
+        working-directory: target
+        run: |
+          if [ -n "$COMMIT_SHA" ]; then
+            pack build "${IMAGE_REF}" \
+              --builder paketobuildpacks/builder-jammy-base \
+              --path . \
+              --publish \
+              --cache-image "${IMAGE_REF}-cache" \
+              --env "BP_OCI_SOURCE=${COMMIT_SHA}"
+          else
+            pack build "${IMAGE_REF}" \
+              --builder paketobuildpacks/builder-jammy-base \
+              --path . \
+              --publish \
+              --cache-image "${IMAGE_REF}-cache" \
+              --env "BP_OCI_SOURCE=upload:${UPLOAD_ID}"
+          fi
+
+      # 4. Trivy scan
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@v0
+        id: trivy
+        with:
+          image-ref: ${{ env.IMAGE_REF }}
+          severity: HIGH,CRITICAL
+          exit-code: '0'                # v1 觀察；v1.1 改 '1'
+          ignore-unfixed: 'true'
+          format: json
+          output: trivy-report.json
+
+      - name: Parse Trivy results
+        id: scan_summary
+        run: |
+          HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-report.json)
+          CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-report.json)
+          echo "high=$HIGH" >> $GITHUB_OUTPUT
+          echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
+
+      # 5. Render & push gitops
+      - name: Checkout 0ops repo (for scripts)
+        uses: actions/checkout@v4
+        with:
+          path: ops
+
+      - name: Render & commit gitops
+        run: ./ops/deploy/workflows/scripts/render-and-push-gitops.sh
+        env:
+          GITOPS_DEPLOY_KEY: ${{ secrets.GITOPS_DEPLOY_KEY }}     # SSH private key
+
+      # 6. Callback backend (always 跑，不論成敗)
+      - name: Callback backend
+        if: always()
+        env:
+          STATUS: ${{ job.status }}
+          HIGH: ${{ steps.scan_summary.outputs.high }}
+          CRITICAL: ${{ steps.scan_summary.outputs.critical }}
+        run: |
+          PAYLOAD=$(jq -nc \
+            --arg run_id "$RUN_ID" \
+            --arg status "$STATUS" \
+            --arg trace_id "$TRACE_ID" \
+            --arg image "$IMAGE_REF" \
+            --argjson high "${HIGH:-0}" \
+            --argjson critical "${CRITICAL:-0}" \
+            '{run_id:$run_id, status:$status, trace_id:$trace_id, image:$image,
+              scan_summary:{high:$high, critical:$critical}}')
+          TS=$(date +%s)
+          SIG=$(printf '%s' "${TS}.${PAYLOAD}" | openssl dgst -sha256 -hmac "$OPS_TOKEN" -hex | awk '{print $2}')
+          curl -fsS -X POST "$CALLBACK_URL" \
+            -H "Content-Type: application/json" \
+            -H "X-0ops-Timestamp: $TS" \
+            -H "X-0ops-Signature: sha256=$SIG" \
+            --data "$PAYLOAD"
