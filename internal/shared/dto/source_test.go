@@ -36,4 +36,7 @@ func TestSource_MarshalRoundtrip_Upload(t *testing.T) {
 	if out.Type != SourceKindUpload || out.Upload == nil || out.Upload.UploadID != "upl_test" {
 		t.Fatalf("roundtrip mismatch: %+v", out)
 	}
+	if out.GitHub != nil {
+		t.Fatalf("unexpected GitHub set on upload source")
+	}
 }
