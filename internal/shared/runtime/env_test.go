@@ -62,3 +62,45 @@ func TestAssertProductionSafeNoopInDev(t *testing.T) {
 	t.Setenv("LOCAL_REGISTRY", "registry:5000")
 	AssertProductionSafe() // must not panic
 }
+
+func TestAssertProductionSafePanicsOnMissingIngestRoot(t *testing.T) {
+	t.Setenv("OPS_ENV", "production")
+	// Ensure ADR-0012 checks would NOT trigger
+	t.Setenv("LOCAL_FILE_REPO_ENABLED", "")
+	t.Setenv("LOCAL_BUILD_ENABLED", "")
+	t.Setenv("LOCAL_REGISTRY", "")
+	// Only OPS_BUILD_TOKEN_SECRET set; INGEST_ROOT missing
+	t.Setenv("APP_SOURCE_INGEST_ROOT", "")
+	t.Setenv("OPS_BUILD_TOKEN_SECRET", "x")
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("expected panic for missing APP_SOURCE_INGEST_ROOT")
+		}
+	}()
+	AssertProductionSafe()
+}
+
+func TestAssertProductionSafePanicsOnMissingBuildTokenSecret(t *testing.T) {
+	t.Setenv("OPS_ENV", "production")
+	t.Setenv("LOCAL_FILE_REPO_ENABLED", "")
+	t.Setenv("LOCAL_BUILD_ENABLED", "")
+	t.Setenv("LOCAL_REGISTRY", "")
+	t.Setenv("APP_SOURCE_INGEST_ROOT", "/var/lib/0ops/uploads")
+	t.Setenv("OPS_BUILD_TOKEN_SECRET", "")
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("expected panic for missing OPS_BUILD_TOKEN_SECRET")
+		}
+	}()
+	AssertProductionSafe()
+}
+
+func TestAssertProductionSafePassesWhenProductionWithUploadEnv(t *testing.T) {
+	t.Setenv("OPS_ENV", "production")
+	t.Setenv("LOCAL_FILE_REPO_ENABLED", "")
+	t.Setenv("LOCAL_BUILD_ENABLED", "")
+	t.Setenv("LOCAL_REGISTRY", "")
+	t.Setenv("APP_SOURCE_INGEST_ROOT", "/var/lib/0ops/uploads")
+	t.Setenv("OPS_BUILD_TOKEN_SECRET", "deadbeef")
+	AssertProductionSafe() // must NOT panic
+}
