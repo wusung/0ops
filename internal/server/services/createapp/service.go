@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
 	"time"
@@ -19,6 +20,16 @@ import (
 
 const previewAction = "create_app"
 const tunnelBackendURL = "http://traefik.kube-system.svc.cluster.local:80"
+
+// uploadPinTTL is the placeholder expiry applied to an upload row at create_app
+// confirm time. Spec §10 specifies the canonical pinned expiry as
+// "deploy_run.terminal_at + 7d", but at confirm time deploy_run.terminal_at
+// is NULL — the deploy has only just started. The T19 GC reconciler (or a
+// future terminal-state reconciler) should re-pin with the canonical value
+// when the deploy_run transitions to a terminal state. Until that lands,
+// 30 days is generous enough to cover any realistic deploy duration while
+// still bounding orphan ingest trees.
+const uploadPinTTL = 30 * 24 * time.Hour
 
 var slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$`)
 
@@ -42,6 +53,7 @@ type Store interface {
 	ConsumePreviewWithResult(ctx context.Context, previewID string, result json.RawMessage) error
 	CreateApp(ctx context.Context, params db.AppCreateParams) (db.AppCreateResult, error)
 	DeleteAppByID(ctx context.Context, appID string) error
+	PinUpload(ctx context.Context, teamID, id string, expiresAt time.Time) error
 }
 
 // K3sClient captures the namespace provisioning calls used by create_app.
@@ -263,6 +275,31 @@ func (s *Service) Confirm(ctx context.Context, teamID, actorUserID, teamSlug, pr
 		}
 	}
 
+	// Pin the upload row if this create_app consumed an upload source. By this
+	// point CreateApp + cloudflare + k3s + gitops + dispatcher have all
+	// succeeded; rollback paths are exhausted. Pin failure must NOT roll back
+	// because the deploy is in motion.
+	//
+	// Pin is placed BEFORE ConsumePreviewWithResult so that on retry (if the
+	// consume step fails) the second Confirm call sees the upload already in
+	// 'pinned' status and ErrUploadNotFound from PinUpload — caught above as
+	// a benign skip rather than an error. This makes idempotent replay safe.
+	if payload.Source != nil && payload.Source.Type == dto.SourceKindUpload && payload.Source.Upload != nil {
+		uploadID := payload.Source.Upload.UploadID
+		pinExpires := s.now().UTC().Add(uploadPinTTL)
+		if err := s.store.PinUpload(ctx, teamID, uploadID, pinExpires); err != nil {
+			if errors.Is(err, db.ErrUploadNotFound) {
+				// Benign: row already pinned by an earlier Confirm attempt, or has
+				// moved to a non-received status. T19 GC handles stale rows.
+				slog.Warn("uploads: pin skipped; row not in 'received' status",
+					"team", teamID, "upload", uploadID, "run_id", result.DeployRunID, "err", err)
+			} else {
+				slog.Error("uploads: pin failed; ingest tree may be GC'd before deploy completes",
+					"team", teamID, "upload", uploadID, "run_id", result.DeployRunID, "err", err)
+			}
+		}
+	}
+
 	response := dto.AppCreateResponse{
 		AppID:         result.AppID,
 		AppSlug:       result.AppSlug,
@@ -295,6 +332,29 @@ func validateRequest(req dto.AppCreateRequest) error {
 		return fmt.Errorf("reserved slug")
 	}
 
+	// Source-aware path: T11's HTTP-layer validator already normalized legacy
+	// repo_url into Source for github URLs, and rejected file:// in production.
+	// The service layer trusts that pre-validation and only does minimal kind
+	// sanity here (defense in depth, in case the preview row was written by a
+	// bypassed code path).
+	if req.Source != nil {
+		switch req.Source.Type {
+		case dto.SourceKindGitHub:
+			if req.Source.GitHub == nil || strings.TrimSpace(req.Source.GitHub.URL) == "" || strings.TrimSpace(req.Source.GitHub.Ref) == "" {
+				return fmt.Errorf("github source incomplete")
+			}
+		case dto.SourceKindUpload:
+			if req.Source.Upload == nil || strings.TrimSpace(req.Source.Upload.UploadID) == "" {
+				return fmt.Errorf("upload source incomplete")
+			}
+		default:
+			return fmt.Errorf("source kind %q is unsupported", req.Source.Type)
+		}
+		return nil
+	}
+
+	// Legacy path: repo_url + ref. Kept for the dev file:// inspector flow
+	// (T11 leaves req.Source nil for dev file:// requests).
 	repoURL := strings.TrimSpace(req.RepoURL)
 	if repoURL == "" {
 		return fmt.Errorf("repo_url is required")

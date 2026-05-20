@@ -476,6 +476,9 @@ func (f *mcpFakeStore) GetUpload(_ context.Context, _, _ string) (db.Upload, err
 	return db.Upload{}, db.ErrUploadNotFound
 }
 
+// PinUpload satisfies the extended appsStore interface (M6.13).
+func (f *mcpFakeStore) PinUpload(_ context.Context, _, _ string, _ time.Time) error { return nil }
+
 func newMCPFakeStore() (*mcpFakeStore, string) {
 	token, err := auth.NewBearerToken("device", "token-1")
 	if err != nil {

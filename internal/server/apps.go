@@ -95,6 +95,8 @@ type appsStore interface {
 	InsertUpload(ctx context.Context, u db.Upload) error
 	// M6.9 archive download handler (ADR-0013 §9)
 	GetUpload(ctx context.Context, teamID, id string) (db.Upload, error)
+	// M6.13 confirm-pin: pin upload row on create_app confirm success
+	PinUpload(ctx context.Context, teamID, id string, expiresAt time.Time) error
 }
 
 // infraK3sClient provides K3s namespace management operations.
