@@ -112,6 +112,9 @@ func New(store Store, k3sClient K3sClient, cfClient CloudflareClient, gitops git
 
 // WithInspector installs the Inspector router used by T13/T14 to dispatch
 // upload/file/github sources. Returns the receiver for chained construction.
+// Passing nil is a no-op — it sets the field to nil, equivalent to never
+// calling WithInspector. This matches the nil-tolerant pattern of the
+// other Service dependencies (cfClient, k3sClient, dispatcher).
 func (s *Service) WithInspector(insp Inspector) *Service {
 	s.inspector = insp
 	return s
