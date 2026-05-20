@@ -18,6 +18,7 @@ import (
 	appserver "github.com/winshare/zeroops/internal/server"
 	"github.com/winshare/zeroops/internal/server/db"
 	"github.com/winshare/zeroops/internal/server/health"
+	"github.com/winshare/zeroops/internal/server/services/createapp/ingestion"
 	"github.com/winshare/zeroops/internal/server/leader"
 	ratelimit "github.com/winshare/zeroops/internal/server/middleware/ratelimit"
 	"github.com/winshare/zeroops/internal/server/observability"
@@ -105,7 +106,19 @@ func main() {
 
 	reconObserver := newReconcilerObserver(metrics)
 	incidentSvc := reconciler.NewIncidentService(repo, auditAdapter{svc: auditSvc}, reconObserver)
-	r.Mount("/", appserver.NewRouterWithReconciler(repo, k3sClient, cfClient, limiter, metrics.RateLimitObserver(), auditSvc, incidentSvc))
+
+	// Construct the on-disk ingestion store (M6.8 / ADR-0013 §11).
+	// Limits are intentionally fixed at spec §11 values; T20 will make them
+	// configurable per plan tier.
+	ingestRoot := envOr("APP_SOURCE_INGEST_ROOT", "/var/lib/0ops/uploads")
+	ingestStore := &ingestion.Store{
+		Root:            ingestRoot,
+		MaxArchiveBytes: 100 << 20, // 100 MB
+		MaxEntryBytes:   50 << 20,  // 50 MB
+		MaxEntries:      10000,
+	}
+
+	r.Mount("/", appserver.NewRouterWithIngestion(repo, k3sClient, cfClient, limiter, metrics.RateLimitObserver(), auditSvc, incidentSvc, ingestStore, auditSvc))
 
 	srv := &http.Server{
 		Addr:              addr,

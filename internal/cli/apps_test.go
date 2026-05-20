@@ -353,6 +353,9 @@ func (f *cliFakeStore) GetOrCreateUserAndPersonalTeam(ctx context.Context, githu
 	return f.ResolveUserDefaultTeamByGithubLogin(ctx, githubLogin)
 }
 
+// InsertUpload satisfies the extended appsStore interface (M6.8).
+func (f *cliFakeStore) InsertUpload(_ context.Context, _ db.Upload) error { return nil }
+
 func TestAppsListCommand(t *testing.T) {
 	store, token := newCLIFakeStore()
 	srv := httptest.NewServer(serverpkg.NewRouter(store))

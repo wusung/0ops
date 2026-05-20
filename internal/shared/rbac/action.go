@@ -39,6 +39,10 @@ const (
 	// ActionCloseIncident requires admin role + incidents:write scope
 	// to close an incident (reconciler-and-incident spec § 9.3, § 16 #8).
 	ActionCloseIncident Action = "close_incident"
+	// ActionCreateUpload requires member role + apps:write scope to upload an
+	// app-source archive (ADR-0013 § 5.1). Same grant set as ActionCreateApp
+	// (Owner, Admin, Member; NOT Viewer).
+	ActionCreateUpload Action = "create_upload"
 )
 
 // Requirement couples minimum role with required scope.
@@ -78,6 +82,8 @@ func RequiredFor(action Action) Requirement {
 		return Requirement{MinRole: RoleViewer, RequiredScope: ScopeIncidentsRead}
 	case ActionCloseIncident:
 		return Requirement{MinRole: RoleAdmin, RequiredScope: ScopeIncidentsWrite}
+	case ActionCreateUpload:
+		return Requirement{MinRole: RoleMember, RequiredScope: ScopeAppsWrite}
 	default:
 		return Requirement{}
 	}
