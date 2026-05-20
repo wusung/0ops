@@ -30,7 +30,7 @@ superseded-by: []
 3. **Ingest tree 路徑安全三層**：server-controlled PVC；`ingestion.Store` API 唯一存取點；解壓時 path traversal / symlink / entry size 三層 hardening。
 4. **GHA workflow 變體 + short-lived JWT**：新增 `deploy-app-from-upload.yml`；workflow 以 server 簽 short-lived JWT（`OPS_BUILD_TOKEN_SECRET`，TTL 15 min，scope=download-upload）反向 fetch tarball；build / push / callback 與既有路徑共用。
 5. **ADR-0012 dev path 保留不變**：`file://` + `LOCAL_FILE_REPO_ENABLED` + `LocalBuildDispatcher` 仍為 dev-only 路徑；不共用 schema、不共用 dispatcher、不混淆兩條安全模型。
-6. **ADR-0012 §3.1「production 必拒 file://」条款 supersede**：production `file://` 錯誤碼改為 422 `unsupported_source`（原條款之守護目的由 upload path 安全模型承接）；`runtime.AssertProductionSafe()` 語意調整為拒 `LOCAL_*_ENABLED=true`、同時要求 `APP_SOURCE_INGEST_ROOT` / `OPS_BUILD_TOKEN_SECRET` 存在。
+6. **ADR-0012 §3.1「production 必拒 file://」條款 supersede**：production `file://` 錯誤碼改為 422 `unsupported_source`（原條款之守護目的由 upload path 安全模型承接）；`runtime.AssertProductionSafe()` 語意調整為拒 `LOCAL_*_ENABLED=true`、同時要求 `APP_SOURCE_INGEST_ROOT` / `OPS_BUILD_TOKEN_SECRET` 存在。
 
 行為與 API/schema 細節以 spec [`docs/features/app-source-ingestion/spec.md`](../features/app-source-ingestion/spec.md) 為準；本 ADR 釘住決策邊界，不重述 spec。
 
@@ -159,11 +159,13 @@ ADR-0005 之 GHA dispatch + HMAC callback 規約對 upload source 完整保留�
 
 ADR-0005 的 `deploy-app.yml`、HMAC 計算、callback retry 規則全數保留；本 ADR 新增 `deploy-app-from-upload.yml` 作為平行變體。
 
+本 ADR 引入之 `OPS_BUILD_TOKEN_SECRET`（scope: `download-upload`、TTL 15 min）與 ADR-0005 之 `OPS_TOKEN_SIGNING_SECRET`（scope: `ghcr-push` + `callback-write`、TTL 1h）為**獨立 secrets**，production 必須兩者皆設；不複用、不交叉簽章；`runtime.AssertProductionSafe()`（T4）對兩者各檢一次。
+
 ### 4.2 ADR-0012（Local File Repo dev mode）—— 部分 supersede
 
 **Supersede 的條款**：§3.1「production 必拒 file://」中「啟動硬性檢查：production + LOCAL_FILE_REPO_ENABLED → server panic」那段文字中，原意圖涵蓋的「production 不得透過任何 file-like path 繞過安全邊界」的守護目的，由本 ADR 之 upload ingest 安全模型承接。
 
-具體語意：ADR-0012 §3.1 原文「production 必拒」条款失效，以本 ADR §3.7 的 `AssertProductionSafe` 新語意取代。
+具體語意：ADR-0012 §3.1 原文「production 必拒」條款失效，以本 ADR §3.7 的 `AssertProductionSafe` 新語意取代。
 
 **仍然有效的條款**：ADR-0012 §3.2–§3.5（介面分派、LocalBuildDispatcher 流程、路徑安全、image_ref schema）對 dev path 完整保留；DD1–DD7 中的 DD2 / DD3 / DD5 / DD7 已被本 ADR 繼承（語意調整後）；DD1 / DD4 / DD6 仍僅 dev path 適用。
 
@@ -253,4 +255,4 @@ ADR-0005 的 `deploy-app.yml`、HMAC 計算、callback retry 規則全數保留�
 3. **OCI artifact registry 取代 ingest tree**：未來若引入 OCI artifact spec，是否完整取代 PVC？屬獨立 ADR，本 ADR 預留 `Store` 介面抽象作為替換點。
 4. **CLI 端 .git 完整保留 vs metadata-only**：v1 metadata-only（commit_sha + ref name）。若 builder 需要完整 git history 會失效；v1 已知限制。
 5. **跨 deploy_run 之 upload 復用**：同 upload_id 多次 redeploy 每次仍產生新 image（`deploy_run_id` tag）；`upload_id` 作為 deduplication key 之 image cache 優化 v1 不做。
-6. **deprecated `repo_url` 之 removal timeline**：v1 保留；M8（或下個 major）移除；需 changelog + CLI deprecation warning（T23）。
+6. **`repo_url` deprecation 之最終下車站**：本 ADR 規約 v1 保留、M8（或下個 major）移除（見 §6.2）。實際下車時機應視 M6→M8 期間 `repo_url` 之 client 使用率衰退數據而定；若 M7 末 client 仍 >5% 使用 `repo_url`，需評估展延一個 major。tracking metric 與 alert threshold 屬獨立 observability spec。

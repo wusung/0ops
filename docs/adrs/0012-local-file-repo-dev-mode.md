@@ -10,7 +10,8 @@ tags:
   - dispatcher
   - testability
 supersedes: []
-superseded-by: []
+superseded-by:
+  - "0013"   # §3.1 only — see ADR-0013 §4.2 for boundary
 ---
 
 # ADR-0012：Local File Repo 與 Local Build Pipeline（dev mode）
