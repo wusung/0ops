@@ -53,6 +53,9 @@ type fakeStore struct {
 	deployRuns         []db.DeployRun
 	reconciliationJobs []db.ReconciliationJobInsert
 	auditLogRows       []db.AuditLogInsert
+
+	// M6.8 app-source-ingestion upload bookkeeping.
+	uploadRows []db.Upload
 }
 
 // fakeAuditEntry records calls to AppendWebhookAudit so push-handler tests
@@ -1470,6 +1473,13 @@ func TestAuthMiddlewareRejectsExpiredToken(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "token_expired") {
 		t.Fatalf("ListTeams() error = %v, want token_expired", err)
 	}
+}
+
+// InsertUpload satisfies the uploadsStore interface and the extended
+// appsStore interface; appends to uploadRows for test assertions.
+func (f *fakeStore) InsertUpload(_ context.Context, u db.Upload) error {
+	f.uploadRows = append(f.uploadRows, u)
+	return nil
 }
 
 func newFakeStore() (*fakeStore, string) {
