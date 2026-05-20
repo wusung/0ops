@@ -33,6 +33,7 @@ jobs:
           set -euo pipefail
           mkdir -p target
           HEADERS_FILE=$(mktemp)
+          trap 'rm -f /tmp/source.archive /tmp/source.tar "$HEADERS_FILE"' EXIT
           HTTP_CODE=$(curl -sS -o /tmp/source.archive -D "$HEADERS_FILE" -w "%{http_code}" \
             --retry 3 --retry-delay 2 --max-time 60 \
             -H "Authorization: Bearer $FETCH_TOKEN" \
@@ -43,7 +44,7 @@ jobs:
             exit 1
           fi
           # Detect archive format from Content-Type header (set by T9 archive handler).
-          CTYPE=$(grep -i '^content-type:' "$HEADERS_FILE" | tail -1 | awk '{print $2}' | tr -d '\r')
+          CTYPE=$(grep -i '^content-type:' "$HEADERS_FILE" | tail -1 | awk '{print $2}' | sed 's/;.*//' | tr -d '\r')
           case "$CTYPE" in
             application/zstd)
               zstd -d /tmp/source.archive -o /tmp/source.tar
@@ -56,8 +57,7 @@ jobs:
               exit 1
               ;;
           esac
-          tar -xf /tmp/source.tar -C target
-          rm -f /tmp/source.archive /tmp/source.tar "$HEADERS_FILE"
+          tar -xf /tmp/source.tar -C target --no-same-owner
           echo "Extracted upload $UPLOAD_ID to target/"
           ls -la target | head -20
 
