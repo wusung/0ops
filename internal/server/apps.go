@@ -382,7 +382,16 @@ func previewCreateAppHandler(store appsStore) http.HandlerFunc {
 			return
 		}
 
-		summary := fmt.Sprintf("Create app %q from %s", req.Slug, req.RepoURL)
+		sourceLabel := req.RepoURL
+		if req.Source != nil {
+			switch req.Source.Type {
+			case dto.SourceKindGitHub:
+				sourceLabel = req.Source.GitHub.URL
+			case dto.SourceKindUpload:
+				sourceLabel = "upload://" + req.Source.Upload.UploadID
+			}
+		}
+		summary := fmt.Sprintf("Create app %q from %s", req.Slug, sourceLabel)
 		out, err := store.CreatePreview(
 			r.Context(),
 			auth.TeamID(r.Context()),
@@ -1794,6 +1803,20 @@ func validMemberRole(role string) bool {
 	}
 }
 
+// validateAppCreateRequest validates a create_app preview payload against the
+// app-source-ingestion contract (ADR-0013 §4) and normalizes legacy
+// repo_url+ref input into the Source sum type IN PLACE.
+//
+// Returns true on success and false on any failure (it also writes the
+// appropriate HTTP error response before returning false). On success the
+// caller can rely on:
+//   - req.Slug is non-empty and passes appSlugPattern
+//   - Either req.Source is set with a fully-validated kind-specific payload,
+//     OR (legacy dev file:// path) req.Source is nil and req.RepoURL starts
+//     with "file://" and has passed createappsvc.ValidateLocalRepoURL.
+//
+// T12 (createapp.Service) consumes req.Source for the new pipeline and
+// keeps the legacy file:// dev path on req.RepoURL.
 func validateAppCreateRequest(w http.ResponseWriter, req *dto.AppCreateRequest) bool {
 	// --- Slug validation (unchanged) ---
 	slug := strings.TrimSpace(req.Slug)
@@ -1831,15 +1854,21 @@ func validateAppCreateRequest(w http.ResponseWriter, req *dto.AppCreateRequest) 
 				return false
 			}
 			url := strings.TrimSpace(req.Source.GitHub.URL)
+			ref := strings.TrimSpace(req.Source.GitHub.Ref)
 			if !strings.HasPrefix(url, "https://github.com/") && !strings.HasPrefix(url, "git@github.com:") {
 				apperror.Write(w, apperror.CodeUnsupportedSource, apperror.ClassUnprocessable, "source.github.url must be a github.com URL", map[string]any{"field": "source.github.url"})
 				return false
 			}
+			req.Source.GitHub.URL = url
+			req.Source.GitHub.Ref = ref
 		case dto.SourceKindUpload:
 			if req.Source.Upload == nil || strings.TrimSpace(req.Source.Upload.UploadID) == "" {
 				apperror.Write(w, apperror.CodeSourceInvalid, apperror.ClassUnprocessable, "source.upload must have upload_id", map[string]any{"field": "source.upload"})
 				return false
 			}
+			uploadID := strings.TrimSpace(req.Source.Upload.UploadID)
+			req.Source.Upload.UploadID = uploadID
+			req.Source.Upload.Ref = strings.TrimSpace(req.Source.Upload.Ref)
 		default:
 			apperror.Write(w, apperror.CodeSourceKindUnsupported, apperror.ClassUnprocessable, "unknown source type", map[string]any{"field": "source.type"})
 			return false
