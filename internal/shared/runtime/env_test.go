@@ -60,6 +60,9 @@ func TestAssertProductionSafeNoopInDev(t *testing.T) {
 	t.Setenv("LOCAL_FILE_REPO_ENABLED", "true")
 	t.Setenv("LOCAL_BUILD_ENABLED", "true")
 	t.Setenv("LOCAL_REGISTRY", "registry:5000")
+	// ADR-0013 vars deliberately empty — must NOT trigger panic in dev.
+	t.Setenv("APP_SOURCE_INGEST_ROOT", "")
+	t.Setenv("OPS_BUILD_TOKEN_SECRET", "")
 	AssertProductionSafe() // must not panic
 }
 
@@ -90,6 +93,36 @@ func TestAssertProductionSafePanicsOnMissingBuildTokenSecret(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {
 			t.Fatalf("expected panic for missing OPS_BUILD_TOKEN_SECRET")
+		}
+	}()
+	AssertProductionSafe()
+}
+
+func TestAssertProductionSafePanicsOnWhitespaceIngestRoot(t *testing.T) {
+	t.Setenv("OPS_ENV", "production")
+	t.Setenv("LOCAL_FILE_REPO_ENABLED", "")
+	t.Setenv("LOCAL_BUILD_ENABLED", "")
+	t.Setenv("LOCAL_REGISTRY", "")
+	t.Setenv("APP_SOURCE_INGEST_ROOT", "   ")
+	t.Setenv("OPS_BUILD_TOKEN_SECRET", "x")
+	defer func() {
+		if recover() == nil {
+			t.Fatalf("expected panic for whitespace-only APP_SOURCE_INGEST_ROOT")
+		}
+	}()
+	AssertProductionSafe()
+}
+
+func TestAssertProductionSafePanicsOnWhitespaceBuildTokenSecret(t *testing.T) {
+	t.Setenv("OPS_ENV", "production")
+	t.Setenv("LOCAL_FILE_REPO_ENABLED", "")
+	t.Setenv("LOCAL_BUILD_ENABLED", "")
+	t.Setenv("LOCAL_REGISTRY", "")
+	t.Setenv("APP_SOURCE_INGEST_ROOT", "/var/lib/0ops/uploads")
+	t.Setenv("OPS_BUILD_TOKEN_SECRET", "\t  \n")
+	defer func() {
+		if recover() == nil {
+			t.Fatalf("expected panic for whitespace-only OPS_BUILD_TOKEN_SECRET")
 		}
 	}()
 	AssertProductionSafe()

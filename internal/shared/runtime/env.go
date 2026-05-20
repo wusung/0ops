@@ -1,6 +1,8 @@
 // Package runtime exposes process-wide environment kind detection and
 // production safety assertions. Introduced by ADR-0012 to gate dev-only
-// knobs (file:// repo, local build pipeline) out of production.
+// knobs (file:// repo, local build pipeline) out of production; extended
+// by ADR-0013 to require app-source ingestion env (APP_SOURCE_INGEST_ROOT,
+// OPS_BUILD_TOKEN_SECRET) when running in production.
 package runtime
 
 import (
