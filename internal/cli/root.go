@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -53,12 +55,15 @@ func newAppsCommand() *cobra.Command {
 		outputFmt string
 	)
 	var (
-		createSlug    string
-		createRepoURL string
-		createRef     string
-		createBuilder string
-		createYes     bool
-		createDryRun  bool
+		createSlug       string
+		createSource     string
+		createRepoURL    string
+		createRef        string
+		createBuilder    string
+		createYes        bool
+		createDryRun     bool
+		createMaxBytes   int64
+		createMaxEntries int
 	)
 	var (
 		deleteYes bool
@@ -150,25 +155,99 @@ func newAppsCommand() *cobra.Command {
 			if strings.TrimSpace(createSlug) == "" {
 				return fmt.Errorf("--slug is required")
 			}
-			if strings.TrimSpace(createRepoURL) == "" {
-				return fmt.Errorf("--repo-url is required")
+
+			sourceSet := strings.TrimSpace(createSource) != ""
+			repoURLSet := strings.TrimSpace(createRepoURL) != ""
+
+			if sourceSet && repoURLSet {
+				return fmt.Errorf("--source and --repo-url are mutually exclusive; use --source")
 			}
-			if strings.TrimSpace(createRef) == "" {
-				return fmt.Errorf("--ref is required")
+			if !sourceSet && !repoURLSet {
+				return fmt.Errorf("either --source or --repo-url is required")
 			}
 
+			ctx := commandContext(cmd)
+
 			request := dto.AppCreateRequest{
-				Slug:    strings.TrimSpace(createSlug),
-				RepoURL: strings.TrimSpace(createRepoURL),
-				Ref:     strings.TrimSpace(createRef),
+				Slug: strings.TrimSpace(createSlug),
 			}
 			if strings.TrimSpace(createBuilder) != "" {
 				builder := strings.TrimSpace(createBuilder)
 				request.Builder = &builder
 			}
 
+			switch classifySource(createSource) {
+			case sourceKindUnset:
+				// Only --repo-url set — deprecated legacy path.
+				fmt.Fprintln(cmd.ErrOrStderr(), "warning: --repo-url is deprecated, use --source")
+				request.RepoURL = strings.TrimSpace(createRepoURL)
+				request.Ref = strings.TrimSpace(createRef)
+
+			case sourceKindFileURL:
+				// ADR-0012 dev legacy path — server normalizes server-side.
+				request.RepoURL = strings.TrimSpace(createSource)
+				request.Ref = strings.TrimSpace(createRef)
+
+			case sourceKindGitHubURL:
+				request.Source = &dto.Source{
+					Type: dto.SourceKindGitHub,
+					GitHub: &dto.SourceGitHub{
+						URL: strings.TrimSpace(createSource),
+						Ref: strings.TrimSpace(createRef),
+					},
+				}
+
+			case sourceKindUploadID:
+				uploadID := strings.TrimPrefix(strings.TrimSpace(createSource), "upload://")
+				if uploadID == "" {
+					return fmt.Errorf("--source upload://<id> requires a non-empty upload id")
+				}
+				request.Source = &dto.Source{
+					Type: dto.SourceKindUpload,
+					Upload: &dto.SourceUpload{
+						UploadID: uploadID,
+						Ref:      strings.TrimSpace(createRef),
+					},
+				}
+
+			case sourceKindLocalPath:
+				resolved, err := filepath.Abs(strings.TrimSpace(createSource))
+				if err != nil {
+					return fmt.Errorf("resolve source path: %w", err)
+				}
+				if _, err := os.Stat(resolved); err != nil {
+					return fmt.Errorf("source path: %w", err)
+				}
+
+				fmt.Fprintf(cmd.ErrOrStderr(), "Packing %s ...\n", resolved)
+
+				uploadCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+				defer cancel()
+				uploader := NewUploadsClient(ctxInfo.Host, ctxInfo.BearerToken)
+				resp, packRes, uploadErr := uploader.UploadDir(uploadCtx, ctxInfo.TeamSlug, resolved, PackOptions{
+					MaxBytes:   createMaxBytes,
+					MaxEntries: createMaxEntries,
+				})
+				if uploadErr != nil {
+					return wrapUploadError(uploadErr)
+				}
+				if packRes.EntryCount == 0 {
+					return fmt.Errorf("source directory %q is empty after packing (all files excluded by .dockerignore or git ls-files). Check your .dockerignore.", resolved)
+				}
+				fmt.Fprintf(cmd.ErrOrStderr(),
+					"Uploaded %d files (%d bytes, sha256=%s) → %s\n",
+					packRes.EntryCount, packRes.SizeBytes, packRes.SHA256, resp.UploadID)
+
+				request.Source = &dto.Source{
+					Type: dto.SourceKindUpload,
+					Upload: &dto.SourceUpload{
+						UploadID: resp.UploadID,
+						Ref:      strings.TrimSpace(createRef),
+					},
+				}
+			}
+
 			client := backendclient.New(ctxInfo.Host, ctxInfo.BearerToken)
-			ctx := commandContext(cmd)
 			preview, err := client.PreviewCreateApp(ctx, ctxInfo.TeamSlug, request)
 			if err != nil {
 				return err
@@ -194,11 +273,18 @@ func newAppsCommand() *cobra.Command {
 		},
 	}
 	createCmd.Flags().StringVar(&createSlug, "slug", "", "app slug")
-	createCmd.Flags().StringVar(&createRepoURL, "repo-url", "", "source repository URL")
-	createCmd.Flags().StringVar(&createRef, "ref", "main", "git ref (branch/tag)")
+	createCmd.Flags().StringVar(&createSource, "source", "",
+		"app source (local path, upload://<id>, github URL). Replaces --repo-url.")
+	createCmd.Flags().StringVar(&createRepoURL, "repo-url", "", "source repository URL (deprecated; use --source)")
+	createCmd.Flags().StringVar(&createRef, "ref", "main",
+		"git ref (branch/tag/sha) for github/file sources; optional audit tag for upload sources")
 	createCmd.Flags().StringVar(&createBuilder, "builder", "", "optional buildpack builder")
 	createCmd.Flags().BoolVar(&createYes, "yes", false, "skip confirmation")
 	createCmd.Flags().BoolVar(&createDryRun, "dry-run", false, "preview only, do not confirm")
+	createCmd.Flags().Int64Var(&createMaxBytes, "upload-max-bytes", 100*1024*1024,
+		"max tarball size in bytes for --source local path uploads (default 100 MiB)")
+	createCmd.Flags().IntVar(&createMaxEntries, "upload-max-entries", 10000,
+		"max file count for --source local path uploads (default 10000)")
 	cmd.AddCommand(createCmd)
 
 	deleteCmd := &cobra.Command{
