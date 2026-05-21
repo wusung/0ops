@@ -3,6 +3,12 @@
 
 SHELL := /bin/bash
 
+# 載入本機 .env（若存在）。podman compose 會自己讀，但 Makefile target 內若需要
+# 引用 $$DATABASE_URL 等變數，必須先 export 進 make 環境，否則 host shell 看到的
+# 是空字串。production 不存在 .env，include 不報錯（dash prefix 容錯）。
+-include .env
+export
+
 VERSION ?= dev
 LDFLAGS := -s -w -X github.com/winshare/zeroops/internal/shared.Version=$(VERSION)
 SQLC_IMAGE ?= docker.io/sqlc/sqlc:1.31.1
@@ -36,10 +42,10 @@ dev-shell: ## 進入 server 容器（dev stage 有 sh）
 ## --- migrations ---
 
 migrate: ## 套用 migration up（idempotent）
-	podman compose run --rm migrate up
+	podman compose run --rm migrate "$$DATABASE_URL" up
 
 migrate-down: ## 回滾一格
-	podman compose run --rm migrate down
+	podman compose run --rm migrate "$$DATABASE_URL" down
 
 migrate-lint: ## 跑 spec § 10.1 migration 安全閘（CONCURRENTLY、ADD COLUMN NOT NULL 三步拆分）
 	go test ./internal/server/db/migrationlint/...
