@@ -138,6 +138,7 @@ jobs:
           SIG=$(printf '%s' "${TS}.${PAYLOAD}" | openssl dgst -sha256 -hmac "$OPS_TOKEN" -hex | awk '{print $2}')
           curl -fsS -X POST "$CALLBACK_URL" \
             -H "Content-Type: application/json" \
+            -H "X-Trace-ID: $TRACE_ID" \
             -H "X-0ops-Timestamp: $TS" \
             -H "X-0ops-Signature: sha256=$SIG" \
             --data "$PAYLOAD"
