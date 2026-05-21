@@ -121,10 +121,10 @@ log "  upload_id=$UPLOAD_ID"
 
 log "6. verify DB: upload row exists and is status='pinned'"
 # Use the postgres container which has psql available.
-UPLOAD_STATUS="$(podman exec "$DB_CONTAINER" \
-  psql "$DB_DSN_INTERNAL" -tA \
-  -v upload_id="$UPLOAD_ID" \
-  -c "SELECT status FROM app_source_uploads WHERE id = :'upload_id' LIMIT 1;" \
+UPLOAD_STATUS="$(echo "SELECT status FROM app_source_uploads WHERE id = :'upload_id' LIMIT 1;" \
+  | podman exec -i "$DB_CONTAINER" \
+    psql "$DB_DSN_INTERNAL" -tA \
+    -v upload_id="$UPLOAD_ID" \
   | tr -d '[:space:]')"
 
 case "$UPLOAD_STATUS" in
@@ -140,10 +140,10 @@ case "$UPLOAD_STATUS" in
 esac
 
 log "7. verify DB: deploy_run row exists for deploy_run_id"
-DEPLOY_COUNT="$(podman exec "$DB_CONTAINER" \
-  psql "$DB_DSN_INTERNAL" -tA \
-  -v deploy_run_id="$DEPLOY_RUN_ID" \
-  -c "SELECT COUNT(*) FROM deploy_run WHERE id = :'deploy_run_id';" \
+DEPLOY_COUNT="$(echo "SELECT COUNT(*) FROM deploy_run WHERE id = :'deploy_run_id';" \
+  | podman exec -i "$DB_CONTAINER" \
+    psql "$DB_DSN_INTERNAL" -tA \
+    -v deploy_run_id="$DEPLOY_RUN_ID" \
   | tr -d '[:space:]')"
 if [ "$DEPLOY_COUNT" != "1" ]; then
   echo "[t22-e2e] expected 1 deploy_run row for id=$DEPLOY_RUN_ID, got $DEPLOY_COUNT" >&2
@@ -153,10 +153,10 @@ log "  deploy_run found OK"
 
 log "8. verify archive download: server signs JWT + GET /v1/uploads/{id}/archive"
 # Look up team UUID from DB (needed to sign the fetch JWT).
-TEAM_ID="$(podman exec "$DB_CONTAINER" \
-  psql "$DB_DSN_INTERNAL" -tA \
-  -v team_slug="$TEAM_SLUG" \
-  -c "SELECT id FROM team WHERE slug = :'team_slug' LIMIT 1;" \
+TEAM_ID="$(echo "SELECT id FROM team WHERE slug = :'team_slug' LIMIT 1;" \
+  | podman exec -i "$DB_CONTAINER" \
+    psql "$DB_DSN_INTERNAL" -tA \
+    -v team_slug="$TEAM_SLUG" \
   | tr -d '[:space:]')"
 
 if [ -z "$TEAM_ID" ]; then
