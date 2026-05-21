@@ -189,11 +189,13 @@ func main() {
 func requestTrace(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			traceID := middleware.GetReqID(r.Context())
+			traceID := strings.TrimSpace(r.Header.Get("X-Trace-ID"))
 			if traceID == "" {
-				traceID = r.Header.Get("X-Request-ID")
+				traceID = strings.TrimSpace(r.Header.Get("X-Request-ID"))
 			}
-			traceID = strings.TrimSpace(traceID)
+			if traceID == "" {
+				traceID = middleware.GetReqID(r.Context())
+			}
 			if traceID == "" {
 				traceID = "trace-missing"
 			}

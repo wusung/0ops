@@ -18,17 +18,19 @@ func TestCallbackClientSignsAndPosts(t *testing.T) {
 	var gotSig string
 	var gotTS string
 	var gotURL string
+	var gotTrace string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotBody, _ = io.ReadAll(r.Body)
 		gotSig = r.Header.Get("X-0ops-Signature")
 		gotTS = r.Header.Get("X-0ops-Timestamp")
 		gotURL = r.URL.Path
+		gotTrace = r.Header.Get("X-Trace-ID")
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
 	c := NewCallbackClient(srv.URL, secret, http.DefaultClient)
-	if err := c.Send(context.Background(), "dr_test", CallbackEvent{Status: "building"}); err != nil {
+	if err := c.Send(context.Background(), "dr_test", CallbackEvent{Status: "building", TraceID: "trace-local-1"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -37,6 +39,9 @@ func TestCallbackClientSignsAndPosts(t *testing.T) {
 	}
 	if gotTS == "" {
 		t.Errorf("X-0ops-Timestamp missing")
+	}
+	if gotTrace != "trace-local-1" {
+		t.Errorf("X-Trace-ID = %q, want trace-local-1", gotTrace)
 	}
 
 	var ev CallbackEvent

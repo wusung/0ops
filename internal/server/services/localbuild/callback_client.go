@@ -68,6 +68,9 @@ func (c *CallbackClient) Send(ctx context.Context, runID string, ev CallbackEven
 	signature := "sha256=" + hex.EncodeToString(mac.Sum(nil))
 
 	req.Header.Set("Content-Type", "application/json")
+	if traceID := strings.TrimSpace(ev.TraceID); traceID != "" {
+		req.Header.Set("X-Trace-ID", traceID)
+	}
 	req.Header.Set("X-0ops-Timestamp", timestamp)
 	req.Header.Set("X-0ops-Signature", signature)
 	req.Header.Set("X-0ops-Delivery-ID", fmt.Sprintf("%s-%s-%s", runID, ev.Status, timestamp))
