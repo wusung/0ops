@@ -97,16 +97,16 @@ func (s *UploadGCScanner) gcOne(ctx context.Context, log *slog.Logger, row db.Up
 }
 
 func makeUploadGCAudit(row db.Upload) audit.Entry {
-	subj := row.ID
 	return audit.Entry{
 		TeamID:      row.TeamID,
 		ActorUserID: nil, // GC is a system event — source=system requires nil actor
 		Source:      audit.SourceSystem,
 		SubjectType: "upload",
-		SubjectID:   &subj,
+		SubjectID:   nil,
 		Action:      "app_source.upload.gc_d",
 		Args:        nil,
 		Result: map[string]any{
+			"upload_id":    row.ID,
 			"expires_at":   row.ExpiresAt,
 			"prior_status": row.Status, // "received" or "pinned" before the flip
 		},

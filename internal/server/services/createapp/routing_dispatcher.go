@@ -2,7 +2,7 @@ package createapp
 
 import (
 	"context"
-	"errors"
+	"log/slog"
 	"strings"
 
 	"github.com/winshare/zeroops/internal/server/services/workflowdispatch"
@@ -26,10 +26,11 @@ type RoutingDispatcher struct {
 }
 
 // Dispatch routes by SourceKind first, with URL-prefix lookup as legacy
-// fallback. Nil-tolerance policy across kinds (asymmetric by design):
-//   - UploadDispatcher nil → explicit error. Upload source has no legacy
-//     URL-prefix fallback; misconfiguration must surface as a create_app
-//     failure, not a silent drop.
+// fallback. Nil-tolerance policy across kinds (symmetric by convention):
+//   - UploadDispatcher nil → silent no-op + slog.Warn. Dev envs without
+//     OPS_GITHUB_* env vars have a nil UploadGHADispatcher; upload source
+//     create_app must succeed. Production misconfig is surfaced via Warn log
+//     and boot-time env check (T4 AssertProductionSafe), not runtime error.
 //   - GitHubDispatcher nil → silent no-op. Matches pre-T14 behaviour: dev
 //     envs without OPS_GITHUB_* env vars expect create_app to succeed
 //     without firing GHA, leaving downstream reconciler to drive state.
@@ -40,7 +41,10 @@ func (r *RoutingDispatcher) Dispatch(ctx context.Context, payload workflowdispat
 	switch payload.SourceKind {
 	case "upload":
 		if r.UploadDispatcher == nil {
-			return errors.New("upload dispatcher not configured")
+			slog.Warn("routing_dispatcher: upload source with no UploadDispatcher configured; dispatch skipped",
+				"team_slug", payload.TeamSlug, "app_slug", payload.AppSlug, "run_id", payload.RunID,
+				"hint", "set OPS_GITHUB_* env in production or wire UploadGHADispatcher")
+			return nil
 		}
 		return r.UploadDispatcher.Dispatch(ctx, payload)
 	case "github":
