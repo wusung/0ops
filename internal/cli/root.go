@@ -179,7 +179,8 @@ func newAppsCommand() *cobra.Command {
 			switch classifySource(createSource) {
 			case sourceKindUnset:
 				// Only --repo-url set — deprecated legacy path.
-				fmt.Fprintln(cmd.ErrOrStderr(), "warning: --repo-url is deprecated, use --source")
+				fmt.Fprintln(cmd.ErrOrStderr(), "warning: --repo-url is deprecated; will be removed in M8.")
+				fmt.Fprintln(cmd.ErrOrStderr(), "  migrate to --source — see docs/features/app-source-ingestion/release/2026-05-21-cli-source-flag-migration.md")
 				request.RepoURL = strings.TrimSpace(createRepoURL)
 				request.Ref = strings.TrimSpace(createRef)
 

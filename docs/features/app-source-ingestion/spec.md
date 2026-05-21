@@ -450,8 +450,34 @@ Dashboard：observability-skeleton 加 upload pane（latency p50/p95、reject �
 ## 16. Open Questions
 
 1. **GHA self-hosted runner 之 fetch 路徑**：若 team 設了 self-hosted runner（plan tier capability），workflow 從 runner 到 0ops API 之網路路徑可能受限；是否需提供 `OPS_API_PUBLIC_URL` vs `OPS_API_INTERNAL_URL` 區分？v1 暫定走 `OPS_API_PUBLIC_URL`，self-hosted runner 必須能訪問 public API。
+
+   [Status 2026-05-21]: 待 production CI rollout 驗證；dev e2e (T22) 不覆蓋 workflow 端
+
 2. **CLI 端 git submodule**：v1 走 `git ls-files --recurse-submodules`，但 submodule 之 .git 目錄不 tar；workflow 端是否需要重新 init submodule？v1 暫定不支援 submodule 之 build；偵測到含 submodule 之 upload → warning（不 fail）。
+
+   [Resolved 2026-05-21]: v1 不支援 submodule 內容打包；T16 實作採 `--cached --others --exclude-standard`（無 `--recurse-submodules`）；docs/release migration doc § "v1 限制" 文件化
+
 3. **OCI artifact registry 取代本機 ingest tree**：未來若引入 OCI artifact spec（每個 upload 為 OCI artifact），是否完整取代本機 ingest tree？屬獨立 ADR。
+
+   [Status 2026-05-21]: v1 不採；獨立 ADR 待寫
+
 4. **CLI 端 .git 完整保留 vs metadata-only**：v1 metadata-only（commit_sha + ref name）。若 builder 需要完整 git history（如 release-please）會失效；v1 已知限制，列入後續。
+
+   [Resolved 2026-05-21]: v1 metadata-only 確認；T16 僅 pack `.git/HEAD` + refs；依賴完整 git history 之 builder 無法用 upload 路徑（migration doc § "v1 限制" 第 3 條）
+
 5. **跨 deploy_run 之 upload 復用**：同 upload_id 多次 redeploy 之 image_ref schema —— 仍維持 `<deploy_run_id>` tag，每次 build 產生新 image；不複用既有 image。是否值得加 `upload_id` 作為 deduplication key？v1 不做，避免 stale image 觀感問題。
+
+   [Status 2026-05-21]: T13 + T18 已支援 upload_id 複用；`--source upload://upl_xxx` 為 user-facing entry point；不加 dedup key 之決定不變
+
 6. **deprecated `repo_url` 之 removal timeline**：v1 保留；M8（或下個 major）移除。需 changelog + CLI deprecation warning。
+
+   [Status 2026-05-21]: M8 目標不變；T23 release migration doc + CLI warning 文案已加
+
+## 17. Release status
+
+| Milestone | Status | Notes |
+|---|---|---|
+| M6 implementation (T1-T22) | Completed 2026-05-21 | 23 PRs merged sequentially |
+| M6 release migration | Released 2026-05-21 | See [release/2026-05-21-cli-source-flag-migration.md](release/2026-05-21-cli-source-flag-migration.md) |
+| Production CI workflow validation | Pending | T15 deploy-app-from-upload.yml 待第一次 production deploy 驗 |
+| `repo_url` deprecation removal | Target M8 | Q6 |
