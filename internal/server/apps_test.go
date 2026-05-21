@@ -1502,6 +1502,42 @@ func (f *fakeStore) seedUpload(u db.Upload) {
 // PinUpload satisfies the extended appsStore interface (M6.13).
 func (f *fakeStore) PinUpload(_ context.Context, _, _ string, _ time.Time) error { return nil }
 
+// SumInertBytesByTeam satisfies the appsStore interface (M6.20 quota).
+// Returns sum of size_bytes for all received+pinned rows in uploadRows.
+func (f *fakeStore) SumInertBytesByTeam(_ context.Context, teamID string) (int64, error) {
+	var total int64
+	for _, u := range f.uploadRows {
+		if u.TeamID == teamID && (u.Status == "received" || u.Status == "pinned") {
+			total += u.SizeBytes
+		}
+	}
+	return total, nil
+}
+
+// CountPinnedByTeam satisfies the appsStore interface (M6.20 quota).
+// Returns count of pinned rows for the team.
+func (f *fakeStore) CountPinnedByTeam(_ context.Context, teamID string) (int, error) {
+	var count int
+	for _, u := range f.uploadRows {
+		if u.TeamID == teamID && u.Status == "pinned" {
+			count++
+		}
+	}
+	return count, nil
+}
+
+// CountTeamUploadsSince satisfies the appsStore interface (M6.20 quota).
+// Returns count of all rows for the team with ReceivedAt >= since.
+func (f *fakeStore) CountTeamUploadsSince(_ context.Context, teamID string, since time.Time) (int, error) {
+	var count int
+	for _, u := range f.uploadRows {
+		if u.TeamID == teamID && !u.ReceivedAt.Before(since) {
+			count++
+		}
+	}
+	return count, nil
+}
+
 func newFakeStore() (*fakeStore, string) {
 	token, err := auth.NewBearerToken("device", "token-1")
 	if err != nil {

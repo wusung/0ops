@@ -281,7 +281,7 @@ func newAppsCommand() *cobra.Command {
 	createCmd.Flags().StringVar(&createBuilder, "builder", "", "optional buildpack builder")
 	createCmd.Flags().BoolVar(&createYes, "yes", false, "skip confirmation")
 	createCmd.Flags().BoolVar(&createDryRun, "dry-run", false, "preview only, do not confirm")
-	createCmd.Flags().Int64Var(&createMaxBytes, "upload-max-bytes", 100*1024*1024,
+	createCmd.Flags().Int64Var(&createMaxBytes, "upload-max-bytes", 100*1024*1024, // matches server.DefaultUploadMaxArchiveBytes
 		"max tarball size in bytes for --source local path uploads (default 100 MiB)")
 	createCmd.Flags().IntVar(&createMaxEntries, "upload-max-entries", 10000,
 		"max file count for --source local path uploads (default 10000)")

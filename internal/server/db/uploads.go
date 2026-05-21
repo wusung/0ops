@@ -108,6 +108,51 @@ LIMIT $1`, limit)
 	return out, rows.Err()
 }
 
+// SumInertBytesByTeam returns the total size of all non-gc'd, non-expired
+// uploads for the team (status IN ('received', 'pinned')). Used by T20 quota
+// check.
+func (r *Repository) SumInertBytesByTeam(ctx context.Context, teamID string) (int64, error) {
+	var total int64
+	row := r.pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(size_bytes), 0)
+		FROM app_source_uploads
+		WHERE team_id = $1::uuid AND status IN ('received', 'pinned')
+	`, teamID)
+	if err := row.Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+// CountPinnedByTeam returns the number of currently-pinned uploads for the team.
+func (r *Repository) CountPinnedByTeam(ctx context.Context, teamID string) (int, error) {
+	var count int
+	row := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM app_source_uploads
+		WHERE team_id = $1::uuid AND status = 'pinned'
+	`, teamID)
+	if err := row.Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// CountTeamUploadsSince returns the number of uploads created for the team
+// since the given time (used for the daily rolling-window quota).
+func (r *Repository) CountTeamUploadsSince(ctx context.Context, teamID string, since time.Time) (int, error) {
+	var count int
+	row := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM app_source_uploads
+		WHERE team_id = $1::uuid AND received_at >= $2
+	`, teamID, since)
+	if err := row.Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // MarkUploadGCd flips the row to 'gc'd' status and stamps gc_at. Idempotent:
 // a second call on an already-gc'd row is a no-op (gc_at is not re-stamped).
 // No team scope parameter because GC is a privileged internal path operating
