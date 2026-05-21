@@ -40,10 +40,6 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
 - [ ] **runbook 補齊**
   - 缺：GHA callback 驗章失敗排查、create_app stuck in building/syncing、winshare subdomain 路由失敗、burn-rate alert 處理流程
   - 既有：`docs/runbooks/{postgres-failover,postgres-pitr,postgres-restore-test,goose-create-workflow}.md`
-- [ ] **`migrations/00003_*.sql` duplicate version rename**
-  - 多個 milestone 出口報告之既知遺留；`make migrate` 之 image rebuild path 仍 panic
-  - 修法：rename `00003_tool_grants_and_auth_status.sql` → `00004_*.sql`；現有 `00004_team_github_install_index.sql` → `00005_*.sql`；後續編號順延
-  - 風險：無 schema 變更，純檔名 rename + goose meta 重建
 
 ### 治理 / 商業（文件層 backlog）
 
