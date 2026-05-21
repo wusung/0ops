@@ -593,8 +593,12 @@ func TestUploadsPostAuditWritten(t *testing.T) {
 	if entry.Action != "app_source.upload.created" {
 		t.Errorf("audit action = %q, want app_source.upload.created", entry.Action)
 	}
-	if entry.SubjectID == nil || *entry.SubjectID != out.UploadID {
-		t.Errorf("audit SubjectID = %v, want %q", entry.SubjectID, out.UploadID)
+	if entry.SubjectID != nil {
+		t.Errorf("audit SubjectID = %v, want nil (upload_id in Result)", entry.SubjectID)
+	}
+	result, _ := entry.Result.(map[string]any)
+	if result["upload_id"] != out.UploadID {
+		t.Errorf("audit Result[upload_id] = %v, want %q", result["upload_id"], out.UploadID)
 	}
 	if entry.Outcome != audit.OutcomeSuccess {
 		t.Errorf("audit outcome = %q, want success", entry.Outcome)
@@ -1173,8 +1177,8 @@ func TestUploadsArchiveGetAuditWritten(t *testing.T) {
 	if entry.Action != "app_source.upload.archive_downloaded" {
 		t.Errorf("audit action = %q, want app_source.upload.archive_downloaded", entry.Action)
 	}
-	if entry.SubjectID == nil || *entry.SubjectID != uploadID {
-		t.Errorf("audit SubjectID = %v, want %q", entry.SubjectID, uploadID)
+	if entry.SubjectID != nil {
+		t.Errorf("audit SubjectID = %v, want nil (upload_id in Result)", entry.SubjectID)
 	}
 	if entry.Outcome != audit.OutcomeSuccess {
 		t.Errorf("audit outcome = %q, want success", entry.Outcome)
@@ -1186,6 +1190,9 @@ func TestUploadsArchiveGetAuditWritten(t *testing.T) {
 		t.Errorf("audit source = %q, want system", entry.Source)
 	}
 	result, _ := entry.Result.(map[string]any)
+	if result["upload_id"] != uploadID {
+		t.Errorf("audit Result[upload_id] = %v, want %q", result["upload_id"], uploadID)
+	}
 	if result["deploy_run_id"] != "run-42" {
 		t.Errorf("audit result deploy_run_id = %v, want run-42", result["deploy_run_id"])
 	}
@@ -1466,8 +1473,12 @@ func TestUploadsArchiveGetReadFailureEmitsFailureAudit(t *testing.T) {
 	if entry.HTTPStatus == nil || *entry.HTTPStatus != http.StatusInternalServerError {
 		t.Errorf("audit HTTPStatus = %v, want 500", entry.HTTPStatus)
 	}
-	if entry.SubjectID == nil || *entry.SubjectID != uploadID {
-		t.Errorf("audit SubjectID = %v, want %q", entry.SubjectID, uploadID)
+	if entry.SubjectID != nil {
+		t.Errorf("audit SubjectID = %v, want nil (upload_id in Result)", entry.SubjectID)
+	}
+	failResult, _ := entry.Result.(map[string]any)
+	if failResult["upload_id"] != uploadID {
+		t.Errorf("audit Result[upload_id] = %v, want %q", failResult["upload_id"], uploadID)
 	}
 
 	// DB row must remain untouched (still "received").

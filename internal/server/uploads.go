@@ -319,16 +319,16 @@ func uploadHandler(
 		if auditSvc != nil {
 			httpStatus := http.StatusCreated
 			actor := actorUserID
-			subjID := uploadID
 			entry := audit.Entry{
 				TeamID:      teamID,
 				ActorUserID: strPtrIfNonEmpty(actor),
 				Source:      audit.SourceUser,
 				SubjectType: "upload",
-				SubjectID:   &subjID,
+				SubjectID:   nil,
 				Action:      "app_source.upload.created",
 				Args:        nil,
 				Result: map[string]any{
+					"upload_id":  uploadID,
 					"sha256":     stored.SHA256,
 					"size_bytes": stored.SizeBytes,
 					"format":     format,
@@ -540,8 +540,8 @@ func uploadArchiveHandler(store uploadArchiveStore, archive archiveReader, signe
 		recordArchiveDownloadMetric("success")
 		if auditSvc != nil {
 			httpStatus := http.StatusOK
-			subjID := upload.ID
 			result := map[string]any{
+				"upload_id":  upload.ID,
 				"size_bytes": upload.SizeBytes,
 			}
 			if claims.DeployRunID != "" {
@@ -552,7 +552,7 @@ func uploadArchiveHandler(store uploadArchiveStore, archive archiveReader, signe
 				ActorUserID: nil, // workflow has no user actor
 				Source:      audit.SourceSystem,
 				SubjectType: "upload",
-				SubjectID:   &subjID,
+				SubjectID:   nil,
 				Action:      "app_source.upload.archive_downloaded",
 				Args:        nil,
 				Result:      result,
@@ -570,18 +570,19 @@ func uploadArchiveHandler(store uploadArchiveStore, archive archiveReader, signe
 // logArchiveFailedAudit writes an audit entry for archive read failures
 // (file missing on disk despite DB row existing).
 func logArchiveFailedAudit(ctx context.Context, auditSvc uploadAuditWriter, upload db.Upload) error {
-	subjID := upload.ID
 	httpStatus := http.StatusInternalServerError
 	return auditSvc.Log(ctx, audit.Entry{
 		TeamID:      upload.TeamID,
 		ActorUserID: nil,
 		Source:      audit.SourceSystem,
 		SubjectType: "upload",
-		SubjectID:   &subjID,
+		SubjectID:   nil,
 		Action:      "app_source.upload.archive_downloaded",
 		Args:        nil,
-		Result:      nil,
-		Outcome:     audit.OutcomeFailure,
-		HTTPStatus:  &httpStatus,
+		Result: map[string]any{
+			"upload_id": upload.ID,
+		},
+		Outcome:    audit.OutcomeFailure,
+		HTTPStatus: &httpStatus,
 	})
 }

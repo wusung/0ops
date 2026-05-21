@@ -172,19 +172,24 @@ func TestRoutingDispatcher_LocalKindUsesLocalDispatcher(t *testing.T) {
 	}
 }
 
-// TestRoutingDispatcher_UploadKindNilReturnsError verifies that SourceKind="upload"
-// with no UploadDispatcher configured returns an error.
-func TestRoutingDispatcher_UploadKindNilReturnsError(t *testing.T) {
+// TestRoutingDispatcher_UploadKindNilSilentNoOp verifies that SourceKind="upload"
+// with no UploadDispatcher configured returns nil (silent no-op), matching the
+// nil-tolerant convention used by GitHubDispatcher in dev environments.
+func TestRoutingDispatcher_UploadKindNilSilentNoOp(t *testing.T) {
+	gh := &recDispatcher{}
 	rd := &RoutingDispatcher{
-		GitHubDispatcher: &recDispatcher{},
+		GitHubDispatcher: gh,
 		UploadDispatcher: nil,
 		Lookup:           fakeRepoLookup{url: "https://github.com/x/y"},
 	}
 	err := rd.Dispatch(context.Background(), workflowdispatch.ClientPayload{
 		SourceKind: "upload",
 	})
-	if err == nil {
-		t.Fatal("expected error when UploadDispatcher is nil, got nil")
+	if err != nil {
+		t.Fatalf("expected nil error for nil UploadDispatcher (silent no-op), got %v", err)
+	}
+	if gh.called != "" {
+		t.Errorf("github dispatcher should not be called, got %q", gh.called)
 	}
 }
 

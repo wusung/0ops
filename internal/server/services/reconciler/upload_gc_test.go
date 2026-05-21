@@ -330,8 +330,8 @@ func TestUploadGC_AuditEntryShape(t *testing.T) {
 	if entry.SubjectType != "upload" {
 		t.Errorf("SubjectType = %q, want upload", entry.SubjectType)
 	}
-	if entry.SubjectID == nil || *entry.SubjectID != "upload-abc" {
-		t.Errorf("SubjectID = %v, want &upload-abc", entry.SubjectID)
+	if entry.SubjectID != nil {
+		t.Errorf("SubjectID = %v, want nil (upload_id in Result)", entry.SubjectID)
 	}
 	if entry.Source != audit.SourceSystem {
 		t.Errorf("Source = %q, want system", entry.Source)
@@ -348,6 +348,9 @@ func TestUploadGC_AuditEntryShape(t *testing.T) {
 	result, ok := entry.Result.(map[string]any)
 	if !ok {
 		t.Fatalf("expected Result to be map[string]any, got %T", entry.Result)
+	}
+	if result["upload_id"] != "upload-abc" {
+		t.Errorf("Result[upload_id] = %v, want upload-abc", result["upload_id"])
 	}
 	if _, hasExpiresAt := result["expires_at"]; !hasExpiresAt {
 		t.Error("Result missing expires_at")
