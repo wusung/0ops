@@ -12,6 +12,17 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+// Upload pipeline metric name constants — kept here so callers can reference
+// them in tests without hard-coding the strings.
+const (
+	MetricUploadTotal           = "app_source_upload_total"
+	MetricUploadSizeBytes       = "app_source_upload_size_bytes"
+	MetricUploadDurationSeconds = "app_source_upload_duration_seconds"
+	MetricQuotaRejectionTotal   = "app_source_quota_rejection_total"
+	MetricGCDeletedTotal        = "app_source_gc_deleted_total"
+	MetricArchiveDownloadTotal  = "app_source_archive_downloaded_total"
+)
+
 // Metrics holds the Prometheus registry and HTTP collectors.
 type Metrics struct {
 	registry          *prometheus.Registry
@@ -41,6 +52,14 @@ type Metrics struct {
 	leaderStatus        *prometheus.GaugeVec
 	leaderHandover      *prometheus.CounterVec
 	leaderLeaseRenew    *prometheus.CounterVec
+
+	// Upload pipeline metrics (T21).
+	appSourceUploadTotal       *prometheus.CounterVec  // labels: result, reject_reason
+	appSourceUploadSize        prometheus.Histogram    // bytes; exponential 1KB..~16GB
+	appSourceUploadDuration    prometheus.Histogram    // seconds; default buckets
+	appSourceQuotaRejection    *prometheus.CounterVec  // label: reason (pinned|daily|inert_bytes)
+	appSourceGCDeleted         *prometheus.CounterVec  // label: outcome (success|failure)
+	appSourceArchiveDownloaded *prometheus.CounterVec  // label: outcome (success|failure)
 }
 
 // NewMetrics creates the default HTTP metrics registry.
@@ -168,6 +187,34 @@ func NewMetrics() *Metrics {
 			Name: "zeroops_leader_lease_renew_total",
 			Help: "Lease lifecycle events surfaced by client-go's MetricsProvider, labelled by pod_name and outcome (acquired / lost / slow_acquire).",
 		}, []string{"pod_name", "outcome"}),
+
+		// Upload pipeline metrics (T21).
+		appSourceUploadTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: MetricUploadTotal,
+			Help: "Total upload attempts. result=success|rejected; reject_reason=quota_*|archive_corrupt|payload_too_large|sha256_mismatch|unsupported_format (empty for success).",
+		}, []string{"result", "reject_reason"}),
+		appSourceUploadSize: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    MetricUploadSizeBytes,
+			Help:    "Size of successfully ingested upload archives.",
+			Buckets: prometheus.ExponentialBuckets(1024, 4, 12), // 1KB → ~16GB
+		}),
+		appSourceUploadDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    MetricUploadDurationSeconds,
+			Help:    "Time from POST receipt to 201 response on successful uploads.",
+			Buckets: prometheus.DefBuckets, // 0.005s → 10s
+		}),
+		appSourceQuotaRejection: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: MetricQuotaRejectionTotal,
+			Help: "Quota check rejections by dimension. reason in {pinned, daily, inert_bytes}.",
+		}, []string{"reason"}),
+		appSourceGCDeleted: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: MetricGCDeletedTotal,
+			Help: "Upload rows GC-d. outcome=success|failure.",
+		}, []string{"outcome"}),
+		appSourceArchiveDownloaded: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: MetricArchiveDownloadTotal,
+			Help: "Archive download attempts by GHA workflow. outcome=success|failure.",
+		}, []string{"outcome"}),
 	}
 	reg.MustRegister(
 		m.httpTotal,
@@ -196,6 +243,12 @@ func NewMetrics() *Metrics {
 		m.leaderStatus,
 		m.leaderHandover,
 		m.leaderLeaseRenew,
+		m.appSourceUploadTotal,
+		m.appSourceUploadSize,
+		m.appSourceUploadDuration,
+		m.appSourceQuotaRejection,
+		m.appSourceGCDeleted,
+		m.appSourceArchiveDownloaded,
 	)
 	return m
 }
@@ -469,6 +522,72 @@ func (m *Metrics) SetOpenIncidents(severity string, count float64) {
 		count = 0
 	}
 	m.incidentsOpen.WithLabelValues(severity).Set(count)
+}
+
+// ObserveUploadSuccess records a successful ingest: bumps result=success counter,
+// records the archive size distribution, and records the end-to-end duration.
+func (m *Metrics) ObserveUploadSuccess(sizeBytes int64, duration time.Duration) {
+	if m == nil {
+		return
+	}
+	m.appSourceUploadTotal.WithLabelValues("success", "").Inc()
+	m.appSourceUploadSize.Observe(float64(sizeBytes))
+	if duration < 0 {
+		duration = 0
+	}
+	m.appSourceUploadDuration.Observe(duration.Seconds())
+}
+
+// ObserveUploadRejection records a non-quota rejection (e.g. archive_corrupt,
+// payload_too_large, sha256_mismatch, unsupported_format).
+func (m *Metrics) ObserveUploadRejection(reason string) {
+	if m == nil {
+		return
+	}
+	if reason == "" {
+		reason = "unknown"
+	}
+	m.appSourceUploadTotal.WithLabelValues("rejected", reason).Inc()
+}
+
+// ObserveQuotaRejection records a quota-dimension rejection. It bumps both
+// the quota-specific counter (by reason) and the unified upload total so
+// aggregate rejection rates are calculable from a single series.
+func (m *Metrics) ObserveQuotaRejection(reason string) {
+	if m == nil {
+		return
+	}
+	if reason == "" {
+		reason = "unknown"
+	}
+	m.appSourceQuotaRejection.WithLabelValues(reason).Inc()
+	m.appSourceUploadTotal.WithLabelValues("rejected", "quota_"+reason).Inc()
+}
+
+// ObserveUploadGC adds GC outcome counts. processed is the number of rows
+// successfully deleted; failed is the number that errored. Both may be zero.
+func (m *Metrics) ObserveUploadGC(processed, failed int) {
+	if m == nil {
+		return
+	}
+	if processed > 0 {
+		m.appSourceGCDeleted.WithLabelValues("success").Add(float64(processed))
+	}
+	if failed > 0 {
+		m.appSourceGCDeleted.WithLabelValues("failure").Add(float64(failed))
+	}
+}
+
+// ObserveArchiveDownload records one archive download attempt outcome.
+// outcome should be "success", "failure", or a specific reason string.
+func (m *Metrics) ObserveArchiveDownload(outcome string) {
+	if m == nil {
+		return
+	}
+	if outcome == "" {
+		outcome = "unknown"
+	}
+	m.appSourceArchiveDownloaded.WithLabelValues(outcome).Inc()
 }
 
 func teamBucketForRequest(r *http.Request) string {

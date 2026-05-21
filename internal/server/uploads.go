@@ -171,6 +171,7 @@ func uploadHandler(
 		nowFn = time.Now
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
 		ctx := r.Context()
 		teamID := auth.TeamID(ctx)
 		actorUserID := auth.ActorUserID(ctx)
@@ -184,11 +185,34 @@ func uploadHandler(
 			plan := ratelimit.Normalize(string(auth.TeamPlan(ctx)))
 			if err := checkUploadQuota(ctx, quotaStore, quotaTiers, teamID, plan, quotaMaxArchiveBytes, nowFn); err != nil {
 				if IsQuotaExceeded(err) {
+					quotaReason := quotaReasonFromError(err)
 					slog.Info("uploads: quota rejected",
 						"team", teamID,
 						"actor", actorUserID,
 						"reason", err.Error(),
 					)
+					if auditSvc != nil {
+						httpStatus := http.StatusUnprocessableEntity
+						entry := audit.Entry{
+							TeamID:      teamID,
+							ActorUserID: strPtrIfNonEmpty(actorUserID),
+							Source:      audit.SourceUser,
+							SubjectType: "upload",
+							SubjectID:   nil, // no upload row was created
+							Action:      "app_source.upload.quota_rejected",
+							Args:        nil,
+							Result: map[string]any{
+								"reason":        quotaReason,
+								"reason_detail": err.Error(),
+							},
+							Outcome:    audit.OutcomeFailure,
+							HTTPStatus: &httpStatus,
+						}
+						if logErr := auditSvc.Log(ctx, entry); logErr != nil {
+							slog.Warn("uploads: quota audit failed", "err", logErr)
+						}
+					}
+					recordQuotaRejectionMetric(quotaReason)
 					apperror.Write(w, apperror.CodeTeamQuotaExceeded, apperror.ClassUnprocessable, err.Error(), nil)
 					return
 				}
@@ -248,6 +272,7 @@ func uploadHandler(
 				stored, format, err = streamArchivePart(ctx, ingest, teamID, uploadID, part)
 				_ = part.Close()
 				if err != nil {
+					recordUploadRejectionMetric(ingestRejectionReason(err))
 					writeIngestError(w, err)
 					return
 				}
@@ -265,6 +290,7 @@ func uploadHandler(
 		}
 
 		if clientSHA256 != "" && !strings.EqualFold(clientSHA256, stored.SHA256) {
+			recordUploadRejectionMetric("sha256_mismatch")
 			apperror.Write(w, apperror.CodeSHA256Mismatch, apperror.ClassUnprocessable,
 				"client-supplied sha256 differs from server-computed value", nil)
 			return
@@ -311,6 +337,7 @@ func uploadHandler(
 			}
 		}
 
+		recordUploadSuccessMetric(stored.SizeBytes, time.Since(start))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(dto.UploadResponse{
@@ -347,6 +374,22 @@ func streamArchivePart(ctx context.Context, ingest ingestionStore, teamID, uploa
 	return stored, format, nil
 }
 
+// ingestRejectionReason maps ingestion error sentinels to the string used
+// as the reject_reason label in app_source_upload_total.
+func ingestRejectionReason(err error) string {
+	switch {
+	case errors.Is(err, ingestion.ErrArchiveTooLarge),
+		errors.Is(err, ingestion.ErrEntryTooLarge),
+		errors.Is(err, ingestion.ErrTooManyEntries):
+		return "payload_too_large"
+	case errors.Is(err, ingestion.ErrUnsupportedFormat),
+		errors.Is(err, errUnrecognizedFormat):
+		return "unsupported_format"
+	default:
+		return "archive_corrupt"
+	}
+}
+
 // writeIngestError maps ingestion error sentinel values to apperror codes
 // per spec §14 and §11.
 func writeIngestError(w http.ResponseWriter, err error) {
@@ -379,6 +422,25 @@ func strPtrIfNonEmpty(s string) *string {
 	return &s
 }
 
+// quotaReasonFromError extracts the short quota dimension from a *quotaError.
+// Returns "pinned", "daily", "inert_bytes", or "unknown".
+func quotaReasonFromError(err error) string {
+	var qe *quotaError
+	if !errors.As(err, &qe) {
+		return "unknown"
+	}
+	switch {
+	case strings.Contains(qe.Reason, "pinned"):
+		return "pinned"
+	case strings.Contains(qe.Reason, "daily"):
+		return "daily"
+	case strings.Contains(qe.Reason, "inert"):
+		return "inert_bytes"
+	default:
+		return "unknown"
+	}
+}
+
 // uploadArchiveHandler returns the GET /v1/uploads/{id}/archive handler.
 //
 // Authenticated via a short-lived HS256 JWT (scope=download-upload), NOT the
@@ -405,6 +467,7 @@ func uploadArchiveHandler(store uploadArchiveStore, archive archiveReader, signe
 
 		claims, err := signer.Verify(tokenStr)
 		if err != nil {
+			recordArchiveDownloadMetric("failure")
 			switch {
 			case errors.Is(err, ingestion.ErrTokenExpired):
 				apperror.Write(w, "unauthorized", apperror.ClassUnauthorized, "token expired", nil)
@@ -417,12 +480,14 @@ func uploadArchiveHandler(store uploadArchiveStore, archive archiveReader, signe
 		}
 
 		if claims.UploadID != urlID {
+			recordArchiveDownloadMetric("failure")
 			apperror.Write(w, "forbidden", apperror.ClassForbidden, "token does not match upload", nil)
 			return
 		}
 
 		upload, err := store.GetUpload(ctx, claims.TeamID, urlID)
 		if err != nil {
+			recordArchiveDownloadMetric("failure")
 			if errors.Is(err, db.ErrUploadNotFound) {
 				apperror.Write(w, apperror.CodeSourceNotFound, apperror.ClassNotFound, "upload not found", nil)
 				return
@@ -438,12 +503,14 @@ func uploadArchiveHandler(store uploadArchiveStore, archive archiveReader, signe
 		case "received", "pinned":
 			// continue
 		default:
+			recordArchiveDownloadMetric("failure")
 			apperror.Write(w, apperror.CodeSourceExpired, apperror.ClassNotFound, "upload no longer available", nil)
 			return
 		}
 
 		rc, err := archive.Archive(ctx, upload.TeamID, upload.ID)
 		if err != nil {
+			recordArchiveDownloadMetric("failure")
 			if auditSvc != nil {
 				_ = logArchiveFailedAudit(ctx, auditSvc, upload)
 			}
@@ -466,6 +533,7 @@ func uploadArchiveHandler(store uploadArchiveStore, archive archiveReader, signe
 			return
 		}
 
+		recordArchiveDownloadMetric("success")
 		if auditSvc != nil {
 			httpStatus := http.StatusOK
 			subjID := upload.ID

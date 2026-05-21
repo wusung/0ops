@@ -63,6 +63,13 @@ func main() {
 		metrics.ObserveDeployRunLeadTime,
 		metrics.ObserveDeployRunFailure,
 	)
+	appserver.BindUploadMetrics(
+		metrics.ObserveUploadSuccess,
+		metrics.ObserveUploadRejection,
+		metrics.ObserveQuotaRejection,
+		metrics.ObserveUploadGC,
+		metrics.ObserveArchiveDownload,
+	)
 	cloudflare.BindMetrics(metrics.ObserveCloudflareAPICall)
 	cloudflare.BindCallDurationMetric(metrics.ObserveCloudflareAPICallDuration)
 
@@ -286,7 +293,9 @@ func (o *reconcilerObserver) SetPendingJobs(kind string, count int) {
 func (o *reconcilerObserver) SetOpenIncidents(severity string, count int) {
 	o.m.SetOpenIncidents(severity, float64(count))
 }
-func (o *reconcilerObserver) RecordUploadGC(_, _ int) {}
+func (o *reconcilerObserver) RecordUploadGC(processed, failed int) {
+	o.m.ObserveUploadGC(processed, failed)
+}
 
 // startReconciler builds the M5.3 reconciler.Runner from cmd/server
 // state. Scanners are wired with whatever credentials are available —

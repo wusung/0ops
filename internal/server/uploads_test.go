@@ -1479,3 +1479,260 @@ func TestUploadsArchiveGetReadFailureEmitsFailureAudit(t *testing.T) {
 		t.Errorf("upload status = %q, want received (DB untouched by failed read)", row.Status)
 	}
 }
+
+// ─── T21 metric recorder tests ───────────────────────────────────────────────
+
+// withUploadSuccessRecorder temporarily swaps recordUploadSuccessMetric and
+// restores it via t.Cleanup. The recorder captures the last call's arguments.
+func withUploadSuccessRecorder(t *testing.T) *struct {
+	called   bool
+	size     int64
+	duration time.Duration
+} {
+	t.Helper()
+	got := &struct {
+		called   bool
+		size     int64
+		duration time.Duration
+	}{}
+	orig := recordUploadSuccessMetric
+	recordUploadSuccessMetric = func(sz int64, d time.Duration) {
+		got.called = true
+		got.size = sz
+		got.duration = d
+	}
+	t.Cleanup(func() { recordUploadSuccessMetric = orig })
+	return got
+}
+
+func withUploadRejectionRecorder(t *testing.T) *struct {
+	called bool
+	reason string
+} {
+	t.Helper()
+	got := &struct {
+		called bool
+		reason string
+	}{}
+	orig := recordUploadRejectionMetric
+	recordUploadRejectionMetric = func(r string) {
+		got.called = true
+		got.reason = r
+	}
+	t.Cleanup(func() { recordUploadRejectionMetric = orig })
+	return got
+}
+
+func withQuotaRejectionRecorder(t *testing.T) *struct {
+	called bool
+	reason string
+} {
+	t.Helper()
+	got := &struct {
+		called bool
+		reason string
+	}{}
+	orig := recordQuotaRejectionMetric
+	recordQuotaRejectionMetric = func(r string) {
+		got.called = true
+		got.reason = r
+	}
+	t.Cleanup(func() { recordQuotaRejectionMetric = orig })
+	return got
+}
+
+func TestUploadsPost_RecordsSuccessMetric(t *testing.T) {
+	rec := withUploadSuccessRecorder(t)
+
+	archive := makeTarZst(t, "hello.txt", "hello world")
+	fi := &fakeIngest{}
+	srv, token, store := newUploadRouter(t, fi, nil)
+
+	body, ct := buildMultipart(t, archive, "")
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/teams/"+store.team.Slug+"/uploads", body)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", ct)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 201; body: %s", resp.StatusCode, raw)
+	}
+
+	if !rec.called {
+		t.Error("recordUploadSuccessMetric was not called on success")
+	}
+	if rec.size <= 0 {
+		t.Errorf("success metric size = %d, want > 0", rec.size)
+	}
+	if rec.duration < 0 {
+		t.Errorf("success metric duration = %v, want >= 0", rec.duration)
+	}
+}
+
+func TestUploadsPost_RecordsRejectionOnArchiveCorrupt(t *testing.T) {
+	rec := withUploadRejectionRecorder(t)
+
+	// Bytes that match path-escape trigger in fakeIngest.
+	corruptSentinel := []byte("\x28\xb5\x2f\xfd__path_escape__")
+	fi := &fakeIngest{corruptPrefix: corruptSentinel}
+	srv, token, store := newUploadRouter(t, fi, nil)
+
+	body, ct := buildMultipart(t, corruptSentinel, "")
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/teams/"+store.team.Slug+"/uploads", body)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", ct)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want 422", resp.StatusCode)
+	}
+	if !rec.called {
+		t.Error("recordUploadRejectionMetric was not called on archive_corrupt path")
+	}
+	if rec.reason != "archive_corrupt" {
+		t.Errorf("rejection reason = %q, want archive_corrupt", rec.reason)
+	}
+}
+
+func TestUploadsPost_RecordsRejectionOnSHA256Mismatch(t *testing.T) {
+	rec := withUploadRejectionRecorder(t)
+
+	archive := makeTarZst(t, "f.txt", "hello")
+	fi := &fakeIngest{}
+	srv, token, store := newUploadRouter(t, fi, nil)
+
+	body, ct := buildMultipart(t, archive, strings.Repeat("a", 64))
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/teams/"+store.team.Slug+"/uploads", body)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", ct)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want 422", resp.StatusCode)
+	}
+	if !rec.called {
+		t.Error("recordUploadRejectionMetric was not called on sha256_mismatch path")
+	}
+	if rec.reason != "sha256_mismatch" {
+		t.Errorf("rejection reason = %q, want sha256_mismatch", rec.reason)
+	}
+}
+
+func TestUploadsPost_RecordsQuotaRejection(t *testing.T) {
+	rec := withQuotaRejectionRecorder(t)
+
+	store, token := newFakeStore()
+	tier := starterQuotas()
+	// Trip the concurrent-pinned cap.
+	for i := 0; i < tier.MaxConcurrentPinned; i++ {
+		store.seedUpload(db.Upload{
+			ID:         fmt.Sprintf("upl_qrec_%03d", i),
+			TeamID:     "team-1",
+			Status:     "pinned",
+			SizeBytes:  1,
+			ReceivedAt: time.Now(),
+		})
+	}
+
+	fi := &fakeIngest{}
+	srv := newUploadRouterWithQuotaStore(t, store, fi, nil)
+
+	archive := makeTarZst(t, "hello.txt", "hello")
+	body, ct := buildMultipart(t, archive, "")
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/teams/"+store.team.Slug+"/uploads", body)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", ct)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 422; body: %s", resp.StatusCode, raw)
+	}
+	if !rec.called {
+		t.Error("recordQuotaRejectionMetric was not called on quota rejection")
+	}
+	if rec.reason != "pinned" {
+		t.Errorf("quota rejection reason = %q, want pinned", rec.reason)
+	}
+}
+
+func TestUploadsPost_RecordsQuotaRejectionAuditEvent(t *testing.T) {
+	store, token := newFakeStore()
+	tier := starterQuotas()
+	// Trip the concurrent-pinned cap.
+	for i := 0; i < tier.MaxConcurrentPinned; i++ {
+		store.seedUpload(db.Upload{
+			ID:         fmt.Sprintf("upl_qaev_%03d", i),
+			TeamID:     "team-1",
+			Status:     "pinned",
+			SizeBytes:  1,
+			ReceivedAt: time.Now(),
+		})
+	}
+
+	fa := &fakeUploadAudit{}
+	fi := &fakeIngest{}
+	srv := newUploadRouterWithQuotaStore(t, store, fi, fa)
+
+	archive := makeTarZst(t, "hello.txt", "hello")
+	body, ct := buildMultipart(t, archive, "")
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/teams/"+store.team.Slug+"/uploads", body)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", ct)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 422; body: %s", resp.StatusCode, raw)
+	}
+
+	if len(fa.entries) != 1 {
+		t.Fatalf("audit entries = %d, want 1", len(fa.entries))
+	}
+	entry := fa.entries[0]
+	if entry.Action != "app_source.upload.quota_rejected" {
+		t.Errorf("audit action = %q, want app_source.upload.quota_rejected", entry.Action)
+	}
+	if entry.Outcome != audit.OutcomeFailure {
+		t.Errorf("audit outcome = %q, want failure", entry.Outcome)
+	}
+	if entry.SubjectID != nil {
+		t.Errorf("audit SubjectID should be nil for rejected upload (no row created), got %v", entry.SubjectID)
+	}
+	if entry.TeamID != "team-1" {
+		t.Errorf("audit TeamID = %q, want team-1", entry.TeamID)
+	}
+	result, _ := entry.Result.(map[string]any)
+	if result["reason"] != "pinned" {
+		t.Errorf("audit result reason = %v, want pinned", result["reason"])
+	}
+	if entry.Source != audit.SourceUser {
+		t.Errorf("audit source = %q, want user", entry.Source)
+	}
+}
