@@ -1440,9 +1440,10 @@ func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient 
 				store,
 				uploadIngest,
 				uploadAuditSvc,
-				store,                    // *db.Repository satisfies uploadQuotaStore
+				store,                          // *db.Repository satisfies uploadQuotaStore
 				DefaultUploadQuotas(),
-				int64(100*1024*1024),     // quotaMaxArchiveBytes: 100 MB, matches T6 default
+				DefaultUploadMaxArchiveBytes,   // 100 MiB, matches T6 ingestion.Store default
+				time.Now,
 			))
 		}
 		sr.With(func(next http.Handler) http.Handler {

@@ -47,7 +47,13 @@ func DefaultUploadQuotas() map[ratelimit.Plan]UploadQuotaTier {
 }
 
 // quotaTierFor returns the tier for the team's plan; falls back to PlanFree
-// (most conservative).
+// (most conservative documented caps).
+//
+// If PlanFree is also absent from the map — e.g. a misconfigured self-hosted
+// override that omits the Free tier — this returns the zero UploadQuotaTier
+// (all caps = 0). This is intentionally conservative: every upload will be
+// rejected with a "near cap" error rather than silently bypass enforcement.
+// Self-hosted operators must ensure PlanFree exists in any custom map.
 func quotaTierFor(quotas map[ratelimit.Plan]UploadQuotaTier, plan ratelimit.Plan) UploadQuotaTier {
 	if tier, ok := quotas[plan]; ok {
 		return tier
@@ -70,6 +76,14 @@ type uploadQuotaStore interface {
 // + maxArchiveBytes > tier.MaxInertBytes, reject. This is the conservative
 // "reserve max" model — strict but simple. A small upload to a near-cap team
 // will be rejected; acceptable for v1.
+//
+// `now` is injected for testing the rolling-window boundary; production
+// callers pass time.Now.
+//
+// TOCTOU note: two concurrent uploads can both pass this check and together
+// exceed the cap. Precise enforcement requires a DB-level advisory lock or
+// a serialised reservation; deferred post-v1. The server-wide max archive
+// size bounds the overshoot per upload.
 //
 // Returns nil on pass; returns *quotaError on rejection (mapped to apperror
 // by the caller).

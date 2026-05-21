@@ -1231,17 +1231,16 @@ func newUploadRouterWithQuotaStore(t *testing.T, store *fakeStore, ingest ingest
 func starterQuotas() UploadQuotaTier { return DefaultUploadQuotas()[ratelimit.PlanStarter] }
 
 func TestUploadsPost_QuotaInertBytes(t *testing.T) {
-	// Pre-seed the store such that inert bytes + 100 MB > Starter cap.
+	// Pre-seed the store such that inert bytes + DefaultUploadMaxArchiveBytes > Starter cap.
 	// fakeStore team plan is "starter" — handler will use PlanStarter quotas.
 	store, token := newFakeStore()
-	maxArchive := int64(100 * 1024 * 1024) // matches the router wiring
 	tier := starterQuotas()
 	// Seed enough inert bytes to trip the reserve-max check.
 	store.seedUpload(db.Upload{
 		ID:         "upl_seed_1",
 		TeamID:     "team-1",
 		Status:     "received",
-		SizeBytes:  tier.MaxInertBytes - maxArchive + 1,
+		SizeBytes:  tier.MaxInertBytes - DefaultUploadMaxArchiveBytes + 1,
 		ReceivedAt: time.Now(),
 	})
 
@@ -1397,7 +1396,9 @@ func TestUploadsPost_QuotaCheckHappensBeforeMultipart(t *testing.T) {
 	}
 }
 
-func TestUploadsPost_NilQuotaStoreBypassesCheck(t *testing.T) {
+func TestUploadsPost_ZeroStateStoreAllowsUpload(t *testing.T) {
+	// The store is non-nil but returns zeros (no prior uploads, no pinned, no daily).
+	// True nil-store bypass is covered by TestCheckUploadQuota_NilStoreSkipsCheck.
 	// newUploadRouter passes store (which has the quota methods) but the
 	// store returns zeros → no quota violations → existing behavior preserved.
 	archive := makeTarZst(t, "hello.txt", "hello world")

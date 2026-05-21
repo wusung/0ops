@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -63,7 +64,7 @@ func TestCheckUploadQuota_HappyPath(t *testing.T) {
 		DefaultUploadQuotas(),
 		"team-1",
 		ratelimit.PlanFree,
-		int64(100*1024*1024),
+		DefaultUploadMaxArchiveBytes,
 		fixedNow(),
 	)
 	if err != nil {
@@ -73,12 +74,11 @@ func TestCheckUploadQuota_HappyPath(t *testing.T) {
 
 func TestCheckUploadQuota_RejectsInertBytesCap(t *testing.T) {
 	tier := freeTier()
-	maxArchive := int64(100 * 1024 * 1024)
-	// inert + maxArchive > cap
+	// inert + DefaultUploadMaxArchiveBytes > cap
 	store := &fakeQuotaStore{
 		pinned:     0,
 		dailyCount: 0,
-		inertBytes: tier.MaxInertBytes - maxArchive + 1, // pushes over the edge
+		inertBytes: tier.MaxInertBytes - DefaultUploadMaxArchiveBytes + 1, // pushes over the edge
 	}
 	err := checkUploadQuota(
 		context.Background(),
@@ -86,7 +86,7 @@ func TestCheckUploadQuota_RejectsInertBytesCap(t *testing.T) {
 		DefaultUploadQuotas(),
 		"team-1",
 		ratelimit.PlanFree,
-		maxArchive,
+		DefaultUploadMaxArchiveBytes,
 		fixedNow(),
 	)
 	if err == nil {
@@ -107,7 +107,7 @@ func TestCheckUploadQuota_RejectsInertBytesCap(t *testing.T) {
 		t.Error("quotaError.Reason is empty")
 	}
 	// Check that the error mentions the inert bytes dimension
-	if !containsSubstring(qe.Reason, "inert bytes") {
+	if !strings.Contains(qe.Reason, "inert bytes") {
 		t.Errorf("quotaError.Reason = %q, want 'inert bytes' mention", qe.Reason)
 	}
 }
@@ -125,7 +125,7 @@ func TestCheckUploadQuota_RejectsConcurrentPinnedCap(t *testing.T) {
 		DefaultUploadQuotas(),
 		"team-1",
 		ratelimit.PlanFree,
-		int64(100*1024*1024),
+		DefaultUploadMaxArchiveBytes,
 		fixedNow(),
 	)
 	if !IsQuotaExceeded(err) {
@@ -133,7 +133,7 @@ func TestCheckUploadQuota_RejectsConcurrentPinnedCap(t *testing.T) {
 	}
 	var qe *quotaError
 	errors.As(err, &qe)
-	if !containsSubstring(qe.Reason, "concurrent pinned") {
+	if !strings.Contains(qe.Reason, "concurrent pinned") {
 		t.Errorf("quotaError.Reason = %q, want 'concurrent pinned' mention", qe.Reason)
 	}
 }
@@ -151,7 +151,7 @@ func TestCheckUploadQuota_RejectsDailyUploadCap(t *testing.T) {
 		DefaultUploadQuotas(),
 		"team-1",
 		ratelimit.PlanFree,
-		int64(100*1024*1024),
+		DefaultUploadMaxArchiveBytes,
 		fixedNow(),
 	)
 	if !IsQuotaExceeded(err) {
@@ -159,7 +159,7 @@ func TestCheckUploadQuota_RejectsDailyUploadCap(t *testing.T) {
 	}
 	var qe *quotaError
 	errors.As(err, &qe)
-	if !containsSubstring(qe.Reason, "daily upload") {
+	if !strings.Contains(qe.Reason, "daily upload") {
 		t.Errorf("quotaError.Reason = %q, want 'daily upload' mention", qe.Reason)
 	}
 }
@@ -171,7 +171,7 @@ func TestCheckUploadQuota_NilStoreSkipsCheck(t *testing.T) {
 		DefaultUploadQuotas(),
 		"team-1",
 		ratelimit.PlanFree,
-		int64(100*1024*1024),
+		DefaultUploadMaxArchiveBytes,
 		fixedNow(),
 	)
 	if err != nil {
@@ -187,7 +187,7 @@ func TestCheckUploadQuota_NilTiersSkipsCheck(t *testing.T) {
 		nil, // nil tiers
 		"team-1",
 		ratelimit.PlanFree,
-		int64(100*1024*1024),
+		DefaultUploadMaxArchiveBytes,
 		fixedNow(),
 	)
 	if err != nil {
@@ -211,7 +211,7 @@ func TestCheckUploadQuota_PlanFallback(t *testing.T) {
 		DefaultUploadQuotas(),
 		"team-1",
 		unknownPlan,
-		int64(100*1024*1024),
+		DefaultUploadMaxArchiveBytes,
 		fixedNow(),
 	)
 	// Should be rejected because unknown plan falls back to free caps
@@ -229,7 +229,7 @@ func TestCheckUploadQuota_DBErrorPropagates(t *testing.T) {
 		DefaultUploadQuotas(),
 		"team-1",
 		ratelimit.PlanFree,
-		int64(100*1024*1024),
+		DefaultUploadMaxArchiveBytes,
 		fixedNow(),
 	)
 	if err == nil {
@@ -295,15 +295,32 @@ func TestDefaultUploadQuotas_HasAllFourPlans(t *testing.T) {
 	}
 }
 
-// containsSubstring is a simple helper for test assertion messages.
-func containsSubstring(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		func() bool {
-			for i := 0; i <= len(s)-len(substr); i++ {
-				if s[i:i+len(substr)] == substr {
-					return true
-				}
-			}
-			return false
-		}())
+func TestCheckUploadQuota_NearCapSmallUploadStillRejected(t *testing.T) {
+	// Spec §11 reserve-max model: inert + maxArchive > cap → reject, even
+	// if the actual upload would be tiny. This is the deliberate v1 trade-off:
+	// strict but simple. Without this test, a future refactor "fixing" the
+	// small-upload case would silently bypass quota enforcement near cap.
+	store := &fakeQuotaStore{inertBytes: 950 * 1024 * 1024} // 950 MiB inert
+	quotas := map[ratelimit.Plan]UploadQuotaTier{
+		ratelimit.PlanFree: {
+			MaxInertBytes:       1 * 1024 * 1024 * 1024, // 1 GiB cap
+			MaxConcurrentPinned: 1000,
+			MaxDailyUploads:     1000,
+		},
+	}
+	// Even though the actual upload might be just 1 byte, the reserve-max
+	// model reserves the full DefaultUploadMaxArchiveBytes (100 MiB).
+	// 950 MiB + 100 MiB > 1 GiB cap → reject.
+	err := checkUploadQuota(context.Background(), store, quotas, "team-1",
+		ratelimit.PlanFree, DefaultUploadMaxArchiveBytes, fixedNow())
+	if !IsQuotaExceeded(err) {
+		t.Fatalf("expected quota rejection, got %v", err)
+	}
+	var qe *quotaError
+	if !errors.As(err, &qe) {
+		t.Fatalf("expected *quotaError, got %T", err)
+	}
+	if !strings.Contains(qe.Reason, "inert bytes") {
+		t.Errorf("expected reason to mention 'inert bytes', got %q", qe.Reason)
+	}
 }

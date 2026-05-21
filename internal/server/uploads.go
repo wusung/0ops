@@ -91,6 +91,17 @@ type uploadAuditWriter interface {
 // time (T13) extends the deadline to deploy_run.terminal_at + 7d.
 const uploadInertTTL = 24 * time.Hour
 
+// DefaultUploadMaxArchiveBytes is the default upper bound for a single upload
+// archive (tar.zst or tar.gz). Used by:
+//   - ingestion.Store.MaxArchiveBytes (T6) to abort mid-stream uploads
+//   - uploadQuota.checkUploadQuota's reserve-max model (T20) to pre-reserve
+//     this many bytes against the team's inert cap
+//   - CLI upload-max-bytes default (T18) for client-side validation
+//
+// Self-hosted operators can override via APP_SOURCE_UPLOAD_MAX_BYTES env;
+// CLI users can override via --upload-max-bytes flag.
+const DefaultUploadMaxArchiveBytes int64 = 100 * 1024 * 1024 // 100 MiB
+
 // maxMultipartParts limits the number of multipart parts the upload handler
 // will process. The protocol only needs two (sha256 + archive); the cap
 // guards against an attacker streaming thousands of unknown parts to exhaust
@@ -145,6 +156,8 @@ func newUploadID() (string, error) {
 // is skipped. Production always provides both; tests can stub nil.
 // quotaMaxArchiveBytes is the per-upload size cap used as an upper-bound
 // reservation for the inert-bytes quota (default 100 MB).
+// nowFn is injected for testing the rolling-window boundary; pass nil to
+// default to time.Now.
 func uploadHandler(
 	uploadStore uploadsStore,
 	ingest ingestionStore,
@@ -152,7 +165,11 @@ func uploadHandler(
 	quotaStore uploadQuotaStore,
 	quotaTiers map[ratelimit.Plan]UploadQuotaTier,
 	quotaMaxArchiveBytes int64,
+	nowFn func() time.Time,
 ) http.HandlerFunc {
+	if nowFn == nil {
+		nowFn = time.Now
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		teamID := auth.TeamID(ctx)
@@ -165,8 +182,13 @@ func uploadHandler(
 		// Quota check BEFORE reading multipart body — fail fast, save bandwidth.
 		if quotaStore != nil && quotaTiers != nil {
 			plan := ratelimit.Normalize(string(auth.TeamPlan(ctx)))
-			if err := checkUploadQuota(ctx, quotaStore, quotaTiers, teamID, plan, quotaMaxArchiveBytes, time.Now); err != nil {
+			if err := checkUploadQuota(ctx, quotaStore, quotaTiers, teamID, plan, quotaMaxArchiveBytes, nowFn); err != nil {
 				if IsQuotaExceeded(err) {
+					slog.Info("uploads: quota rejected",
+						"team", teamID,
+						"actor", actorUserID,
+						"reason", err.Error(),
+					)
 					apperror.Write(w, apperror.CodeTeamQuotaExceeded, apperror.ClassUnprocessable, err.Error(), nil)
 					return
 				}

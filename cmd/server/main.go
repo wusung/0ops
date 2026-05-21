@@ -113,7 +113,7 @@ func main() {
 	ingestRoot := envOr("APP_SOURCE_INGEST_ROOT", "/var/lib/0ops/uploads")
 	ingestStore := &ingestion.Store{
 		Root:            ingestRoot,
-		MaxArchiveBytes: 100 << 20, // 100 MB
+		MaxArchiveBytes: appserver.DefaultUploadMaxArchiveBytes, // 100 MiB
 		MaxEntryBytes:   50 << 20,  // 50 MB
 		MaxEntries:      10000,
 	}
