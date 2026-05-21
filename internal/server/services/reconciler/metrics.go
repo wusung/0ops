@@ -13,6 +13,7 @@ type Observer interface {
 	ObserveIncidentClosed(kind, severity string)
 	SetPendingJobs(kind string, count int)
 	SetOpenIncidents(severity string, count int)
+	RecordUploadGC(processed, failed int)
 }
 
 // NopObserver returns an Observer whose methods are no-ops. Used by
@@ -29,3 +30,4 @@ func (nopObserver) ObserveIncidentOpened(string, string)        {}
 func (nopObserver) ObserveIncidentClosed(string, string)        {}
 func (nopObserver) SetPendingJobs(string, int)                  {}
 func (nopObserver) SetOpenIncidents(string, int)                {}
+func (nopObserver) RecordUploadGC(int, int)                     {}
