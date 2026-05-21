@@ -30,7 +30,7 @@ TEAM_NAME="${TEAM_NAME:-Personal}"
 APP_SLUG="${APP_SLUG:-t22-upload-$(date +%s)}"
 GITHUB_LOGIN="${GITHUB_LOGIN:-dev}"
 SOURCE_PATH="${SOURCE_PATH:-./examples/node-demo}"
-HOST="${OPS_HOST:-http://localhost:8080}"
+HOST="${OPS_HOST:-http://localhost:${OPS_HOST_PORT:-8080}}"
 DATABASE_URL_DEFAULT="postgres://ops:ops_dev_pw@127.0.0.1:5432/ops?sslmode=disable"
 DATABASE_URL="${DATABASE_URL:-$DATABASE_URL_DEFAULT}"
 SERVER_CONTAINER="${SERVER_CONTAINER:-0ops-server-1}"
@@ -40,7 +40,7 @@ DB_DSN_INTERNAL="postgres://ops:ops_dev_pw@localhost:5432/ops?sslmode=disable"
 log() { echo "[t22-e2e] $*" >&2; }
 
 log "1. compose up + wait healthy"
-podman compose up -d >/dev/null
+podman compose up -d
 for i in $(seq 1 30); do
   if curl -fsS "$HOST/health" >/dev/null 2>&1; then
     log "  server healthy after $((i * 2))s"
@@ -82,7 +82,7 @@ log "5. CLI: apps create --source $SOURCE_PATH (upload pipeline)"
 # --output json puts AppCreateResponse on stdout; progress lines go to stderr.
 CREATE_OUT_FILE=$(mktemp)
 CREATE_ERR_FILE=$(mktemp)
-trap 'rm -f "$CREATE_OUT_FILE" "$CREATE_ERR_FILE"' EXIT
+trap 'rm -f "$CREATE_OUT_FILE" "$CREATE_ERR_FILE" "${ARCHIVE_TMP:-}"' EXIT
 
 if ! go run ./cmd/cli apps create \
   --host "$HOST" --team "$TEAM_SLUG" --token "$TOKEN" \
@@ -103,6 +103,11 @@ if [ -z "$APP_ID" ] || [ "$APP_ID" = "null" ]; then
   cat "$CREATE_OUT_FILE" >&2
   exit 1
 fi
+if [ -z "$DEPLOY_RUN_ID" ] || [ "$DEPLOY_RUN_ID" = "null" ]; then
+  echo "[t22-e2e] expected deploy_run_id in CLI response, got '$DEPLOY_RUN_ID'" >&2
+  cat "$CREATE_OUT_FILE" >&2
+  exit 1
+fi
 log "  app_id=$APP_ID deploy_run_id=$DEPLOY_RUN_ID"
 
 # Extract upload_id from the stderr progress line:
@@ -117,8 +122,9 @@ log "  upload_id=$UPLOAD_ID"
 log "6. verify DB: upload row exists and is status='pinned'"
 # Use the postgres container which has psql available.
 UPLOAD_STATUS="$(podman exec "$DB_CONTAINER" \
-  psql "$DB_DSN_INTERNAL" -tAc \
-  "SELECT status FROM app_source_uploads WHERE id = '$UPLOAD_ID' LIMIT 1;" \
+  psql "$DB_DSN_INTERNAL" -tA \
+  -v upload_id="$UPLOAD_ID" \
+  -c "SELECT status FROM app_source_uploads WHERE id = :'upload_id' LIMIT 1;" \
   | tr -d '[:space:]')"
 
 case "$UPLOAD_STATUS" in
@@ -135,8 +141,9 @@ esac
 
 log "7. verify DB: deploy_run row exists for deploy_run_id"
 DEPLOY_COUNT="$(podman exec "$DB_CONTAINER" \
-  psql "$DB_DSN_INTERNAL" -tAc \
-  "SELECT COUNT(*) FROM deploy_run WHERE id = '$DEPLOY_RUN_ID';" \
+  psql "$DB_DSN_INTERNAL" -tA \
+  -v deploy_run_id="$DEPLOY_RUN_ID" \
+  -c "SELECT COUNT(*) FROM deploy_run WHERE id = :'deploy_run_id';" \
   | tr -d '[:space:]')"
 if [ "$DEPLOY_COUNT" != "1" ]; then
   echo "[t22-e2e] expected 1 deploy_run row for id=$DEPLOY_RUN_ID, got $DEPLOY_COUNT" >&2
@@ -147,8 +154,9 @@ log "  deploy_run found OK"
 log "8. verify archive download: server signs JWT + GET /v1/uploads/{id}/archive"
 # Look up team UUID from DB (needed to sign the fetch JWT).
 TEAM_ID="$(podman exec "$DB_CONTAINER" \
-  psql "$DB_DSN_INTERNAL" -tAc \
-  "SELECT id FROM team WHERE slug = '$TEAM_SLUG' LIMIT 1;" \
+  psql "$DB_DSN_INTERNAL" -tA \
+  -v team_slug="$TEAM_SLUG" \
+  -c "SELECT id FROM team WHERE slug = :'team_slug' LIMIT 1;" \
   | tr -d '[:space:]')"
 
 if [ -z "$TEAM_ID" ]; then
@@ -186,15 +194,27 @@ else
   exit 1
 fi
 
-log "9. verify metrics: zeroops_app_source_upload_total{result=success} > 0"
-METRIC_VAL="$(curl -fsS "$HOST/metrics" \
-  | awk '/^zeroops_app_source_upload_total\{[^}]*result="success"/ {print $2}' \
+log "9. verify metrics: zeroops_app_source_upload_total{result=\"success\"} >= 1"
+METRICS_BODY="$(curl -fsS "$HOST/metrics")"
+if [ -z "$METRICS_BODY" ]; then
+  echo "[t22-e2e] /metrics endpoint returned empty body" >&2
+  exit 1
+fi
+# Match: zeroops_app_source_upload_total{...result="success"...} <number>
+METRIC_VAL="$(echo "$METRICS_BODY" \
+  | awk '/^zeroops_app_source_upload_total\{[^}]*result="success"[^}]*\}/ {print $2}' \
   | head -1)"
-if [ -z "$METRIC_VAL" ] || [ "$METRIC_VAL" = "0" ]; then
-  log "  WARN: expected zeroops_app_source_upload_total{result=\"success\"} > 0, got '${METRIC_VAL:-<absent>}'"
-  log "  (non-fatal: metric label format may differ; check $HOST/metrics manually)"
+if [ -z "$METRIC_VAL" ]; then
+  echo "[t22-e2e] zeroops_app_source_upload_total{result=\"success\"} not found in /metrics" >&2
+  echo "[t22-e2e] T21 metrics may be broken or the metric name has drifted" >&2
+  exit 1
+fi
+# strip trailing fractional/scientific notation if any
+if awk "BEGIN{exit !($METRIC_VAL > 0)}"; then
+  log "  metric value=$METRIC_VAL (>= 1) OK"
 else
-  log "  metric increment OK (value=$METRIC_VAL)"
+  echo "[t22-e2e] expected zeroops_app_source_upload_total{result=\"success\"} >= 1, got $METRIC_VAL" >&2
+  exit 1
 fi
 
 log ""

@@ -31,8 +31,8 @@ func main() {
 	ttl := flag.Duration("ttl", 15*time.Minute, "token TTL")
 	flag.Parse()
 
-	if *teamID == "" || *uploadID == "" {
-		fmt.Fprintln(os.Stderr, "error: --team-id and --upload-id are required")
+	if *teamID == "" || *uploadID == "" || *deployRunID == "" {
+		fmt.Fprintln(os.Stderr, "error: --team-id, --upload-id, and --deploy-run-id are all required")
 		flag.Usage()
 		os.Exit(1)
 	}
