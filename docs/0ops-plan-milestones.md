@@ -9,7 +9,8 @@
 | **M3** | 客戶自有域名 + DNS verify（24h TTL + extend） + GitHub App install 流程 | 真實 example domain 驗證通過；`domains verify --watch` / `--extend` 通；過期 grace 7 天可重啟；`teams github install/uninstall` CLI/MCP 端到端通 |
 | **M4** | Webhook auto redeploy + manual redeploy + replay protection + rate limit | push 觸發 + CLI redeploy 都通；webhook_dedup 表生效；同 delivery_id 重送 200 不重做；preview_consumption_rate 上 dashboard；per-token / per-team rate limit 上線並回 429 + Retry-After |
 | **M5** | `delete_app` + audit + reconciler GA + incident table + Postgres HA + DR 演練 | 安全刪除（含資源清理 runbook）；audit_log 含 preview_id + trace_id 鏈路；`audit list` CLI/MCP 通；reconciliation_job 收斂滯留 deploy；MTTR 量測機制就位；`failure_classification` 強制非 null（unknown < 5%）；Postgres replica + WAL archive 就位；PITR 恢復演練通過（RPO 5min/RTO 30min）；backend 升級為 2 replica + leader election |
-| **M6** (post-v1) | Web UI | Vue 3 + Vite + Tailwind + shadcn-vue；登入、team 切換、app dashboard、log viewer |
+| **M6** | App source ingestion（production file source） | `source` sum type（`github` ∪ `upload`）；CLI `--source` 自動 pack→`POST /v1/uploads`→preview/confirm；server-controlled ingest tree（租戶子前綴、content-addressable、TTL + reconciler GC）；GHA `deploy-app-from-upload.yml` 用 server 簽 JWT 反向 fetch；per-team quota（inert bytes / concurrent pinned / 24h rolling count）；6 個 `zeroops_app_source_*` Prometheus metric；ADR-0013 supersede ADR-0012 §3.1 |
+| **M7** (post-v1) | Web UI | Vue 3 + Vite + Tailwind + shadcn-vue；登入、team 切換、app dashboard、log viewer |
 
 ---
 
