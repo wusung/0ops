@@ -317,10 +317,10 @@ func TestUploadGC_AuditEntryShape(t *testing.T) {
 	row := db.Upload{
 		ID:            "upload-abc",
 		TeamID:        "team-xyz",
-		Status:        "pinned",
+		Status:        "received",
 		ExpiresAt:     exp,
-		SizeBytes:     1234,
-		ArchiveFormat: "tar.zst",
+		SizeBytes:     1234,      // intentionally set — must NOT appear in Result
+		ArchiveFormat: "tar.zst", // intentionally set — must NOT appear in Result
 	}
 	entry := makeUploadGCAudit(row)
 
@@ -347,13 +347,23 @@ func TestUploadGC_AuditEntryShape(t *testing.T) {
 	}
 	result, ok := entry.Result.(map[string]any)
 	if !ok {
-		t.Fatalf("Result is not map[string]any: %T", entry.Result)
+		t.Fatalf("expected Result to be map[string]any, got %T", entry.Result)
 	}
-	if result["prior_status"] != "pinned" {
-		t.Errorf("prior_status = %v, want pinned", result["prior_status"])
+	if _, hasExpiresAt := result["expires_at"]; !hasExpiresAt {
+		t.Error("Result missing expires_at")
 	}
 	if result["expires_at"] != exp {
 		t.Errorf("expires_at = %v, want %v", result["expires_at"], exp)
+	}
+	if priorStatus, ok := result["prior_status"].(string); !ok || priorStatus != "received" {
+		t.Errorf("Result[prior_status] = %v, want received", result["prior_status"])
+	}
+	// Defense: ListExpiredUploads does not populate these — must not appear in the audit ledger.
+	if _, hasSize := result["size_bytes"]; hasSize {
+		t.Error("Result must not include size_bytes (not scanned by ListExpiredUploads)")
+	}
+	if _, hasFormat := result["archive_format"]; hasFormat {
+		t.Error("Result must not include archive_format (not scanned by ListExpiredUploads)")
 	}
 }
 

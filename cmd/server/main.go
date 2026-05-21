@@ -324,16 +324,15 @@ type scannerSet struct {
 }
 
 func (s scannerSet) summary() string {
-	switch {
-	case s.deploy != nil && s.argo != nil:
-		return "deploy_status,argo_sync,job_queue,metrics"
-	case s.deploy != nil:
-		return "deploy_status,job_queue,metrics"
-	case s.argo != nil:
-		return "argo_sync,job_queue,metrics"
-	default:
-		return "job_queue,metrics"
+	parts := []string{}
+	if s.deploy != nil {
+		parts = append(parts, "deploy_status")
 	}
+	if s.argo != nil {
+		parts = append(parts, "argo_sync")
+	}
+	parts = append(parts, "job_queue", "metrics", "upload_gc") // upload_gc always wired
+	return strings.Join(parts, ",")
 }
 
 func buildScanners(repo *db.Repository, incidents *reconciler.IncidentService, observer reconciler.Observer, k3sClient *k3s.Client) scannerSet {

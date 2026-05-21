@@ -107,10 +107,8 @@ func makeUploadGCAudit(row db.Upload) audit.Entry {
 		Action:      "app_source.upload.gc_d",
 		Args:        nil,
 		Result: map[string]any{
-			"expires_at":     row.ExpiresAt,
-			"prior_status":   row.Status,
-			"size_bytes":     row.SizeBytes,
-			"archive_format": row.ArchiveFormat,
+			"expires_at":   row.ExpiresAt,
+			"prior_status": row.Status, // "received" or "pinned" before the flip
 		},
 		Outcome: audit.OutcomeSuccess,
 	}

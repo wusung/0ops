@@ -266,15 +266,20 @@ func (r *Runner) failPermanently(ctx context.Context, row db.ReconciliationJobRo
 
 func (r *Runner) runUploadGC(ctx context.Context) {
 	if !r.cfg.Leader.IsLeader() {
+		r.cfg.Observer.ObserveTick("upload_gc", "skipped_not_leader")
 		return
 	}
 	processed, failed := r.cfg.UploadGCScanner.Tick(ctx)
+	outcome := "ok"
+	if failed > 0 {
+		outcome = "partial_failure"
+	}
+	r.cfg.Observer.ObserveTick("upload_gc", outcome)
+	r.cfg.Observer.RecordUploadGC(processed, failed)
 	if processed > 0 || failed > 0 {
 		r.cfg.Logger.Info("upload_gc tick complete",
-			"processed", processed,
-			"failed", failed)
+			"processed", processed, "failed", failed)
 	}
-	r.cfg.Observer.RecordUploadGC(processed, failed)
 }
 
 func (r *Runner) runMetrics(ctx context.Context) {
