@@ -29,4 +29,5 @@
 | M5.6.1 | Split pack/push + rewrite imageRef to LOCAL_REGISTRY | Done   | 2026-05-19     |
 | M5.6.2 | Document rootless podman socket perms + e2e preflight | Done   | 2026-05-19     |
 | M5.6.3 | Pack --docker-host=inherit + libpod push + e2e truth source | Done   | 2026-05-19     |
-| M6    | Web UI (post-v1)                            | Failed  | -              |
+| M6    | App source ingestion（production file source） | Done | 2026-05-21     |
+| M7    | Web UI (post-v1)                            | Pending  | -              |
