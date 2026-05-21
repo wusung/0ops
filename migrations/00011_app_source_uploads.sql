@@ -1,5 +1,9 @@
+-- +goose NO TRANSACTION
+-- CREATE INDEX CONCURRENTLY cannot run inside a transaction (spec § 16 hard
+-- rule #7). The other statements in this file are individually atomic; goose
+-- runs them sequentially in autocommit mode. Same pattern as 00009.
+
 -- +goose Up
--- +goose StatementBegin
 
 create table if not exists app_source_uploads (
     id              text primary key,
@@ -19,18 +23,13 @@ create table if not exists app_source_uploads (
         check (archive_format in ('tar.zst','tar.gz'))
 );
 
-create index if not exists idx_app_source_uploads_team_status
+create index concurrently if not exists idx_app_source_uploads_team_status
     on app_source_uploads (team_id, status);
 
-create index if not exists idx_app_source_uploads_expires
+create index concurrently if not exists idx_app_source_uploads_expires
     on app_source_uploads (expires_at)
     where status in ('received','pinned');
 
--- +goose StatementEnd
-
 -- +goose Down
--- +goose StatementBegin
 
 drop table if exists app_source_uploads;
-
--- +goose StatementEnd
