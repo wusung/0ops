@@ -479,6 +479,19 @@ func (f *mcpFakeStore) GetUpload(_ context.Context, _, _ string) (db.Upload, err
 // PinUpload satisfies the extended appsStore interface (M6.13).
 func (f *mcpFakeStore) PinUpload(_ context.Context, _, _ string, _ time.Time) error { return nil }
 
+// SumInertBytesByTeam satisfies the appsStore interface (M6.20 quota).
+func (f *mcpFakeStore) SumInertBytesByTeam(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
+// CountPinnedByTeam satisfies the appsStore interface (M6.20 quota).
+func (f *mcpFakeStore) CountPinnedByTeam(_ context.Context, _ string) (int, error) { return 0, nil }
+
+// CountTeamUploadsSince satisfies the appsStore interface (M6.20 quota).
+func (f *mcpFakeStore) CountTeamUploadsSince(_ context.Context, _ string, _ time.Time) (int, error) {
+	return 0, nil
+}
+
 func newMCPFakeStore() (*mcpFakeStore, string) {
 	token, err := auth.NewBearerToken("device", "token-1")
 	if err != nil {

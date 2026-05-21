@@ -18,7 +18,9 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/klauspost/compress/zstd"
 
+	"github.com/winshare/zeroops/internal/server/apperror"
 	"github.com/winshare/zeroops/internal/server/db"
+	"github.com/winshare/zeroops/internal/server/middleware/ratelimit"
 	"github.com/winshare/zeroops/internal/server/services/audit"
 	"github.com/winshare/zeroops/internal/server/services/createapp/ingestion"
 	"github.com/winshare/zeroops/internal/shared/dto"
@@ -1204,6 +1206,218 @@ func TestUploadsArchiveGetUnreachableWithoutSigner(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 404/405 (route not registered), got %d", resp.StatusCode)
+	}
+}
+
+// ─── T20 quota handler tests ──────────────────────────────────────────────
+
+// newUploadRouterWithQuotaStore builds a test server with a manually-supplied
+// fakeStore so tests can pre-seed uploadRows for quota checks.
+func newUploadRouterWithQuotaStore(t *testing.T, store *fakeStore, ingest ingestionStore, auditSvc uploadAuditWriter) *httptest.Server {
+	t.Helper()
+	fi, ok := ingest.(*fakeIngest)
+	if !ok {
+		t.Fatal("newUploadRouterWithQuotaStore: ingest must be *fakeIngest")
+	}
+	full := newFakeIngestFull(fi)
+	h := newRouterFull(store, newGitHubOAuthClient(), nil, nil, nil, nil, nil, nil, full, auditSvc, nil)
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// starterQuotas returns DefaultUploadQuotas for the PlanStarter tier.
+// The fakeStore team is on plan "starter", so handler uses Starter caps.
+func starterQuotas() UploadQuotaTier { return DefaultUploadQuotas()[ratelimit.PlanStarter] }
+
+func TestUploadsPost_QuotaInertBytes(t *testing.T) {
+	// Pre-seed the store such that inert bytes + 100 MB > Starter cap.
+	// fakeStore team plan is "starter" — handler will use PlanStarter quotas.
+	store, token := newFakeStore()
+	maxArchive := int64(100 * 1024 * 1024) // matches the router wiring
+	tier := starterQuotas()
+	// Seed enough inert bytes to trip the reserve-max check.
+	store.seedUpload(db.Upload{
+		ID:         "upl_seed_1",
+		TeamID:     "team-1",
+		Status:     "received",
+		SizeBytes:  tier.MaxInertBytes - maxArchive + 1,
+		ReceivedAt: time.Now(),
+	})
+
+	fi := &fakeIngest{}
+	srv := newUploadRouterWithQuotaStore(t, store, fi, nil)
+
+	archive := makeTarZst(t, "hello.txt", "hello")
+	body, ct := buildMultipart(t, archive, "")
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/teams/"+store.team.Slug+"/uploads", body)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", ct)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 422; body: %s", resp.StatusCode, raw)
+	}
+	var errBody map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&errBody)
+	code, _ := errBody["error"].(map[string]any)["code"].(string)
+	if code != apperror.CodeTeamQuotaExceeded {
+		t.Errorf("error code = %q, want %q", code, apperror.CodeTeamQuotaExceeded)
+	}
+}
+
+func TestUploadsPost_QuotaConcurrentPinned(t *testing.T) {
+	store, token := newFakeStore()
+	tier := starterQuotas()
+	// Seed exactly MaxConcurrentPinned pinned uploads.
+	for i := 0; i < tier.MaxConcurrentPinned; i++ {
+		store.seedUpload(db.Upload{
+			ID:         fmt.Sprintf("upl_pin_%03d", i),
+			TeamID:     "team-1",
+			Status:     "pinned",
+			SizeBytes:  1,
+			ReceivedAt: time.Now(),
+		})
+	}
+
+	fi := &fakeIngest{}
+	srv := newUploadRouterWithQuotaStore(t, store, fi, nil)
+
+	archive := makeTarZst(t, "hello.txt", "hello")
+	body, ct := buildMultipart(t, archive, "")
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/teams/"+store.team.Slug+"/uploads", body)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", ct)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 422; body: %s", resp.StatusCode, raw)
+	}
+	var errBody map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&errBody)
+	code, _ := errBody["error"].(map[string]any)["code"].(string)
+	if code != apperror.CodeTeamQuotaExceeded {
+		t.Errorf("error code = %q, want %q", code, apperror.CodeTeamQuotaExceeded)
+	}
+}
+
+func TestUploadsPost_QuotaDailyUploads(t *testing.T) {
+	store, token := newFakeStore()
+	tier := starterQuotas()
+	// Seed MaxDailyUploads rows all received within the last hour (within the 24h window).
+	for i := 0; i < tier.MaxDailyUploads; i++ {
+		store.seedUpload(db.Upload{
+			ID:         fmt.Sprintf("upl_daily_%04d", i),
+			TeamID:     "team-1",
+			Status:     "received",
+			SizeBytes:  1,
+			ReceivedAt: time.Now().Add(-time.Hour), // 1h ago is within 24h window
+		})
+	}
+
+	fi := &fakeIngest{}
+	srv := newUploadRouterWithQuotaStore(t, store, fi, nil)
+
+	archive := makeTarZst(t, "hello.txt", "hello")
+	body, ct := buildMultipart(t, archive, "")
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/teams/"+store.team.Slug+"/uploads", body)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", ct)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 422; body: %s", resp.StatusCode, raw)
+	}
+	var errBody map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&errBody)
+	code, _ := errBody["error"].(map[string]any)["code"].(string)
+	if code != apperror.CodeTeamQuotaExceeded {
+		t.Errorf("error code = %q, want %q", code, apperror.CodeTeamQuotaExceeded)
+	}
+}
+
+func TestUploadsPost_QuotaCheckHappensBeforeMultipart(t *testing.T) {
+	// Even an invalid multipart body → quota check fires first → 422 team_quota_exceeded
+	store, token := newFakeStore()
+	tier := starterQuotas()
+	// Trip the concurrent-pinned cap.
+	for i := 0; i < tier.MaxConcurrentPinned; i++ {
+		store.seedUpload(db.Upload{
+			ID:         fmt.Sprintf("upl_pre_%03d", i),
+			TeamID:     "team-1",
+			Status:     "pinned",
+			SizeBytes:  1,
+			ReceivedAt: time.Now(),
+		})
+	}
+
+	fi := &fakeIngest{}
+	srv := newUploadRouterWithQuotaStore(t, store, fi, nil)
+
+	// Deliberately invalid body — not multipart at all.
+	body := strings.NewReader("not-a-multipart-body")
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/teams/"+store.team.Slug+"/uploads", body)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=fakeboundary")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Quota fires before multipart parse → 422, not 400
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 422 (quota before multipart); body: %s", resp.StatusCode, raw)
+	}
+	var errBody map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&errBody)
+	code, _ := errBody["error"].(map[string]any)["code"].(string)
+	if code != apperror.CodeTeamQuotaExceeded {
+		t.Errorf("error code = %q, want %q (quota check must fire before multipart parse)", code, apperror.CodeTeamQuotaExceeded)
+	}
+}
+
+func TestUploadsPost_NilQuotaStoreBypassesCheck(t *testing.T) {
+	// newUploadRouter passes store (which has the quota methods) but the
+	// store returns zeros → no quota violations → existing behavior preserved.
+	archive := makeTarZst(t, "hello.txt", "hello world")
+	fi := &fakeIngest{}
+	srv, token, store := newUploadRouter(t, fi, nil)
+
+	body, ct := buildMultipart(t, archive, "")
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/teams/"+store.team.Slug+"/uploads", body)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", ct)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 201 (nil quota store should not block); body: %s", resp.StatusCode, raw)
 	}
 }
 

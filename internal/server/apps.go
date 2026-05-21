@@ -98,6 +98,10 @@ type appsStore interface {
 	GetUpload(ctx context.Context, teamID, id string) (db.Upload, error)
 	// M6.13 confirm-pin: pin upload row on create_app confirm success
 	PinUpload(ctx context.Context, teamID, id string, expiresAt time.Time) error
+	// M6.20 per-team upload quota checks (T20)
+	SumInertBytesByTeam(ctx context.Context, teamID string) (int64, error)
+	CountPinnedByTeam(ctx context.Context, teamID string) (int, error)
+	CountTeamUploadsSince(ctx context.Context, teamID string, since time.Time) (int, error)
 }
 
 // infraK3sClient provides K3s namespace management operations.
@@ -1432,7 +1436,14 @@ func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient 
 		if uploadIngest != nil {
 			sr.With(func(next http.Handler) http.Handler {
 				return mw.CheckTokenScope(rbac.ActionCreateUpload, next)
-			}).Post("/uploads", uploadHandler(store, uploadIngest, uploadAuditSvc))
+			}).Post("/uploads", uploadHandler(
+				store,
+				uploadIngest,
+				uploadAuditSvc,
+				store,                    // *db.Repository satisfies uploadQuotaStore
+				DefaultUploadQuotas(),
+				int64(100*1024*1024),     // quotaMaxArchiveBytes: 100 MB, matches T6 default
+			))
 		}
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionDeleteApp, next)

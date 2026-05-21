@@ -19,6 +19,7 @@ import (
 	"github.com/winshare/zeroops/internal/server/apperror"
 	"github.com/winshare/zeroops/internal/server/auth"
 	"github.com/winshare/zeroops/internal/server/db"
+	"github.com/winshare/zeroops/internal/server/middleware/ratelimit"
 	"github.com/winshare/zeroops/internal/server/services/audit"
 	"github.com/winshare/zeroops/internal/server/services/createapp/ingestion"
 	"github.com/winshare/zeroops/internal/shared/dto"
@@ -132,13 +133,26 @@ func newUploadID() (string, error) {
 //	mw.Bearer → mw.ResolveTeam → mw.CheckMembership → mw.CheckTokenScope(ActionCreateUpload)
 //
 // The handler:
-//  1. Reads the multipart body, sniffs format from magic bytes.
-//  2. Streams the "archive" part through ingestionStore.Put (sha256 computed there).
-//  3. Optionally cross-checks a client-supplied "sha256" field.
-//  4. Inserts a row via uploadsStore.InsertUpload with status="received", expires_at=now+24h.
-//  5. Audits "app_source.upload.created" on success (slog.Warn on audit failure — response is still 201).
-//  6. Returns 201 Created with dto.UploadResponse.
-func uploadHandler(uploadStore uploadsStore, ingest ingestionStore, auditSvc uploadAuditWriter) http.HandlerFunc {
+//  1. Checks per-team upload quotas (T20) before reading the body.
+//  2. Reads the multipart body, sniffs format from magic bytes.
+//  3. Streams the "archive" part through ingestionStore.Put (sha256 computed there).
+//  4. Optionally cross-checks a client-supplied "sha256" field.
+//  5. Inserts a row via uploadsStore.InsertUpload with status="received", expires_at=now+24h.
+//  6. Audits "app_source.upload.created" on success (slog.Warn on audit failure — response is still 201).
+//  7. Returns 201 Created with dto.UploadResponse.
+//
+// quotaStore and quotaTiers are nil-tolerant: if either is nil, the quota check
+// is skipped. Production always provides both; tests can stub nil.
+// quotaMaxArchiveBytes is the per-upload size cap used as an upper-bound
+// reservation for the inert-bytes quota (default 100 MB).
+func uploadHandler(
+	uploadStore uploadsStore,
+	ingest ingestionStore,
+	auditSvc uploadAuditWriter,
+	quotaStore uploadQuotaStore,
+	quotaTiers map[ratelimit.Plan]UploadQuotaTier,
+	quotaMaxArchiveBytes int64,
+) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		teamID := auth.TeamID(ctx)
@@ -146,6 +160,20 @@ func uploadHandler(uploadStore uploadsStore, ingest ingestionStore, auditSvc upl
 		if actorUserID == "" {
 			apperror.Write(w, "unauthorized", apperror.ClassUnauthorized, "missing actor identity", nil)
 			return
+		}
+
+		// Quota check BEFORE reading multipart body — fail fast, save bandwidth.
+		if quotaStore != nil && quotaTiers != nil {
+			plan := ratelimit.Normalize(string(auth.TeamPlan(ctx)))
+			if err := checkUploadQuota(ctx, quotaStore, quotaTiers, teamID, plan, quotaMaxArchiveBytes, time.Now); err != nil {
+				if IsQuotaExceeded(err) {
+					apperror.Write(w, apperror.CodeTeamQuotaExceeded, apperror.ClassUnprocessable, err.Error(), nil)
+					return
+				}
+				// DB error during quota check
+				apperror.Write(w, "internal_error", apperror.ClassInternal, "quota check failed", nil)
+				return
+			}
 		}
 
 		mr, err := r.MultipartReader()
