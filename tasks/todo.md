@@ -37,9 +37,10 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
 - [ ] **trace_id 全鏈路驗證**
   - 目標：grep + 驗 backend request → preview row → deploy_run → GHA payload → callback → audit_log → structured log 串回同一 trace
   - 注意：M5.2 audit + M5.3 reconciler 已各自實作 `TraceIDFromContext`；動工前需先 audit 而非從零做
-- [ ] **runbook 補齊**
-  - 缺：GHA callback 驗章失敗排查、create_app stuck in building/syncing、winshare subdomain 路由失敗、burn-rate alert 處理流程
-  - 既有：`docs/runbooks/{postgres-failover,postgres-pitr,postgres-restore-test,goose-create-workflow}.md`
+- [ ] **runbook winshare 細節補完**
+  - 殘留：`docs/runbooks/winshare-route-failure.md` 為 skeleton，§ 2-5 之 kubectl/cloudflared/argocd 具體指令待 infra 落地後補（同 PR 內補完並刪該檔 § 6）
+  - 動工條件：與「`nextdemo.winshare.tw` 真實外部 HTTP 200」同一個 PR 一起處理
+  - 既有：`docs/runbooks/{postgres-failover,postgres-pitr,postgres-restore-test,goose-create-workflow,gha-callback-signature-failure,create-app-stuck,winshare-route-failure,burn-rate-alert-response}.md`
 
 ### 治理 / 商業（文件層 backlog）
 
