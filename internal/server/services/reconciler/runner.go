@@ -23,11 +23,13 @@ type Config struct {
 	Handlers            *HandlerRegistry
 	DeployStatusScanner *DeployStatusScanner
 	ArgoSyncScanner     *ArgoSyncScanner
+	UploadGCScanner     *UploadGCScanner
 
 	DeployStatusInterval time.Duration
 	ArgoSyncInterval     time.Duration
 	JobQueueInterval     time.Duration
 	MetricsInterval      time.Duration
+	UploadGCInterval     time.Duration
 	JobBatchSize         int
 }
 
@@ -64,6 +66,9 @@ func New(cfg Config) *Runner {
 	if cfg.JobBatchSize <= 0 {
 		cfg.JobBatchSize = 32
 	}
+	if cfg.UploadGCInterval <= 0 {
+		cfg.UploadGCInterval = 30 * time.Minute
+	}
 	return &Runner{cfg: cfg}
 }
 
@@ -89,6 +94,11 @@ func (r *Runner) Start(ctx context.Context) {
 	r.spawn("metrics", r.cfg.MetricsInterval, func(ctx context.Context) {
 		r.runMetrics(ctx)
 	}, ctx)
+	if r.cfg.UploadGCScanner != nil {
+		r.spawn("upload_gc", r.cfg.UploadGCInterval, func(ctx context.Context) {
+			r.runUploadGC(ctx)
+		}, ctx)
+	}
 }
 
 // Wait blocks until every spawned loop has returned.
@@ -251,6 +261,24 @@ func (r *Runner) failPermanently(ctx context.Context, row db.ReconciliationJobRo
 		if err != nil {
 			r.cfg.Logger.Error("open incident for failed_permanently failed", "job_id", row.ID, "err", err)
 		}
+	}
+}
+
+func (r *Runner) runUploadGC(ctx context.Context) {
+	if !r.cfg.Leader.IsLeader() {
+		r.cfg.Observer.ObserveTick("upload_gc", "skipped_not_leader")
+		return
+	}
+	processed, failed := r.cfg.UploadGCScanner.Tick(ctx)
+	outcome := "ok"
+	if failed > 0 {
+		outcome = "partial_failure"
+	}
+	r.cfg.Observer.ObserveTick("upload_gc", outcome)
+	r.cfg.Observer.RecordUploadGC(processed, failed)
+	if processed > 0 || failed > 0 {
+		r.cfg.Logger.Info("upload_gc tick complete",
+			"processed", processed, "failed", failed)
 	}
 }
 

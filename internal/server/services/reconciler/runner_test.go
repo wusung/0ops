@@ -41,6 +41,7 @@ func (r *recordingObserver) ObserveIncidentOpened(kind, sev string) {
 func (r *recordingObserver) ObserveIncidentClosed(kind, sev string) { r.openIncidents[sev]-- }
 func (r *recordingObserver) SetPendingJobs(kind string, count int)  { r.pending[kind] = count }
 func (r *recordingObserver) SetOpenIncidents(string, int)           {}
+func (r *recordingObserver) RecordUploadGC(int, int)                {}
 
 func TestRunnerProcessOneCompletesHappyPath(t *testing.T) {
 	store := newFakeStore()

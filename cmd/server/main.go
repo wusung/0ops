@@ -160,7 +160,7 @@ func main() {
 		logger.Info("leader election bypassed", "mode", leaderMode, "identity", identity)
 	}
 
-	startReconciler(ctx, logger, repo, incidentSvc, reconObserver, k3sClient, ldr)
+	startReconciler(ctx, logger, repo, incidentSvc, reconObserver, k3sClient, ldr, ingestStore, auditSvc)
 
 	go func() {
 		logger.Info("0ops-server listening", "addr", addr, "version", shared.Version)
@@ -286,14 +286,21 @@ func (o *reconcilerObserver) SetPendingJobs(kind string, count int) {
 func (o *reconcilerObserver) SetOpenIncidents(severity string, count int) {
 	o.m.SetOpenIncidents(severity, float64(count))
 }
+func (o *reconcilerObserver) RecordUploadGC(_, _ int) {}
 
 // startReconciler builds the M5.3 reconciler.Runner from cmd/server
 // state. Scanners are wired with whatever credentials are available —
 // without a GitHub or ArgoCD client they degrade to a no-op tick. The
 // job processor + leader gate always start; the gate is driven by the
 // supplied leader.Leader (AlwaysLeader in dev, LeaseLeader in M5+ prod).
-func startReconciler(ctx context.Context, logger *slog.Logger, repo *db.Repository, incidentSvc *reconciler.IncidentService, observer reconciler.Observer, k3sClient *k3s.Client, ldr leader.Leader) {
+func startReconciler(ctx context.Context, logger *slog.Logger, repo *db.Repository, incidentSvc *reconciler.IncidentService, observer reconciler.Observer, k3sClient *k3s.Client, ldr leader.Leader, ingestStore reconciler.UploadGCIngestStore, auditSvc reconciler.UploadGCAuditWriter) {
 	scanners := buildScanners(repo, incidentSvc, observer, k3sClient)
+	uploadGC := &reconciler.UploadGCScanner{
+		Store:  repo,
+		Ingest: ingestStore,
+		Audit:  auditSvc,
+		Logger: logger,
+	}
 	cfg := reconciler.Config{
 		Leader:              reconcilerLeaderGate{l: ldr},
 		Store:               repo,
@@ -303,6 +310,8 @@ func startReconciler(ctx context.Context, logger *slog.Logger, repo *db.Reposito
 		Handlers:            reconciler.NewHandlerRegistry(),
 		DeployStatusScanner: scanners.deploy,
 		ArgoSyncScanner:     scanners.argo,
+		UploadGCScanner:     uploadGC,
+		UploadGCInterval:    30 * time.Minute,
 	}
 	runner := reconciler.New(cfg)
 	runner.Start(ctx)
@@ -315,16 +324,15 @@ type scannerSet struct {
 }
 
 func (s scannerSet) summary() string {
-	switch {
-	case s.deploy != nil && s.argo != nil:
-		return "deploy_status,argo_sync,job_queue,metrics"
-	case s.deploy != nil:
-		return "deploy_status,job_queue,metrics"
-	case s.argo != nil:
-		return "argo_sync,job_queue,metrics"
-	default:
-		return "job_queue,metrics"
+	parts := []string{}
+	if s.deploy != nil {
+		parts = append(parts, "deploy_status")
 	}
+	if s.argo != nil {
+		parts = append(parts, "argo_sync")
+	}
+	parts = append(parts, "job_queue", "metrics", "upload_gc") // upload_gc always wired
+	return strings.Join(parts, ",")
 }
 
 func buildScanners(repo *db.Repository, incidents *reconciler.IncidentService, observer reconciler.Observer, k3sClient *k3s.Client) scannerSet {
