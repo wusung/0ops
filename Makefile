@@ -128,6 +128,13 @@ m5-6-podman-socket-loosen: ## dev 機器一次性：把 rootless podman socket �
 	if [ "$$OPS_ENV" = "production" ]; then echo "refusing to loosen socket perms with OPS_ENV=production" >&2; exit 1; fi; \
 	chmod 666 "$$sock" && ls -la "$$sock" && echo "ok — pack lifecycle container 可讀 socket 至下次 podman.socket 重啟"
 
+## --- M6 app-source-ingestion (ADR-0013) ---
+
+.PHONY: m6-source-upload-e2e
+
+m6-source-upload-e2e: ## M6 T22 端到端驗收腳本（upload 路徑；compose 必須先 healthy）
+	@bash tasks/m6-source-upload-e2e.sh
+
 sqlc: ## 產生 sqlc 程式碼
 	podman run --rm --userns=keep-id -v $(CURDIR):/src -w /src $(SQLC_IMAGE) generate
 
