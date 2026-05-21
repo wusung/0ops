@@ -187,13 +187,13 @@ func TestObserveUploadSuccess(t *testing.T) {
 	m.Handler().ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	body := metricsRec.Body.String()
 
-	if !strings.Contains(body, `app_source_upload_total{reject_reason="",result="success"} 1`) {
+	if !strings.Contains(body, `zeroops_app_source_upload_total{reject_reason="",result="success"} 1`) {
 		t.Errorf("upload_total success counter missing: %s", body)
 	}
-	if !strings.Contains(body, "app_source_upload_size_bytes_count 1") {
+	if !strings.Contains(body, "zeroops_app_source_upload_size_bytes_count 1") {
 		t.Errorf("upload_size_bytes histogram count missing: %s", body)
 	}
-	if !strings.Contains(body, "app_source_upload_duration_seconds_count 1") {
+	if !strings.Contains(body, "zeroops_app_source_upload_duration_seconds_count 1") {
 		t.Errorf("upload_duration_seconds histogram count missing: %s", body)
 	}
 }
@@ -207,10 +207,10 @@ func TestObserveUploadRejection(t *testing.T) {
 	m.Handler().ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	body := metricsRec.Body.String()
 
-	if !strings.Contains(body, `app_source_upload_total{reject_reason="sha256_mismatch",result="rejected"} 1`) {
+	if !strings.Contains(body, `zeroops_app_source_upload_total{reject_reason="sha256_mismatch",result="rejected"} 1`) {
 		t.Errorf("upload_total sha256_mismatch rejection missing: %s", body)
 	}
-	if !strings.Contains(body, `app_source_upload_total{reject_reason="archive_corrupt",result="rejected"} 1`) {
+	if !strings.Contains(body, `zeroops_app_source_upload_total{reject_reason="archive_corrupt",result="rejected"} 1`) {
 		t.Errorf("upload_total archive_corrupt rejection missing: %s", body)
 	}
 }
@@ -225,17 +225,17 @@ func TestObserveQuotaRejection(t *testing.T) {
 	body := metricsRec.Body.String()
 
 	// quota-specific counter
-	if !strings.Contains(body, `app_source_quota_rejection_total{reason="pinned"} 1`) {
+	if !strings.Contains(body, `zeroops_app_source_quota_rejection_total{reason="pinned"} 1`) {
 		t.Errorf("quota_rejection_total pinned missing: %s", body)
 	}
-	if !strings.Contains(body, `app_source_quota_rejection_total{reason="daily"} 1`) {
+	if !strings.Contains(body, `zeroops_app_source_quota_rejection_total{reason="daily"} 1`) {
 		t.Errorf("quota_rejection_total daily missing: %s", body)
 	}
 	// also bumps the unified upload total with quota_ prefix
-	if !strings.Contains(body, `app_source_upload_total{reject_reason="quota_pinned",result="rejected"} 1`) {
+	if !strings.Contains(body, `zeroops_app_source_upload_total{reject_reason="quota_pinned",result="rejected"} 1`) {
 		t.Errorf("upload_total quota_pinned rejection missing: %s", body)
 	}
-	if !strings.Contains(body, `app_source_upload_total{reject_reason="quota_daily",result="rejected"} 1`) {
+	if !strings.Contains(body, `zeroops_app_source_upload_total{reject_reason="quota_daily",result="rejected"} 1`) {
 		t.Errorf("upload_total quota_daily rejection missing: %s", body)
 	}
 }
@@ -248,10 +248,10 @@ func TestObserveUploadGC(t *testing.T) {
 	m.Handler().ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	body := metricsRec.Body.String()
 
-	if !strings.Contains(body, `app_source_gc_deleted_total{outcome="success"} 5`) {
+	if !strings.Contains(body, `zeroops_app_source_gc_deleted_total{outcome="success"} 5`) {
 		t.Errorf("gc_deleted_total success=5 missing: %s", body)
 	}
-	if !strings.Contains(body, `app_source_gc_deleted_total{outcome="failure"} 2`) {
+	if !strings.Contains(body, `zeroops_app_source_gc_deleted_total{outcome="failure"} 2`) {
 		t.Errorf("gc_deleted_total failure=2 missing: %s", body)
 	}
 }
@@ -265,7 +265,7 @@ func TestObserveUploadGCZeroDoesNotCreateSeries(t *testing.T) {
 	body := metricsRec.Body.String()
 
 	// The metric help line exists but no labelled series should be present.
-	if strings.Contains(body, `app_source_gc_deleted_total{`) {
+	if strings.Contains(body, `zeroops_app_source_gc_deleted_total{`) {
 		t.Errorf("gc_deleted_total should have no labelled series for zero counts: %s", body)
 	}
 }
@@ -285,12 +285,12 @@ func TestObserveArchiveDownload(t *testing.T) {
 	body := metricsRec.Body.String()
 
 	cases := []string{
-		`app_source_archive_downloaded_total{outcome="success"} 2`,
-		`app_source_archive_downloaded_total{outcome="unauthorized"} 1`,
-		`app_source_archive_downloaded_total{outcome="forbidden"} 1`,
-		`app_source_archive_downloaded_total{outcome="not_found"} 1`,
-		`app_source_archive_downloaded_total{outcome="expired"} 1`,
-		`app_source_archive_downloaded_total{outcome="internal_error"} 1`,
+		`zeroops_app_source_archive_downloaded_total{outcome="success"} 2`,
+		`zeroops_app_source_archive_downloaded_total{outcome="unauthorized"} 1`,
+		`zeroops_app_source_archive_downloaded_total{outcome="forbidden"} 1`,
+		`zeroops_app_source_archive_downloaded_total{outcome="not_found"} 1`,
+		`zeroops_app_source_archive_downloaded_total{outcome="expired"} 1`,
+		`zeroops_app_source_archive_downloaded_total{outcome="internal_error"} 1`,
 	}
 	for _, want := range cases {
 		if !strings.Contains(body, want) {

@@ -1739,6 +1739,51 @@ func TestUploadsPost_RecordsQuotaRejectionAuditEvent(t *testing.T) {
 
 // ─── T21 archive download outcome metrics ─────────────────────────────────
 
+// TestUploadsPost_RecordsRejectionOnMissingArchive verifies that the upload
+// handler emits a "missing_archive" rejection metric when the multipart body
+// contains no archive part (Fix 4 of the T21 metrics audit).
+func TestUploadsPost_RecordsRejectionOnMissingArchive(t *testing.T) {
+	rec := withUploadRejectionRecorder(t)
+
+	fi := &fakeIngest{}
+	srv, token, store := newUploadRouter(t, fi, nil)
+
+	// Build a multipart body with only a non-archive field (no "archive" part).
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	w, err := mw.CreateFormField("other_field")
+	if err != nil {
+		t.Fatalf("create form field: %v", err)
+	}
+	if _, err := w.Write([]byte("ignored")); err != nil {
+		t.Fatalf("write field: %v", err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatalf("close multipart: %v", err)
+	}
+
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/teams/"+store.team.Slug+"/uploads", &buf)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 400; body: %s", resp.StatusCode, raw)
+	}
+	if !rec.called {
+		t.Error("recordUploadRejectionMetric was not called on missing_archive path")
+	}
+	if rec.reason != "missing_archive" {
+		t.Errorf("rejection reason = %q, want missing_archive", rec.reason)
+	}
+}
+
 // TestUploadsArchiveGet_RecordsDistinctOutcomeMetrics verifies that
 // uploadArchiveHandler emits a distinct outcome label for each failure path
 // as required by the metrics spec (Issue 2 + 3 of the T21 compliance audit).

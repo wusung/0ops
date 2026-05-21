@@ -224,6 +224,7 @@ func uploadHandler(
 
 		mr, err := r.MultipartReader()
 		if err != nil {
+			recordUploadRejectionMetric("malformed_multipart")
 			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "expected multipart/form-data body", nil)
 			return
 		}
@@ -246,12 +247,14 @@ func uploadHandler(
 				break
 			}
 			if err != nil {
+				recordUploadRejectionMetric("malformed_multipart")
 				apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "malformed multipart payload", nil)
 				return
 			}
 			partCount++
 			if partCount > maxMultipartParts {
 				_ = part.Close()
+				recordUploadRejectionMetric("too_many_parts")
 				apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "too many multipart parts", nil)
 				return
 			}
@@ -266,6 +269,7 @@ func uploadHandler(
 			case "archive":
 				if archiveReceived {
 					_ = part.Close()
+					recordUploadRejectionMetric("duplicate_archive")
 					apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "duplicate archive part", nil)
 					return
 				}
@@ -285,6 +289,7 @@ func uploadHandler(
 		}
 
 		if !archiveReceived || stored.SHA256 == "" {
+			recordUploadRejectionMetric("missing_archive")
 			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "archive part is required", map[string]any{"field": "archive"})
 			return
 		}
@@ -424,21 +429,16 @@ func strPtrIfNonEmpty(s string) *string {
 
 // quotaReasonFromError extracts the short quota dimension from a *quotaError.
 // Returns "pinned", "daily", "inert_bytes", or "unknown".
+// Uses the compile-time-safe Dimension field instead of string-matching Reason.
 func quotaReasonFromError(err error) string {
 	var qe *quotaError
 	if !errors.As(err, &qe) {
 		return "unknown"
 	}
-	switch {
-	case strings.Contains(qe.Reason, "pinned"):
-		return "pinned"
-	case strings.Contains(qe.Reason, "daily"):
-		return "daily"
-	case strings.Contains(qe.Reason, "inert"):
-		return "inert_bytes"
-	default:
-		return "unknown"
+	if qe.Dimension != "" {
+		return string(qe.Dimension)
 	}
+	return "unknown"
 }
 
 // uploadArchiveHandler returns the GET /v1/uploads/{id}/archive handler.

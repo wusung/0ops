@@ -109,6 +109,7 @@ func checkUploadQuota(
 	}
 	if pinned >= tier.MaxConcurrentPinned {
 		return &quotaError{
+			Dimension: QuotaDimensionPinned,
 			Reason: fmt.Sprintf("concurrent pinned uploads at cap (%d/%d for plan %s)",
 				pinned, tier.MaxConcurrentPinned, plan),
 		}
@@ -121,6 +122,7 @@ func checkUploadQuota(
 	}
 	if daily >= tier.MaxDailyUploads {
 		return &quotaError{
+			Dimension: QuotaDimensionDaily,
 			Reason: fmt.Sprintf("daily upload count at cap (%d/%d for plan %s)",
 				daily, tier.MaxDailyUploads, plan),
 		}
@@ -133,6 +135,7 @@ func checkUploadQuota(
 	}
 	if inert+quotaMaxArchiveBytes > tier.MaxInertBytes {
 		return &quotaError{
+			Dimension: QuotaDimensionInertBytes,
 			Reason: fmt.Sprintf("inert bytes near cap (%d + max %d > %d for plan %s)",
 				inert, quotaMaxArchiveBytes, tier.MaxInertBytes, plan),
 		}
@@ -141,10 +144,22 @@ func checkUploadQuota(
 	return nil
 }
 
+// QuotaDimension identifies which quota cap was exceeded.
+type QuotaDimension string
+
+const (
+	QuotaDimensionPinned     QuotaDimension = "pinned"
+	QuotaDimensionDaily      QuotaDimension = "daily"
+	QuotaDimensionInertBytes QuotaDimension = "inert_bytes"
+)
+
 // quotaError is the internal sentinel returned by checkUploadQuota.
 // Handler maps to apperror.CodeTeamQuotaExceeded (422 + ClassUnprocessable).
+// Dimension is a compile-time-safe field used for metric label mapping;
+// Reason is a human-readable string for error messages and audit logs.
 type quotaError struct {
-	Reason string
+	Dimension QuotaDimension
+	Reason    string
 }
 
 func (e *quotaError) Error() string { return "upload quota exceeded: " + e.Reason }

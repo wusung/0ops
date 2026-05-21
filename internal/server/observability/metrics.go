@@ -14,13 +14,15 @@ import (
 
 // Upload pipeline metric name constants — kept here so callers can reference
 // them in tests without hard-coding the strings.
+// All constants carry the full zeroops_ prefix that Prometheus emits after
+// the Namespace + Name join (Namespace="zeroops", Name="app_source_*").
 const (
-	MetricUploadTotal           = "app_source_upload_total"
-	MetricUploadSizeBytes       = "app_source_upload_size_bytes"
-	MetricUploadDurationSeconds = "app_source_upload_duration_seconds"
-	MetricQuotaRejectionTotal   = "app_source_quota_rejection_total"
-	MetricGCDeletedTotal        = "app_source_gc_deleted_total"
-	MetricArchiveDownloadTotal  = "app_source_archive_downloaded_total"
+	MetricUploadTotal           = "zeroops_app_source_upload_total"
+	MetricUploadSizeBytes       = "zeroops_app_source_upload_size_bytes"
+	MetricUploadDurationSeconds = "zeroops_app_source_upload_duration_seconds"
+	MetricQuotaRejectionTotal   = "zeroops_app_source_quota_rejection_total"
+	MetricGCDeletedTotal        = "zeroops_app_source_gc_deleted_total"
+	MetricArchiveDownloadTotal  = "zeroops_app_source_archive_downloaded_total"
 )
 
 // Metrics holds the Prometheus registry and HTTP collectors.
@@ -188,32 +190,39 @@ func NewMetrics() *Metrics {
 			Help: "Lease lifecycle events surfaced by client-go's MetricsProvider, labelled by pod_name and outcome (acquired / lost / slow_acquire).",
 		}, []string{"pod_name", "outcome"}),
 
-		// Upload pipeline metrics (T21).
+		// Upload pipeline metrics (T21). All use Namespace:"zeroops" so the
+		// emitted name is zeroops_app_source_* — matching the MetricXxx constants.
 		appSourceUploadTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: MetricUploadTotal,
-			Help: "Total upload attempts. result=success|rejected; reject_reason=quota_*|archive_corrupt|payload_too_large|sha256_mismatch|unsupported_format (empty for success).",
+			Namespace: "zeroops",
+			Name:      "app_source_upload_total",
+			Help:      "Total upload attempts. result=success|rejected; reject_reason=quota_*|archive_corrupt|payload_too_large|sha256_mismatch|unsupported_format (empty for success).",
 		}, []string{"result", "reject_reason"}),
 		appSourceUploadSize: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Name:    MetricUploadSizeBytes,
-			Help:    "Size of successfully ingested upload archives.",
-			Buckets: prometheus.ExponentialBuckets(1024, 4, 12), // 1KB → ~16GB
+			Namespace: "zeroops",
+			Name:      "app_source_upload_size_bytes",
+			Help:      "Size of successfully ingested upload archives, in bytes.",
+			Buckets:   prometheus.ExponentialBuckets(1024, 4, 10), // 1 KiB → ~256 MiB (cap is 100 MiB)
 		}),
 		appSourceUploadDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Name:    MetricUploadDurationSeconds,
-			Help:    "Time from POST receipt to 201 response on successful uploads.",
-			Buckets: prometheus.DefBuckets, // 0.005s → 10s
+			Namespace: "zeroops",
+			Name:      "app_source_upload_duration_seconds",
+			Help:      "Time from POST receipt to 201 response on successful uploads, in seconds.",
+			Buckets:   prometheus.ExponentialBuckets(0.1, 2, 10), // 0.1s → ~51.2s; covers slow-link uploads up to ~1 min
 		}),
 		appSourceQuotaRejection: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: MetricQuotaRejectionTotal,
-			Help: "Quota check rejections by dimension. reason in {pinned, daily, inert_bytes}.",
+			Namespace: "zeroops",
+			Name:      "app_source_quota_rejection_total",
+			Help:      "Quota check rejections by dimension. reason in {pinned, daily, inert_bytes}.",
 		}, []string{"reason"}),
 		appSourceGCDeleted: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: MetricGCDeletedTotal,
-			Help: "Upload rows GC-d. outcome=success|failure.",
+			Namespace: "zeroops",
+			Name:      "app_source_gc_deleted_total",
+			Help:      "Upload rows GC-d. outcome=success|failure.",
 		}, []string{"outcome"}),
 		appSourceArchiveDownloaded: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: MetricArchiveDownloadTotal,
-			Help: "Archive download attempts by GHA workflow. outcome in {success, unauthorized, forbidden, not_found, expired, internal_error}.",
+			Namespace: "zeroops",
+			Name:      "app_source_archive_downloaded_total",
+			Help:      "Archive download attempts by GHA workflow. outcome in {success, unauthorized, forbidden, not_found, expired, internal_error}.",
 		}, []string{"outcome"}),
 	}
 	reg.MustRegister(
