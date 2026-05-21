@@ -159,6 +159,12 @@ var (
 	recordDeployLeadTimeMetric   = func(time.Duration) {}
 	recordDeployFailureMetric    = func(string, string) {}
 	newArgoCDStatusProvider      = func() argoCDStatusProvider { return nil }
+
+	// Upload pipeline metric recorders (T21). Wired at startup via BindUploadMetrics.
+	recordUploadSuccessMetric   = func(int64, time.Duration) {}
+	recordUploadRejectionMetric = func(string) {}
+	recordQuotaRejectionMetric  = func(string) {}
+	recordArchiveDownloadMetric = func(string) {}
 )
 
 type argoCDStatusProvider interface {
@@ -238,6 +244,38 @@ func BindPlatformMetrics(
 		recordDeployFailureMetric = func(string, string) {}
 	} else {
 		recordDeployFailureMetric = deployFailureRecorder
+	}
+}
+
+// BindUploadMetrics wires upload-pipeline-specific metric recorders.
+// nil arguments restore the no-op default for that recorder.
+// Note: GC metrics are wired separately via reconcilerObserver.RecordUploadGC →
+// metrics.ObserveUploadGC; there is no binder parameter for it here.
+func BindUploadMetrics(
+	uploadSuccess func(sizeBytes int64, duration time.Duration),
+	uploadRejection func(reason string),
+	quotaRejection func(reason string),
+	archiveDownload func(outcome string),
+) {
+	if uploadSuccess == nil {
+		recordUploadSuccessMetric = func(int64, time.Duration) {}
+	} else {
+		recordUploadSuccessMetric = uploadSuccess
+	}
+	if uploadRejection == nil {
+		recordUploadRejectionMetric = func(string) {}
+	} else {
+		recordUploadRejectionMetric = uploadRejection
+	}
+	if quotaRejection == nil {
+		recordQuotaRejectionMetric = func(string) {}
+	} else {
+		recordQuotaRejectionMetric = quotaRejection
+	}
+	if archiveDownload == nil {
+		recordArchiveDownloadMetric = func(string) {}
+	} else {
+		recordArchiveDownloadMetric = archiveDownload
 	}
 }
 

@@ -110,6 +110,10 @@ func TestCheckUploadQuota_RejectsInertBytesCap(t *testing.T) {
 	if !strings.Contains(qe.Reason, "inert bytes") {
 		t.Errorf("quotaError.Reason = %q, want 'inert bytes' mention", qe.Reason)
 	}
+	// Typed Dimension field must match
+	if qe.Dimension != QuotaDimensionInertBytes {
+		t.Errorf("quotaError.Dimension = %q, want %q", qe.Dimension, QuotaDimensionInertBytes)
+	}
 }
 
 func TestCheckUploadQuota_RejectsConcurrentPinnedCap(t *testing.T) {
@@ -136,6 +140,9 @@ func TestCheckUploadQuota_RejectsConcurrentPinnedCap(t *testing.T) {
 	if !strings.Contains(qe.Reason, "concurrent pinned") {
 		t.Errorf("quotaError.Reason = %q, want 'concurrent pinned' mention", qe.Reason)
 	}
+	if qe.Dimension != QuotaDimensionPinned {
+		t.Errorf("quotaError.Dimension = %q, want %q", qe.Dimension, QuotaDimensionPinned)
+	}
 }
 
 func TestCheckUploadQuota_RejectsDailyUploadCap(t *testing.T) {
@@ -161,6 +168,9 @@ func TestCheckUploadQuota_RejectsDailyUploadCap(t *testing.T) {
 	errors.As(err, &qe)
 	if !strings.Contains(qe.Reason, "daily upload") {
 		t.Errorf("quotaError.Reason = %q, want 'daily upload' mention", qe.Reason)
+	}
+	if qe.Dimension != QuotaDimensionDaily {
+		t.Errorf("quotaError.Dimension = %q, want %q", qe.Dimension, QuotaDimensionDaily)
 	}
 }
 
@@ -322,5 +332,8 @@ func TestCheckUploadQuota_NearCapSmallUploadStillRejected(t *testing.T) {
 	}
 	if !strings.Contains(qe.Reason, "inert bytes") {
 		t.Errorf("expected reason to mention 'inert bytes', got %q", qe.Reason)
+	}
+	if qe.Dimension != QuotaDimensionInertBytes {
+		t.Errorf("quotaError.Dimension = %q, want %q", qe.Dimension, QuotaDimensionInertBytes)
 	}
 }

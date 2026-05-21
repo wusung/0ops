@@ -176,3 +176,125 @@ func TestM5_5SetLeaderStatusFalseClearsGauge(t *testing.T) {
 		t.Fatalf("leader_status must reset to 0 after SetLeaderStatus(false): %s", body)
 	}
 }
+
+// T21 upload pipeline metrics tests.
+
+func TestObserveUploadSuccess(t *testing.T) {
+	m := NewMetrics()
+	m.ObserveUploadSuccess(1024*1024, 3*time.Second)
+
+	metricsRec := httptest.NewRecorder()
+	m.Handler().ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body := metricsRec.Body.String()
+
+	if !strings.Contains(body, `zeroops_app_source_upload_total{reject_reason="",result="success"} 1`) {
+		t.Errorf("upload_total success counter missing: %s", body)
+	}
+	if !strings.Contains(body, "zeroops_app_source_upload_size_bytes_count 1") {
+		t.Errorf("upload_size_bytes histogram count missing: %s", body)
+	}
+	if !strings.Contains(body, "zeroops_app_source_upload_duration_seconds_count 1") {
+		t.Errorf("upload_duration_seconds histogram count missing: %s", body)
+	}
+}
+
+func TestObserveUploadRejection(t *testing.T) {
+	m := NewMetrics()
+	m.ObserveUploadRejection("sha256_mismatch")
+	m.ObserveUploadRejection("archive_corrupt")
+
+	metricsRec := httptest.NewRecorder()
+	m.Handler().ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body := metricsRec.Body.String()
+
+	if !strings.Contains(body, `zeroops_app_source_upload_total{reject_reason="sha256_mismatch",result="rejected"} 1`) {
+		t.Errorf("upload_total sha256_mismatch rejection missing: %s", body)
+	}
+	if !strings.Contains(body, `zeroops_app_source_upload_total{reject_reason="archive_corrupt",result="rejected"} 1`) {
+		t.Errorf("upload_total archive_corrupt rejection missing: %s", body)
+	}
+}
+
+func TestObserveQuotaRejection(t *testing.T) {
+	m := NewMetrics()
+	m.ObserveQuotaRejection("pinned")
+	m.ObserveQuotaRejection("daily")
+
+	metricsRec := httptest.NewRecorder()
+	m.Handler().ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body := metricsRec.Body.String()
+
+	// quota-specific counter
+	if !strings.Contains(body, `zeroops_app_source_quota_rejection_total{reason="pinned"} 1`) {
+		t.Errorf("quota_rejection_total pinned missing: %s", body)
+	}
+	if !strings.Contains(body, `zeroops_app_source_quota_rejection_total{reason="daily"} 1`) {
+		t.Errorf("quota_rejection_total daily missing: %s", body)
+	}
+	// also bumps the unified upload total with quota_ prefix
+	if !strings.Contains(body, `zeroops_app_source_upload_total{reject_reason="quota_pinned",result="rejected"} 1`) {
+		t.Errorf("upload_total quota_pinned rejection missing: %s", body)
+	}
+	if !strings.Contains(body, `zeroops_app_source_upload_total{reject_reason="quota_daily",result="rejected"} 1`) {
+		t.Errorf("upload_total quota_daily rejection missing: %s", body)
+	}
+}
+
+func TestObserveUploadGC(t *testing.T) {
+	m := NewMetrics()
+	m.ObserveUploadGC(5, 2)
+
+	metricsRec := httptest.NewRecorder()
+	m.Handler().ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body := metricsRec.Body.String()
+
+	if !strings.Contains(body, `zeroops_app_source_gc_deleted_total{outcome="success"} 5`) {
+		t.Errorf("gc_deleted_total success=5 missing: %s", body)
+	}
+	if !strings.Contains(body, `zeroops_app_source_gc_deleted_total{outcome="failure"} 2`) {
+		t.Errorf("gc_deleted_total failure=2 missing: %s", body)
+	}
+}
+
+func TestObserveUploadGCZeroDoesNotCreateSeries(t *testing.T) {
+	m := NewMetrics()
+	m.ObserveUploadGC(0, 0) // no-op: both counters should not appear
+
+	metricsRec := httptest.NewRecorder()
+	m.Handler().ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body := metricsRec.Body.String()
+
+	// The metric help line exists but no labelled series should be present.
+	if strings.Contains(body, `zeroops_app_source_gc_deleted_total{`) {
+		t.Errorf("gc_deleted_total should have no labelled series for zero counts: %s", body)
+	}
+}
+
+func TestObserveArchiveDownload(t *testing.T) {
+	m := NewMetrics()
+	m.ObserveArchiveDownload("success")
+	m.ObserveArchiveDownload("success")
+	m.ObserveArchiveDownload("unauthorized")
+	m.ObserveArchiveDownload("forbidden")
+	m.ObserveArchiveDownload("not_found")
+	m.ObserveArchiveDownload("expired")
+	m.ObserveArchiveDownload("internal_error")
+
+	metricsRec := httptest.NewRecorder()
+	m.Handler().ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body := metricsRec.Body.String()
+
+	cases := []string{
+		`zeroops_app_source_archive_downloaded_total{outcome="success"} 2`,
+		`zeroops_app_source_archive_downloaded_total{outcome="unauthorized"} 1`,
+		`zeroops_app_source_archive_downloaded_total{outcome="forbidden"} 1`,
+		`zeroops_app_source_archive_downloaded_total{outcome="not_found"} 1`,
+		`zeroops_app_source_archive_downloaded_total{outcome="expired"} 1`,
+		`zeroops_app_source_archive_downloaded_total{outcome="internal_error"} 1`,
+	}
+	for _, want := range cases {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing counter line %q in:\n%s", want, body)
+		}
+	}
+}
