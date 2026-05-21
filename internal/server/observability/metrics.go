@@ -213,7 +213,7 @@ func NewMetrics() *Metrics {
 		}, []string{"outcome"}),
 		appSourceArchiveDownloaded: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: MetricArchiveDownloadTotal,
-			Help: "Archive download attempts by GHA workflow. outcome=success|failure.",
+			Help: "Archive download attempts by GHA workflow. outcome in {success, unauthorized, forbidden, not_found, expired, internal_error}.",
 		}, []string{"outcome"}),
 	}
 	reg.MustRegister(

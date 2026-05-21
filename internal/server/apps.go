@@ -164,7 +164,6 @@ var (
 	recordUploadSuccessMetric   = func(int64, time.Duration) {}
 	recordUploadRejectionMetric = func(string) {}
 	recordQuotaRejectionMetric  = func(string) {}
-	recordUploadGCMetric        = func(int, int) {}
 	recordArchiveDownloadMetric = func(string) {}
 )
 
@@ -250,11 +249,12 @@ func BindPlatformMetrics(
 
 // BindUploadMetrics wires upload-pipeline-specific metric recorders.
 // nil arguments restore the no-op default for that recorder.
+// Note: GC metrics are wired separately via reconcilerObserver.RecordUploadGC →
+// metrics.ObserveUploadGC; there is no binder parameter for it here.
 func BindUploadMetrics(
 	uploadSuccess func(sizeBytes int64, duration time.Duration),
 	uploadRejection func(reason string),
 	quotaRejection func(reason string),
-	uploadGC func(processed, failed int),
 	archiveDownload func(outcome string),
 ) {
 	if uploadSuccess == nil {
@@ -271,11 +271,6 @@ func BindUploadMetrics(
 		recordQuotaRejectionMetric = func(string) {}
 	} else {
 		recordQuotaRejectionMetric = quotaRejection
-	}
-	if uploadGC == nil {
-		recordUploadGCMetric = func(int, int) {}
-	} else {
-		recordUploadGCMetric = uploadGC
 	}
 	if archiveDownload == nil {
 		recordArchiveDownloadMetric = func(string) {}

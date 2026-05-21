@@ -460,6 +460,7 @@ func uploadArchiveHandler(store uploadArchiveStore, archive archiveReader, signe
 
 		rawAuth := r.Header.Get("Authorization")
 		if !strings.HasPrefix(rawAuth, "Bearer ") {
+			recordArchiveDownloadMetric("unauthorized")
 			apperror.Write(w, "unauthorized", apperror.ClassUnauthorized, "missing bearer token", nil)
 			return
 		}
@@ -467,31 +468,34 @@ func uploadArchiveHandler(store uploadArchiveStore, archive archiveReader, signe
 
 		claims, err := signer.Verify(tokenStr)
 		if err != nil {
-			recordArchiveDownloadMetric("failure")
 			switch {
 			case errors.Is(err, ingestion.ErrTokenExpired):
+				recordArchiveDownloadMetric("unauthorized")
 				apperror.Write(w, "unauthorized", apperror.ClassUnauthorized, "token expired", nil)
 			case errors.Is(err, ingestion.ErrTokenScopeMismatch):
+				recordArchiveDownloadMetric("forbidden")
 				apperror.Write(w, "forbidden", apperror.ClassForbidden, "token scope mismatch", nil)
 			default:
+				recordArchiveDownloadMetric("unauthorized")
 				apperror.Write(w, "unauthorized", apperror.ClassUnauthorized, "invalid token", nil)
 			}
 			return
 		}
 
 		if claims.UploadID != urlID {
-			recordArchiveDownloadMetric("failure")
+			recordArchiveDownloadMetric("forbidden")
 			apperror.Write(w, "forbidden", apperror.ClassForbidden, "token does not match upload", nil)
 			return
 		}
 
 		upload, err := store.GetUpload(ctx, claims.TeamID, urlID)
 		if err != nil {
-			recordArchiveDownloadMetric("failure")
 			if errors.Is(err, db.ErrUploadNotFound) {
+				recordArchiveDownloadMetric("not_found")
 				apperror.Write(w, apperror.CodeSourceNotFound, apperror.ClassNotFound, "upload not found", nil)
 				return
 			}
+			recordArchiveDownloadMetric("internal_error")
 			apperror.Write(w, "internal_error", apperror.ClassInternal, "lookup failed", nil)
 			return
 		}
@@ -503,14 +507,14 @@ func uploadArchiveHandler(store uploadArchiveStore, archive archiveReader, signe
 		case "received", "pinned":
 			// continue
 		default:
-			recordArchiveDownloadMetric("failure")
+			recordArchiveDownloadMetric("expired")
 			apperror.Write(w, apperror.CodeSourceExpired, apperror.ClassNotFound, "upload no longer available", nil)
 			return
 		}
 
 		rc, err := archive.Archive(ctx, upload.TeamID, upload.ID)
 		if err != nil {
-			recordArchiveDownloadMetric("failure")
+			recordArchiveDownloadMetric("internal_error")
 			if auditSvc != nil {
 				_ = logArchiveFailedAudit(ctx, auditSvc, upload)
 			}

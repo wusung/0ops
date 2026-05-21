@@ -67,7 +67,6 @@ func main() {
 		metrics.ObserveUploadSuccess,
 		metrics.ObserveUploadRejection,
 		metrics.ObserveQuotaRejection,
-		metrics.ObserveUploadGC,
 		metrics.ObserveArchiveDownload,
 	)
 	cloudflare.BindMetrics(metrics.ObserveCloudflareAPICall)

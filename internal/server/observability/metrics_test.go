@@ -273,17 +273,28 @@ func TestObserveUploadGCZeroDoesNotCreateSeries(t *testing.T) {
 func TestObserveArchiveDownload(t *testing.T) {
 	m := NewMetrics()
 	m.ObserveArchiveDownload("success")
-	m.ObserveArchiveDownload("failure")
 	m.ObserveArchiveDownload("success")
+	m.ObserveArchiveDownload("unauthorized")
+	m.ObserveArchiveDownload("forbidden")
+	m.ObserveArchiveDownload("not_found")
+	m.ObserveArchiveDownload("expired")
+	m.ObserveArchiveDownload("internal_error")
 
 	metricsRec := httptest.NewRecorder()
 	m.Handler().ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	body := metricsRec.Body.String()
 
-	if !strings.Contains(body, `app_source_archive_downloaded_total{outcome="success"} 2`) {
-		t.Errorf("archive_downloaded_total success=2 missing: %s", body)
+	cases := []string{
+		`app_source_archive_downloaded_total{outcome="success"} 2`,
+		`app_source_archive_downloaded_total{outcome="unauthorized"} 1`,
+		`app_source_archive_downloaded_total{outcome="forbidden"} 1`,
+		`app_source_archive_downloaded_total{outcome="not_found"} 1`,
+		`app_source_archive_downloaded_total{outcome="expired"} 1`,
+		`app_source_archive_downloaded_total{outcome="internal_error"} 1`,
 	}
-	if !strings.Contains(body, `app_source_archive_downloaded_total{outcome="failure"} 1`) {
-		t.Errorf("archive_downloaded_total failure=1 missing: %s", body)
+	for _, want := range cases {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing counter line %q in:\n%s", want, body)
+		}
 	}
 }

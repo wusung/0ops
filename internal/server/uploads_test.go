@@ -1736,3 +1736,126 @@ func TestUploadsPost_RecordsQuotaRejectionAuditEvent(t *testing.T) {
 		t.Errorf("audit source = %q, want user", entry.Source)
 	}
 }
+
+// ─── T21 archive download outcome metrics ─────────────────────────────────
+
+// TestUploadsArchiveGet_RecordsDistinctOutcomeMetrics verifies that
+// uploadArchiveHandler emits a distinct outcome label for each failure path
+// as required by the metrics spec (Issue 2 + 3 of the T21 compliance audit).
+func TestUploadsArchiveGet_RecordsDistinctOutcomeMetrics(t *testing.T) {
+	type archiveCase struct {
+		name        string
+		buildReq    func(store *fakeStore, signer *ingestion.TokenSigner, arc *fakeArchiveReader, srv *httptest.Server) *http.Request
+		wantOutcome string
+	}
+
+	cases := []archiveCase{
+		{
+			name: "success",
+			buildReq: func(store *fakeStore, signer *ingestion.TokenSigner, arc *fakeArchiveReader, srv *httptest.Server) *http.Request {
+				u := db.Upload{ID: "upl_m_ok", TeamID: "team-1", SizeBytes: 4, ArchiveFormat: "tar.zst", Status: "received"}
+				seedArchiveUpload(store, arc, u, []byte("data"))
+				tok := mintArchiveToken(t, signer, ingestion.TokenClaims{TeamID: "team-1", UploadID: "upl_m_ok"})
+				req, _ := http.NewRequest(http.MethodGet, archiveGetURL(srv, "upl_m_ok"), nil)
+				req.Header.Set("Authorization", "Bearer "+tok)
+				return req
+			},
+			wantOutcome: "success",
+		},
+		{
+			name: "unauthorized_no_header",
+			buildReq: func(store *fakeStore, signer *ingestion.TokenSigner, arc *fakeArchiveReader, srv *httptest.Server) *http.Request {
+				req, _ := http.NewRequest(http.MethodGet, archiveGetURL(srv, "upl_m_noheader"), nil)
+				// deliberately no Authorization header
+				return req
+			},
+			wantOutcome: "unauthorized",
+		},
+		{
+			name: "forbidden_url_mismatch",
+			buildReq: func(store *fakeStore, signer *ingestion.TokenSigner, arc *fakeArchiveReader, srv *httptest.Server) *http.Request {
+				u := db.Upload{ID: "upl_m_A", TeamID: "team-1", SizeBytes: 4, ArchiveFormat: "tar.zst", Status: "received"}
+				seedArchiveUpload(store, arc, u, []byte("data"))
+				// Token claims upload A but URL references upload B
+				tok := mintArchiveToken(t, signer, ingestion.TokenClaims{TeamID: "team-1", UploadID: "upl_m_A"})
+				req, _ := http.NewRequest(http.MethodGet, archiveGetURL(srv, "upl_m_B"), nil)
+				req.Header.Set("Authorization", "Bearer "+tok)
+				return req
+			},
+			wantOutcome: "forbidden",
+		},
+		{
+			name: "not_found_cross_team",
+			buildReq: func(store *fakeStore, signer *ingestion.TokenSigner, arc *fakeArchiveReader, srv *httptest.Server) *http.Request {
+				// Upload belongs to team-2, token claims team-1 → 404
+				u := db.Upload{ID: "upl_m_cross", TeamID: "team-2", SizeBytes: 4, ArchiveFormat: "tar.zst", Status: "received"}
+				seedArchiveUpload(store, arc, u, []byte("data"))
+				tok := mintArchiveToken(t, signer, ingestion.TokenClaims{TeamID: "team-1", UploadID: "upl_m_cross"})
+				req, _ := http.NewRequest(http.MethodGet, archiveGetURL(srv, "upl_m_cross"), nil)
+				req.Header.Set("Authorization", "Bearer "+tok)
+				return req
+			},
+			wantOutcome: "not_found",
+		},
+		{
+			name: "expired_status",
+			buildReq: func(store *fakeStore, signer *ingestion.TokenSigner, arc *fakeArchiveReader, srv *httptest.Server) *http.Request {
+				u := db.Upload{ID: "upl_m_exp", TeamID: "team-1", SizeBytes: 4, ArchiveFormat: "tar.zst", Status: "expired"}
+				seedArchiveUpload(store, arc, u, []byte("data"))
+				tok := mintArchiveToken(t, signer, ingestion.TokenClaims{TeamID: "team-1", UploadID: "upl_m_exp"})
+				req, _ := http.NewRequest(http.MethodGet, archiveGetURL(srv, "upl_m_exp"), nil)
+				req.Header.Set("Authorization", "Bearer "+tok)
+				return req
+			},
+			wantOutcome: "expired",
+		},
+		{
+			name: "internal_error_archive_read_fail",
+			buildReq: func(store *fakeStore, signer *ingestion.TokenSigner, arc *fakeArchiveReader, srv *httptest.Server) *http.Request {
+				u := db.Upload{ID: "upl_m_ioerr", TeamID: "team-1", SizeBytes: 4, ArchiveFormat: "tar.zst", Status: "received"}
+				store.seedUpload(u)
+				// Seed the DB row but NOT the archive bytes → Archive() returns ErrUploadNotFound
+				// which is treated as an internal read failure (not a DB-level not_found).
+				// We inject a hard error instead via arc.err.
+				arc.err = errors.New("simulated storage failure")
+				req, _ := http.NewRequest(http.MethodGet, archiveGetURL(srv, "upl_m_ioerr"), nil)
+				tok := mintArchiveToken(t, signer, ingestion.TokenClaims{TeamID: "team-1", UploadID: "upl_m_ioerr"})
+				req.Header.Set("Authorization", "Bearer "+tok)
+				return req
+			},
+			wantOutcome: "internal_error",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store, signer, arc, _, srv := newArchiveTestEnv(t)
+
+			var recorded []string
+			BindUploadMetrics(
+				func(int64, time.Duration) {},
+				func(string) {},
+				func(string) {},
+				func(o string) { recorded = append(recorded, o) },
+			)
+			t.Cleanup(func() {
+				BindUploadMetrics(nil, nil, nil, nil)
+			})
+
+			req := tc.buildReq(store, signer, arc, srv)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("request: %v", err)
+			}
+			_, _ = io.ReadAll(resp.Body)
+			resp.Body.Close()
+
+			if len(recorded) != 1 {
+				t.Fatalf("archive metric recorded %d times, want 1; outcomes: %v", len(recorded), recorded)
+			}
+			if recorded[0] != tc.wantOutcome {
+				t.Errorf("archive outcome = %q, want %q", recorded[0], tc.wantOutcome)
+			}
+		})
+	}
+}
