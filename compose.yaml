@@ -84,6 +84,12 @@ services:
       # lifecycle ephemeral container (spawned by host podman) at the same
       # path, so they have to agree.
       DOCKER_HOST: unix:///run/user/${UID:-1000}/podman/podman.sock
+      # T7/T8 app-source-ingestion: server requires INGEST_ROOT to store
+      # uploaded tarballs and BUILD_TOKEN_SECRET to sign the fetch JWT used
+      # by the GHA workflow. Dev defaults are intentionally weak; production
+      # must set both via secret manager.
+      APP_SOURCE_INGEST_ROOT: /var/lib/0ops/ingest
+      OPS_BUILD_TOKEN_SECRET: ${OPS_BUILD_TOKEN_SECRET:-dev-build-token-secret-change-me}
     ports:
       - "${OPS_HOST_PORT:-8080}:8080"
     volumes:
@@ -94,6 +100,8 @@ services:
       # ADR-0012 § 6 — production compose must NOT carry this. Path matches
       # host so pack's lifecycle container sees the same socket via bind.
       - /run/user/${UID:-1000}/podman/podman.sock:/run/user/${UID:-1000}/podman/podman.sock:Z
+      # T8/T9 app-source-ingestion: ingest root for uploaded tarballs.
+      - ingest-data:/var/lib/0ops/ingest:Z
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
       interval: 10s
@@ -109,3 +117,4 @@ services:
 volumes:
   pgdata:
   go-mod-cache:
+  ingest-data:
