@@ -4,7 +4,7 @@
 > **來源**：本 sub-spec 由 user 指示「`repo_url` 加上支援 `file:///` 寫法，可以測試」直接產出；
 > 上游主 spec 為 `docs/features/dev-environment/spec.md`；
 > 上游關聯 spec：`docs/features/create-app-flow/spec.md`、`docs/features/build-pipeline-and-callback/spec.md`、`docs/features/reconciler-and-incident/spec.md`
-> **適用範圍**：本機 `make dev` 與 CI 之 dev compose；**production 必須拒絕**
+> **適用範圍**：本機 `./manage.sh dev` 與 CI 之 dev compose；**production 必須拒絕**
 > **對應 Milestone**：M2 vertical slice 之 dev 驗證（spec § 1）
 > **關聯 ADR**：[ADR-0012 local-file-repo-dev-mode](../../adrs/0012-local-file-repo-dev-mode.md)
 
@@ -17,7 +17,7 @@
 - confirm 階段：file:// 走 `LocalBuildDispatcher` 取代 `workflowdispatch.Client`；流程為 `pack build` → `podman push localhost:5000/...` → 自打 callback 推進 deploy_run state 至 `live`
 - callback 仍走 `OPS_CALLBACK_SECRET` 簽章；不為 dev 開後門
 - deploy_run 抵達 `live` 表示 DB 狀態 + local registry 已有 image，**不對外可訪問**；對外訪問非本 sub-spec 範圍
-- 提供 `examples/node-demo/` Express 範例與 `make dev-create-example` 一鍵跑通
+- 提供 `examples/node-demo/` Express 範例與 `./manage.sh dev-create-example` 一鍵跑通
 
 ## 2. 範圍
 
@@ -28,7 +28,7 @@
 - `LocalBuildDispatcher`：實作 `createapp.Dispatcher`；pack build + podman push + 自打 callback 序列
 - `examples/node-demo/`：可被 paketo NodeJS buildpack 直接偵測之 Express hello world
 - compose dev wiring：registry service、podman socket mount、env 注入
-- Makefile target：`dev-example-init`、`dev-create-example`
+- manage.sh subcommand：`dev-example-init`、`dev-create-example`
 - end-to-end 驗收腳本：`tasks/local-build-e2e.sh`
 - spec / ADR 文件
 
@@ -69,7 +69,7 @@
 │               └── doc.go
 ├── compose.yaml                                       # 改：+ registry + podman.sock + env
 ├── compose.override.yaml.example                      # 改：示範 dev 設定
-├── Makefile                                           # 改：dev-example-init / dev-create-example
+├── manage.sh                                           # 改：dev-example-init / dev-create-example
 └── tasks/
     └── local-build-e2e.sh                             # 新
 ```
@@ -328,7 +328,7 @@ PrimaryPort: 3000
 DefaultBranch: main
 ```
 
-## 9. Compose / Makefile
+## 9. Compose / manage.sh
 
 ### 9.1 compose.yaml 增量
 
@@ -356,7 +356,7 @@ services:
         condition: service_healthy
 ```
 
-### 9.2 Makefile 增量
+### 9.2 manage.sh 增量
 
 ```make
 dev-example-init: ## 初始化 examples/node-demo 為 git repo
@@ -409,7 +409,7 @@ log 鍵：`local_build.run_id`、`local_build.image_ref`、`local_build.stage`�
 | `LocalBuildDispatcher` 單元 | mock exec.Cmd × {全綠 / build fail / push fail / callback timeout} | `dispatcher_test.go` |
 | `createapp.Service` 整合 | env gate ON 注入 LocalBuildDispatcher；OFF 不退化既有測試 | `service_test.go` 新增矩陣 |
 | `apps.go` 啟動 | `OPS_ENV=production` + `LOCAL_FILE_REPO_ENABLED=true` 應 panic | `server_test.go` |
-| e2e | `tasks/local-build-e2e.sh` 在 podman 環境中跑完 | CI matrix 預設 skip；`make m2-local-build-e2e` 觸發 |
+| e2e | `tasks/local-build-e2e.sh` 在 podman 環境中跑完 | CI matrix 預設 skip；`./manage.sh m5-6-local-build-e2e` 觸發 |
 
 ## 13. 對 `docs/features/create-app-flow/spec.md` 之延伸
 
@@ -456,7 +456,7 @@ unix:///var/run/docker.sock
 
 ### 15.2 解法（dev only；production 不適用此節）
 
-採以下其一即可，**`make m5-6-podman-socket-loosen` 為預設選項**：
+採以下其一即可，**`./manage.sh m5-6-podman-socket-loosen` 為預設選項**：
 
 | 方案 | 動作 | 持久性 | 風險 |
 |---|---|---|---|
@@ -469,13 +469,13 @@ host 之 local user 邊界，與「server container 已有 socket mount」之風
 相同。
 
 `tasks/local-build-e2e.sh` 之 preflight step 會 verify socket world-rw；
-不通則直接 `exit 1` 並印 `make m5-6-podman-socket-loosen` 指引（**不**自動
+不通則直接 `exit 1` 並印 `./manage.sh m5-6-podman-socket-loosen` 指引（**不**自動
 chmod，避免無 host 寫權限的 CI runner 誤跑）。
 
 ### 15.3 重執行頻率
 
 `podman.socket` 在 host 重開機 / `systemctl --user restart podman.socket`
-後重置 perms。實務上每次重啟 host 之後跑一次 `make m5-6-podman-socket-loosen`
+後重置 perms。實務上每次重啟 host 之後跑一次 `./manage.sh m5-6-podman-socket-loosen`
 即可；E2E 腳本之 preflight 會在偵測到後 fail-fast 提示。
 
 ## 16. 不可違反的硬性規則

@@ -12,7 +12,7 @@
   1. tool 名稱以 `_preview` 結尾 → description 必含 verbatim 子字串 `ALWAYS call this BEFORE`
   2. tool 名稱對應寫入 / 刪除 action（見 § 4.3 列表）且**非** `_preview` → description 必含 verbatim 子字串 `NEVER call this tool without`
   3. tool description 必含 `team_slug`（write tool 之 input schema 必含 required `team_slug`，由本 spec § 4.4 釘）
-- SKILL.md 範本以「源檔 + verbatim 同步腳本」管理：`skills/_template/preview-confirm-clauses.md` 為 source of truth；三家 SKILL.md 透過 `make skills-sync` 重新嵌入；CI lint 偵測 drift
+- SKILL.md 範本以「源檔 + verbatim 同步腳本」管理：`skills/_template/preview-confirm-clauses.md` 為 source of truth；三家 SKILL.md 透過 `./manage.sh skills-sync` 重新嵌入；CI lint 偵測 drift
 - 三家 AI CLI 相容性矩陣產出於 `docs/runbooks/mcp-sdk-spike-results.md`；矩陣 5×3（5 條代表性流程 × 3 家 CLI）；任一格紅燈即觸發 ADR-0003 Revisit
 - M0 spike 範圍：streaming API 形態（ADR-0003 OQ#1）、reflective tool 列舉（OQ#2）、JSON Schema 來源（OQ#3）；spike 結果落地於 runbook 後本 spec 第 6 段以 PR 補入具體 API 名
 - Tool registry 為靜態註冊：`internal/mcp/registry.go` 在 `init()` 集中註冊；新增 tool 必同步加入 registry table 與 lint 測試
@@ -22,7 +22,7 @@
 ### 2.1 包含
 - `internal/mcp/lint/` package：startup-time description lint 規則與執行
 - `internal/mcp/registry.go`：tool 靜態註冊與 reflective 列舉接口
-- SKILL.md 範本與 verbatim 同步機制（`skills/_template/`、`make skills-sync`、CI drift 檢測）
+- SKILL.md 範本與 verbatim 同步機制（`skills/_template/`、`./manage.sh skills-sync`、CI drift 檢測）
 - 三家 AI CLI 相容性矩陣：5 條代表性流程 × 3 家 CLI 之測試項目定義、結果落地檔位置、紅燈 → Revisit 流程
 - Tool 命名規則（`<action>` / `<action>_preview`）與 input schema 必填欄位
 - 失敗時 `os.Exit(2)` 與錯誤訊息格式
@@ -76,7 +76,7 @@
 ├── docs/
 │   └── runbooks/
 │       └── mcp-sdk-spike-results.md       # M0 spike 矩陣結果落地（5×3）
-└── Makefile                               # target: skills-sync, skills-lint, mcp-lint-test
+└── manage.sh                               # target: skills-sync, skills-lint, mcp-lint-test
 ```
 
 ## 4. Lint 規則
@@ -196,7 +196,7 @@ ADR-0003 § 4 第 8 點與 plan.md「Tool description 強制約定」段要求 S
 ```markdown
 <!-- This file is the source of truth for the preview/confirm verbatim clauses
      embedded in skills/{claude-code,codex,copilot}/0ops/SKILL.md.
-     Run `make skills-sync` after editing. CI fails on drift. -->
+     Run `./manage.sh skills-sync` after editing. CI fails on drift. -->
 
 ## EN clause
 
@@ -243,15 +243,15 @@ For any write or delete tool (`create_app`, `delete_app`, `redeploy`, `add_domai
 - 對三份 SKILL.md：用 `awk` / `sed` 在 `@sync:*` 與 `@end` 之間替換內容
 - exit 0 = 已同步；非 0 = 無 marker 或讀檔失敗
 
-`make skills-sync` 呼叫此腳本。
+`./manage.sh skills-sync` 呼叫此腳本。
 
 ### 5.5 CI drift 檢測
 
-`make skills-lint` 步驟：
+`./manage.sh skills-lint` 步驟：
 1. 把當前 SKILL.md 暫存
 2. 跑 `skills-sync.sh`
 3. `git diff --exit-code skills/`
-4. 非 0 → fail；提示 `跑 make skills-sync 後 commit`
+4. 非 0 → fail；提示 `跑 ./manage.sh skills-sync 後 commit`
 
 CI 在 `.github/workflows/lint.yml` 觸發此 target。
 
@@ -337,8 +337,8 @@ contain the verbatim string `NEVER call this tool without`.
 | Lint 失敗 → exit 2 | 故意改 description 違反 R1 | 啟動印錯誤、exit code = 2 |
 | Action 列表覆蓋 | 對照 `internal/shared/rbac.Action` 與 § 4.3 表 | 兩者完全相符（測試讀 enum 比對） |
 | `team_slug` schema 必填（R3） | 對 9 個 write action 共 18 個 tool 之 Schema 解析 | 全部含 `team_slug` 為 required |
-| SKILL.md 同步 | `make skills-sync && git diff` | 無變動 |
-| SKILL.md drift 偵測 | 故意改 SKILL.md 但不跑 sync | `make skills-lint` fail，輸出包含 `跑 make skills-sync` |
+| SKILL.md 同步 | `./manage.sh skills-sync && git diff` | 無變動 |
+| SKILL.md drift 偵測 | 故意改 SKILL.md 但不跑 sync | `./manage.sh skills-lint` fail，輸出包含 `跑 ./manage.sh skills-sync` |
 | 矩陣 runbook 存在 | M0 結束時 | `docs/runbooks/mcp-sdk-spike-results.md` 存在且 5×3 表完整填值 |
 | Reflective Tools API | M0 spike | OQ#2 結果落地、PR 更新本 spec § 4.7 |
 | Read tool 不被 R1/R2 誤觸 | `list_apps` description 不含強制句式 | lint 通過 |
@@ -346,7 +346,7 @@ contain the verbatim string `NEVER call this tool without`.
 ## 10. 對 `docs/0ops-plan.md` 的修改清單
 
 1. 「MCP server / Tool description 強制約定」段：交叉引用本 spec § 4 為 lint 規則 source of truth；plan 的範本字串為唯一允許 verbatim
-2. 「Skill packs」段：補入「三份 SKILL.md 之 verbatim 段透過 `make skills-sync` 由 `skills/_template/preview-confirm-clauses.md` 產生；CI lint 偵測 drift」
+2. 「Skill packs」段：補入「三份 SKILL.md 之 verbatim 段透過 `./manage.sh skills-sync` 由 `skills/_template/preview-confirm-clauses.md` 產生；CI lint 偵測 drift」
 3. 「TBD」段：交叉引用本 spec § 6 矩陣與 § 4.7 reflective API 為 M0 spike 落地點
 4. 「Verification / 整合」段：補「MCP description lint」「skills sync drift」兩項 CI gate
 
@@ -371,7 +371,7 @@ contain the verbatim string `NEVER call this tool without`.
 2. lint 違反任一規則必 `os.Exit(2)`；不允許 dev override（無 `--skip-lint` flag）
 3. `*_preview` tool description 必 verbatim 含 `ALWAYS call this BEFORE`；非 preview 寫入 / 刪除 tool 必 verbatim 含 `NEVER call this tool without`
 4. 寫入 / 刪除 tool 之 input schema 必 required `team_slug`
-5. 三家 SKILL.md 之 `@sync:preview-confirm-{en,zh}` 區段內容必由 `make skills-sync` 從 `skills/_template/preview-confirm-clauses.md` 產生；CI drift 即 fail
+5. 三家 SKILL.md 之 `@sync:preview-confirm-{en,zh}` 區段內容必由 `./manage.sh skills-sync` 從 `skills/_template/preview-confirm-clauses.md` 產生；CI drift 即 fail
 6. 新增 action 必同步：`rbac.Action` 列舉 + `<action>` / `<action>_preview` tool 檔 + `internal/mcp/registry.go` 註冊 + 本 spec § 4.3 表 + lint 測試 fixture
 7. 矩陣 runbook 任一 ✅ 退化為 ❌ 必觸發 ADR-0003 Revisit；不允許在 runbook 改色而不開 ADR review
 8. plan.md「Tool description 強制約定」段之範本字串為 verbatim source；description 之強制句式不得再就地改寫

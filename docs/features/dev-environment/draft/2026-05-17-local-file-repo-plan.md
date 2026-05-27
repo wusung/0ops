@@ -14,7 +14,7 @@ task_id: M5.6
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 讓 `0ops apps create --repo-url file:///workspace/examples/node-demo` 在 `make dev` 環境完整跑通 preview → confirm → deploy_run `live`，無需 GitHub App / GHA / GHCR。
+**Goal:** 讓 `0ops apps create --repo-url file:///workspace/examples/node-demo` 在 `./manage.sh dev` 環境完整跑通 preview → confirm → deploy_run `live`，無需 GitHub App / GHA / GHCR。
 
 **Architecture:** sub-spec [`local-file-repo.md`](../local-file-repo.md) 已釘設計：env-gated 第三類 `repo_url` scheme + `Inspector` 介面 (LocalInspector / GitHubInspector) + `LocalBuildDispatcher` 實作既有 `createapp.Dispatcher` + `RoutingDispatcher` 依 `repo_url` 分派 + `OPS_ENV` 防呆。production 路徑與 ADR-0005 規約不動。
 
@@ -728,7 +728,7 @@ Paketo NodeJS buildpack 直接偵測；無 production 用途。
 
 從 0ops repo 根目錄：
 
-    make dev-create-example
+    ./manage.sh dev-create-example
 
 或手動：
 
@@ -1659,7 +1659,7 @@ m5-6-local-build-e2e: ## M5.6 e2e 驗收（compose 必須先 healthy）
 - [ ] **Step 5: Verify compose syntax**
 
 ```
-make lint-compose
+./manage.sh lint-compose
 ```
 
 Expected: `podman compose config -q` exits 0.
@@ -1777,9 +1777,9 @@ git commit -m "feat(tasks): add M5.6 local-build e2e acceptance script (ADR-0012
 - [ ] **Step 1: Run full e2e end-to-end**
 
 ```bash
-make dev-clean
-make dev
-make m5-6-local-build-e2e
+./manage.sh dev-clean
+./manage.sh dev
+./manage.sh m5-6-local-build-e2e
 ```
 
 Expected: script prints `OK — node-demo deploy_run reached live and image is present`.
@@ -1855,10 +1855,10 @@ Run sequentially. Each line must be green before claiming M5.6 done.
 
 - [ ] `go test ./...` — full suite green
 - [ ] `go build ./...` — wiring compiles
-- [ ] `make lint-go` — golangci-lint clean
-- [ ] `make lint-compose` — compose config valid
+- [ ] `./manage.sh lint-go` — golangci-lint clean
+- [ ] `./manage.sh lint-compose` — compose config valid
 - [ ] `OPS_ENV=production LOCAL_FILE_REPO_ENABLED=true go run ./cmd/server` — must panic at boot
-- [ ] `make dev-clean && make dev && make m5-6-local-build-e2e` — e2e passes
+- [ ] `./manage.sh dev-clean && ./manage.sh dev && ./manage.sh m5-6-local-build-e2e` — e2e passes
 - [ ] `curl http://localhost:5000/v2/0ops-apps/personal/node-demo/tags/list | jq` — image tags present
 - [ ] `docs/adrs/0012-local-file-repo-dev-mode.md` 與 `docs/features/dev-environment/local-file-repo.md` — 無 placeholder
 - [ ] `git log --oneline c00e71b..HEAD` — 每個 commit 單一目的，符合 AGENTS.md § Commits

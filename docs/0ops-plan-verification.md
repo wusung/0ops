@@ -1,7 +1,7 @@
 ## Verification
 
 ### Smoke
-- 啟本機開發環境（`make dev` → `podman compose up -d`，含 db + migrate + server；詳見 `docs/features/dev-environment/spec.md`）
+- 啟本機開發環境（`./manage.sh dev` → `podman compose up -d`，含 db + migrate + server；詳見 `docs/features/dev-environment/spec.md`）
 - mock GitHub App + Cloudflare API（`net/http/httptest` + `h2non/gock` 或自寫 fake server）
 - 端到端：`0ops apps create` → confirm → 模擬 build success（含 callback HMAC）→ 看 manifest 寫入測試 gitops repo
 - MCP：以 stdio 直接餵 `initialize` + `tools/list` + 呼 `list_apps`，驗證輸出符合 MCP schema

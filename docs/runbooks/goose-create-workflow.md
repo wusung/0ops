@@ -21,7 +21,7 @@ goose create add_team_plan_check sql
 
 ## Verify locally
 
-1. `make migrate`
+1. `./manage.sh migrate`
 2. 若 schema 或 query shape 有變：直接跑 container 版 `sqlc`
 
 ```bash

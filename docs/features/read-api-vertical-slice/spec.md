@@ -333,7 +333,7 @@ data: {"reason":"client_disconnect"}
 | `/metrics` | 暴露 `zeroops_http_requests_total` 與 `zeroops_http_request_duration_seconds`，含 `team_bucket` label |
 | trace propagation | 一條 CLI / MCP 呼叫，backend log 含對應 `trace_id`；SSE 每 event 之 log 同 trace_id |
 | Cross-team enumeration | team A 之 user 呼 team B endpoint 回 `404`，非 403 |
-| Contract test | `make contract-test` 全綠 |
+| Contract test | `./manage.sh contract-test` 全綠 |
 | MCP description lint | `0ops-mcp` 啟動不 fail（read tool 不觸 R1/R2） |
 
 ## 10. 性能目標（對齊 ADR-0006 SLO）

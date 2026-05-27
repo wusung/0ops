@@ -86,7 +86,7 @@ ADR-0004 已將 application Postgres 與 K3s datastore Postgres 分開；本 ADR
    - `ENTRYPOINT ["/usr/local/bin/goose", "-dir", "/migrations", "postgres"]`
    - dev 由 compose.yaml 傳 `command: ["$DATABASE_URL", "up"]`；prod 由 K8s Job spec 傳同樣 args
 2. **Build 與發佈**：
-   - Dev：`make build-images` 含 `podman build -f migrations/Dockerfile -t localhost/0ops-migrations:runtime .`
+   - Dev：`./manage.sh build-images` 含 `podman build -f migrations/Dockerfile -t localhost/0ops-migrations:runtime .`
    - Production：與主 binary 同一 GHA workflow；commit_sha 一致
 3. **Compose service**（接續 dev-environment spec § 5.2）：
    - `image: localhost/0ops-migrations:runtime`（取代待補空白）

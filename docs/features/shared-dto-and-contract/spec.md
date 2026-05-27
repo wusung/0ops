@@ -268,7 +268,7 @@ func RequiredFor(a Action) Requirement { ... }
 
 ### 7.4 CI gating
 
-- `make contract-test`：跑 `go test ./internal/shared/contracttest/...`
+- `./manage.sh contract-test`：跑 `go test ./internal/shared/contracttest/...`
 - PR 改動 `internal/shared/dto/**` 或 `internal/server/routers/**` 必觸發 contract test
 - contract test 紅 → PR 不可合入（屬 AGENTS.md「Testing」§ 高風險區域）
 
