@@ -2924,10 +2924,10 @@ go vet ./internal/server/services/domainverify/...
 
 Expected: no warnings.
 
-- [ ] **Step 3: Run repo-wide `make test`**
+- [ ] **Step 3: Run repo-wide `./manage.sh test`**
 
 ```bash
-make test
+./manage.sh test
 ```
 
 Expected: PASS across the repo (no regressions).

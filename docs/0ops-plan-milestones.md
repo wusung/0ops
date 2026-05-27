@@ -21,7 +21,7 @@
 2. 起 `M0` scaffold：
    - `go mod init github.com/winshare/zeroops`
    - 建立 `cmd/server/main.go`、`cmd/cli/main.go`、`cmd/mcp/main.go`
-   - `.golangci.yml`、`.goreleaser.yaml`、`Makefile`、`.dockerignore`、`.env.example`
+   - `.golangci.yml`、`.goreleaser.yaml`、`manage.sh`、`.dockerignore`、`.env.example`
    - `compose.yaml`（root）起 db + migrate + server；三 binary 各自之 `cmd/{server,cli,mcp}/Dockerfile`；詳見 `docs/features/dev-environment/spec.md`
    - `goose create init sql` 建初始 schema（含 team / team_membership / app / preview / deploy_run / cli_token / webhook_dedup / audit_log / reconciliation_job）
    - server `/health` + `/metrics`；CLI `--version`；MCP 回 `initialize`

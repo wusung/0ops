@@ -14,9 +14,9 @@
 - 預設 agent CLI 為本機 `claude -p`（headless），可透過 `TASK_AGENT_BIN` 切換到 `copilot` / `codex`。
 - Runner 不 enforce Mandatory Agent Loop 內部步驟；流程責任以 prompt 文字交給 agent 自走，runner 只看「task 邊界」是否完成。
 - Status 簡化為 `Pending / Done / Failed` 三態；「正在執行 / 可續跑」狀態以 `.worktrees/<ID>` 是否存在隱含表示，不寫入 status file。
-- Verify 三段式必須全過：① `tasks/task-status.md` 出現在 `git diff main` 且 agent 已將該 task 寫成 `Done`、② `Expected Paths` glob 至少 1 條命中 changed paths（排除 status file）、③ worktree 內 `make test` 通過。
+- Verify 三段式必須全過：① `tasks/task-status.md` 出現在 `git diff main` 且 agent 已將該 task 寫成 `Done`、② `Expected Paths` glob 至少 1 條命中 changed paths（排除 status file）、③ worktree 內 `./manage.sh test` 通過。
 - Verify 通過後自動 `git commit -m "task(<ID>): <title>"`（包含 status `Done`），自動 `gh pr create` 與 `gh pr merge --merge --delete-branch`，等 CI 綠後才 merge。
-- Run-all 任一 task 失敗即 die；不跳過、不續跑下一個。中斷或失敗後重新呼叫 `make task-run-all` 即從 `next.sh` 找下一個可執行 task 接續；既有 worktree 視為可續跑，runner 直接重啟 agent（prompt 內提醒這是 resume）。
+- Run-all 任一 task 失敗即 die；不跳過、不續跑下一個。中斷或失敗後重新呼叫 `./manage.sh task-run-all` 即從 `next.sh` 找下一個可執行 task 接續；既有 worktree 視為可續跑，runner 直接重啟 agent（prompt 內提醒這是 resume）。
 - 強制重跑單一 task 用 `--force`：同時繞過 deps / status 檢查 + 若 worktree 已存在則先刪後重建。Runner 在無 `--force` 時永不主動破壞既有 worktree / 分支。
 
 ## 2. 範圍
@@ -24,7 +24,7 @@
 ### 2.1 包含
 - `tasks/task-list.md`、`tasks/task-status.md` 兩份 markdown table 之格式定義。
 - `tasks/run/` 下之 shell script 集合（lib / next / show / prompt / run-one / run-all / verify）。
-- `Makefile` 對應 target：`task-list` / `task-next` / `task-run-all` / `task-run` / `task-rerun`。
+- `manage.sh` 對應 target：`task-list` / `task-next` / `task-run-all` / `task-run` / `task-rerun`。
 - 預設 agent 為 `claude -p`，提供 `TASK_AGENT_BIN` 切換點。
 - Worktree 隔離、auto commit、auto PR、auto merge to main 全鏈路。
 - Resume 規則（中斷後再啟動如何接續）。
@@ -55,7 +55,7 @@
 │       ├── run-one.sh          # 單跑一個 task（worktree + agent + verify + commit + merge）
 │       └── run-all.sh          # 迴圈 next + run-one 直到無可執行 task
 ├── .worktrees/<TASK_ID>/       # 由 runner 建立，每個 task 一份
-└── Makefile                    # 新增 task-* target
+└── manage.sh                    # 新增 task-* subcommand
 ```
 
 ## 4. Task 事實源格式
@@ -73,7 +73,7 @@
 | M2.5  | winshare 子網域真實路由                | M2.4         | docs/features/winshare-subdomain-and-tunnel/spec.md           | `internal/server/services/winshare/**`, `internal/server/services/winshare/*_test.go` |
 | M2.6  | Observability GA                       | M2.2         | docs/features/observability-skeleton/spec.md, docs/features/slo-and-alerting/spec.md | `internal/server/observability/**`, `deploy/**` |
 | M2.7  | MCP preview/confirm description lint   | M2.1         | docs/features/mcp-tool-description-lint/spec.md               | `internal/mcp/**`, `internal/mcp/*_test.go`                |
-| M2.8  | 端到端驗收腳本                         | M2.4, M2.5, M2.6, M2.7 | docs/features/create-app-flow/spec.md                  | `tasks/m2-*-e2e-*.sh`, `Makefile`                          |
+| M2.8  | 端到端驗收腳本                         | M2.4, M2.5, M2.6, M2.7 | docs/features/create-app-flow/spec.md                  | `tasks/m2-*-e2e-*.sh`, `manage.sh`                          |
 ```
 
 欄位語意：
@@ -151,7 +151,7 @@ mark_task_failed <ID>       # 在 main 寫 Failed + 提交 chore commit + push
 
 ### 5.2 `show.sh`
 
-無參數。輸出表格 `ID | TITLE | STATUS | WORKTREE | DEPENDENCIES`。`WORKTREE` 欄為 `yes` / `no`，供使用者一眼看出哪些 task 處於可 resume 狀態。供 `make task-list`。
+無參數。輸出表格 `ID | TITLE | STATUS | WORKTREE | DEPENDENCIES`。`WORKTREE` 欄為 `yes` / `no`，供使用者一眼看出哪些 task 處於可 resume 狀態。供 `./manage.sh task-list`。
 
 ### 5.3 `next.sh`
 
@@ -202,8 +202,8 @@ DEPENDENCIES=M2.1, M2.2
 【完成定義】
 - todo.md 內 <ID> 對應 acceptance bullets 全部符合
 - 對應測試補齊；高風險區（preview/confirm、idempotent、隔離、權限、簽章、reconciler）強制覆蓋
-- dev 驗證走 compose + Makefile（不可在 host 直跑 binary）
-- worktree 內 `make test` 必須通過
+- dev 驗證走 compose + manage.sh（不可在 host 直跑 binary）
+- worktree 內 `./manage.sh test` 必須通過
 - 完成後將 tasks/task-status.md 中 <ID> 該列 Status 改為 Done
 - 不要動其他 task 的 status
 - 不要 commit；commit 由 runner 完成
@@ -232,7 +232,7 @@ DEPENDENCIES=M2.1, M2.2
 7. Verify 三段式（在 worktree 內）：
    - **Section A — status**：`git diff main -- tasks/task-status.md` 非空，且 diff 內可見 `<ID>` 該列被改成 `Done`（grep `^\+.*<ID>.*Done`）。Agent 沒改即視為沒走完。
    - **Section B — expected paths**：`git diff main --name-only`（含 untracked、排除 `tasks/task-status.md`）至少 1 條命中 task 的 expected glob。
-   - **Section C — tests**：`make test` exit 0。
+   - **Section C — tests**：`./manage.sh test` exit 0。
    - 任一不過 → `mark_task_failed <ID>` + die。失敗時保留 worktree（人工進去看）。
 8. Commit：`git add -A && git commit -m "task(<ID>): <title>"`。Commit signing enabled 時沿用 tehmag-foods 的 `prepare_gnupg_home` pattern。
 9. Push：`git push -u origin task/<ID>`。
@@ -255,30 +255,31 @@ while true:
   if count >= max_iterations: die "exceeded max iterations"
 ```
 
-### 5.7 Makefile target
+### 5.7 manage.sh subcommand
 
-```make
-task-list:
-	@bash tasks/run/show.sh
+定義於 `manage.sh`（root），對應 dispatcher case 分支與 `cmd_task_*` 函式：
 
-task-next:
-	@bash tasks/run/next.sh
-
-task-run-all:
-	@bash tasks/run/run-all.sh
-
-task-run:
-	@test -n "$(TASK)" || (echo "usage: make task-run TASK=<ID>" >&2; exit 1)
-	@bash tasks/run/run-one.sh $(TASK)
-
-task-rerun:
-	@test -n "$(TASK)" || (echo "usage: make task-rerun TASK=<ID>" >&2; exit 1)
-	@bash tasks/run/run-one.sh --force $(TASK)
+```bash
+cmd_task_list()    { bash tasks/run/show.sh; }
+cmd_task_next()    { bash tasks/run/next.sh; }
+cmd_task_run_all() { bash tasks/run/run-all.sh; }
+cmd_task_run() {
+  local task="${1:-}"
+  [ -n "$task" ] || { echo "usage: ./manage.sh task-run <ID>" >&2; exit 1; }
+  bash tasks/run/run-one.sh "$task"
+}
+cmd_task_rerun() {
+  local task="${1:-}"
+  [ -n "$task" ] || { echo "usage: ./manage.sh task-rerun <ID>" >&2; exit 1; }
+  bash tasks/run/run-one.sh --force "$task"
+}
 ```
+
+`task-run` / `task-rerun` 採位置參數（`./manage.sh task-run M2.5`），不再走舊 `TASK=<ID>` Makefile 變數語法。
 
 ## 6. Resume / Force / 失敗語意對照表
 
-| 情境 | task-status | worktree | `make task-run-all` 行為 | `make task-run TASK=<ID>` 行為 | `make task-rerun TASK=<ID>` 行為 |
+| 情境 | task-status | worktree | `./manage.sh task-run-all` 行為 | `./manage.sh task-run <ID>` 行為 | `./manage.sh task-rerun <ID>` 行為 |
 |------|-------------|----------|--------------------------|--------------------------------|----------------------------------|
 | 從未開跑 | `Pending` | 不存在 | 跑（檢 deps） | 跑（檢 deps） | 跑（不檢 deps） |
 | Ctrl-C 中斷 / agent crash | `Pending` | 存在 | 跑（resume 模式：沿用 worktree） | resume | 砍 worktree 重建跑 |
@@ -298,7 +299,7 @@ task-rerun:
 - **Mandatory Agent Loop Trigger**：runner 將整個 Loop 委派給 agent；prompt 明文列出步驟。`using-git-worktrees` 與 push / PR 三步由 runner 接手（worktree 預建、commit 由 runner、push/PR/merge 由 runner），其餘步驟由 agent 自走。
 - **Document Reading Order**：prompt.sh 將閱讀順序 1–7 全列入；feature 相關 spec 由 `Spec / Plan Refs` 欄補入。
 - **Phase 功能實作流程 §2「SQL `todos` 與 `todo_deps`」**：本 runner 不採 SQL；以 markdown table 替代。若未來確需 SQL，重訂本 spec。
-- **Testing**：verify 第三段強制 `make test`；prompt 內要求 agent 自己補測試。
+- **Testing**：verify 第三段強制 `./manage.sh test`；prompt 內要求 agent 自己補測試。
 - **Commits**：commit 訊息固定 `task(<ID>): <title>`；prompt 限制 agent 不可 commit、不可順手修正。
 - **Documentation**：spec / plan / runbook 漂移由 agent 在 task 內處理；runner 不檢查文件變更（過嚴會把單純 bug fix 卡住）。
 
@@ -310,7 +311,7 @@ task-rerun:
 | 事實源位置 | `docs/51_task-list.md` / `docs/52_task-status.md` | `tasks/task-list.md` / `tasks/task-status.md` |
 | 預設 agent | `copilot` (gh-copilot CLI) | `claude -p` |
 | Prompt 流程 | 直接交代讀文件、改檔、改 status | 加上 Mandatory Agent Loop 全步驟 + ADR 讀取策略 |
-| Verify 第三段 | 無 | `make test` 必過 |
+| Verify 第三段 | 無 | `./manage.sh test` 必過 |
 | Auto PR | 無（只 commit） | `gh pr create` |
 | Auto merge | 無 | `gh pr merge --merge --delete-branch`（等 CI 綠） |
 | Worktree 強制重建 | 不支援 | `--force` 同時觸發 |
@@ -321,24 +322,24 @@ task-rerun:
 ## 9. 驗收準則
 
 - `tasks/task-list.md` 與 `tasks/task-status.md` 兩份範例檔成立，能被 `show.sh` / `next.sh` 正確 parse。
-- `make task-list` 印出全表並包含實際 status。
-- `make task-next` 在無可執行 task 時清楚回報 `no executable task found`。
-- `make task-run TASK=<未存在 ID>` 立即 die。
-- `make task-run TASK=<deps 未 Done>` 立即 die。
-- `make task-run TASK=<合法>` 走完：建 worktree → agent → verify → commit → push → PR → 等 CI → merge → 清 worktree → status `Done`。
-- `make task-run TASK=<已 Done>` 不重跑（status 已非 Pending）。
-- `make task-rerun TASK=<已 Done>` 重建 worktree 並重跑。
-- `make task-run TASK=<已 Failed>` die；`make task-rerun TASK=<已 Failed>` 砍 worktree + reset Pending + 跑。
-- `make task-run-all` 中途 Ctrl-C 後再呼叫：若 worktree 仍在 + status==Pending，runner 直接 resume（同 ID 沿用 worktree，prompt 提醒 resume）；無需任何 flag。
-- `make task-run-all` 中某 task verify 失敗，runner 寫 status==Failed + 整個 run-all die；下次 `make task-run-all` 不自動重跑該失敗 task。
+- `./manage.sh task-list` 印出全表並包含實際 status。
+- `./manage.sh task-next` 在無可執行 task 時清楚回報 `no executable task found`。
+- `./manage.sh task-run <未存在 ID>` 立即 die。
+- `./manage.sh task-run <deps 未 Done>` 立即 die。
+- `./manage.sh task-run <合法>` 走完：建 worktree → agent → verify → commit → push → PR → 等 CI → merge → 清 worktree → status `Done`。
+- `./manage.sh task-run <已 Done>` 不重跑（status 已非 Pending）。
+- `./manage.sh task-rerun <已 Done>` 重建 worktree 並重跑。
+- `./manage.sh task-run <已 Failed>` die；`./manage.sh task-rerun <已 Failed>` 砍 worktree + reset Pending + 跑。
+- `./manage.sh task-run-all` 中途 Ctrl-C 後再呼叫：若 worktree 仍在 + status==Pending，runner 直接 resume（同 ID 沿用 worktree，prompt 提醒 resume）；無需任何 flag。
+- `./manage.sh task-run-all` 中某 task verify 失敗，runner 寫 status==Failed + 整個 run-all die；下次 `./manage.sh task-run-all` 不自動重跑該失敗 task。
 - Agent 為 `claude -p`；改 `TASK_AGENT_BIN=copilot` 環境變數後可切換。
-- `make test` 在 worktree 內可跑（沿用既有 Makefile target）。
+- `./manage.sh test` 在 worktree 內可跑（沿用既有 manage.sh subcommand）。
 - 自動 merge 採 merge commit（非 squash），分支自動刪除。
 
 ## 10. Open Questions
 
 - 目前 0ops repo 尚未在 GitHub 設定 required CI check；`TASK_SKIP_CI_WAIT=1` 為過渡開關，待 CI 上線後預設改為「強制等 CI」。
-- `make test` 目前在 0ops repo 含哪些 suite，是否會跑太久（>30 分鐘）影響 run-all UX？由實作期 spike 決定是否需 `TASK_TEST_CMD` 切換點。
+- `./manage.sh test` 目前在 0ops repo 含哪些 suite，是否會跑太久（>30 分鐘）影響 run-all UX？由實作期 spike 決定是否需 `TASK_TEST_CMD` 切換點。
 - 多人協作時 `task-status.md` 衝突解法？暫定靠 git rebase 解；若頻繁衝突再考慮改用 line-oriented 格式或 SQL。
 - `claude -p` 的權限策略（`--dangerously-skip-permissions` vs `--allowedTools`）？暫定走 `--dangerously-skip-permissions` 配合 worktree 隔離（worktree 之外的破壞由 runner 不該允許 → 未來可改 `--add-dir .worktrees/<ID>` + 限制工具集）。
 - `.worktrees/` 與 `.task-sessions/` 是否該入 `.gitignore`？應該；實作期一併補。

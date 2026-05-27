@@ -454,7 +454,7 @@ DROP TABLE app_source_uploads;
 - [ ] **Step 2: 跑 migration 確認**
 
 ```bash
-make migrate
+./manage.sh migrate
 ```
 
 Expected: 00011 ran without error.
@@ -1978,7 +1978,7 @@ m6-app-source-e2e: dev-up dev-seed-cli-token  ## 跑一次 upload-based create_a
 - [ ] **Step 4: 跑**
 
 ```bash
-make m6-app-source-e2e
+./manage.sh m6-source-upload-e2e
 ```
 
 Expected: deploy_run terminal = `live`；script exit 0。

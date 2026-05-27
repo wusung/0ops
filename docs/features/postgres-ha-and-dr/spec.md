@@ -264,7 +264,7 @@ rm "$out"
 
 ### 10.1 CI 攔阻
 
-`make migrate-lint`：
+`./manage.sh migrate-lint`：
 - `goose status` + `goose validate`
 - 自定 lint：`ALTER TABLE ... ADD COLUMN ... NOT NULL DEFAULT ...` 不允許（需拆 nullable + backfill + NOT NULL 三步）
 - `ALTER INDEX ...` / `CREATE INDEX ...` 必含 `CONCURRENTLY`

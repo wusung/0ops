@@ -14,7 +14,7 @@
 - Dockerfile 採 multi-stage：`golang:1.25-alpine` builder → `gcr.io/distroless/static-debian12:nonroot` runtime
 - `0ops-server` 額外提供 `dev` stage，內含 `air` 熱重載；CLI 與 MCP 不提供 dev stage（CLI 互動式、MCP 為 stdio，皆 host 執行）
 - 提供 root `.dockerignore` 與 `.env.example`；`.env` 由貢獻者複製後填寫，禁止 commit
-- 開發 workflow 經 `Makefile` 收口；契約 target：`make dev` / `make dev-down` / `make migrate` / `make lint-compose` / `make lint-docker` / `make build-images`
+- 開發 workflow 經 `manage.sh` 收口；契約 target：`./manage.sh dev` / `./manage.sh dev-down` / `./manage.sh migrate` / `./manage.sh lint-compose` / `./manage.sh lint-docker` / `./manage.sh build-images`
 - 本地 repo 與本地 build pipeline（`file://` 入口 + `LocalBuildDispatcher`）見 sub-spec
   [`local-file-repo.md`](local-file-repo.md)；ADR：[ADR-0012](../../adrs/0012-local-file-repo-dev-mode.md)
 
@@ -25,7 +25,7 @@
 - 三 binary 之 release-grade Dockerfile
 - compose service 拓樸與 healthcheck 規約
 - `.dockerignore`、`.env.example`
-- 對應 `Makefile` target
+- 對應 `manage.sh` target
 - CI 對 compose 與 Dockerfile 的 lint 規則
 
 ### 2.2 不包含
@@ -42,7 +42,7 @@
 ├── compose.yaml                        # podman compose 入口（root）
 ├── .dockerignore                       # build context 排除清單（root）
 ├── .env.example                        # 開發環境變數範本（root）
-├── Makefile                            # 開發 target 收口（root）
+├── manage.sh                            # 開發 target 收口（root）
 └── cmd/
     ├── server/Dockerfile               # 0ops-server image：builder → dev → runtime
     ├── cli/Dockerfile                  # 0ops image：builder → runtime
@@ -202,7 +202,7 @@ OPS_CLOUDFLARE_API_TOKEN=
 OPS_CLOUDFLARE_ACCOUNT_ID=
 ```
 
-## 9. Makefile target 契約
+## 9. manage.sh subcommand 契約
 
 | target | 行為 | 等價指令 |
 |---|---|---|
@@ -225,8 +225,8 @@ OPS_CLOUDFLARE_ACCOUNT_ID=
 |---|---|---|
 | compose schema 合法 | `podman compose config -q` | exit 0、無 warning |
 | Dockerfile lint 通過 | `hadolint cmd/*/Dockerfile` | exit 0 |
-| migrate idempotent | 連跑兩次 `make migrate` | 第二次 `goose status` 顯示無 pending |
-| server `/health` 回應 | `make dev` 後 30s 內 `curl localhost:8080/health` | HTTP 200 |
+| migrate idempotent | 連跑兩次 `./manage.sh migrate` | 第二次 `goose status` 顯示無 pending |
+| server `/health` 回應 | `./manage.sh dev` 後 30s 內 `curl localhost:8080/health` | HTTP 200 |
 | Image 為 distroless（無 shell） | `podman run --rm localhost/0ops-server:runtime sh` | 失敗（預期） |
 | Image 以 nonroot 執行 | `podman run --rm localhost/0ops-server:runtime id` | uid != 0 |
 | `.env` 不入版本控制 | `.dockerignore` 與 `.gitignore` 雙含 `.env` | grep 通過 |
@@ -257,7 +257,7 @@ OPS_CLOUDFLARE_ACCOUNT_ID=
 > 違反以下任一項，PR 不可合入。
 
 1. 不得新增 `docker-compose.yml` / `docker-compose.yaml` 檔
-2. 不得在文件、scripts、Makefile 出現 `docker` 命令（應為 `podman`）
+2. 不得在文件、scripts、manage.sh 出現 `docker` 命令（應為 `podman`）
 3. 不得使用 `podman-compose`（v1 wrapper）；只用 `podman compose`（v2）
 4. Dockerfile base image 必須鎖版本 tag，禁用 `:latest`
 5. runtime stage 必須 `USER nonroot:nonroot` 或等價非 root 使用者

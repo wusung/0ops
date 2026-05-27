@@ -234,7 +234,7 @@ PlanPreview 物件結構（所有 `*:preview` 回傳一致）：
 ├── .goreleaser.yaml
 ├── .dockerignore                   # build context 排除清單
 ├── .env.example                    # 開發環境變數範本（.env 由貢獻者複製後填寫，禁止 commit）
-├── Makefile                        # 收口 dev / build / lint / migrate target
+├── manage.sh                        # 收口 dev / build / lint / migrate target
 ├── compose.yaml                    # podman compose v2 預設探索檔；本機 dev runtime（db + migrate + server）
 ├── cmd/
 │   ├── server/                     # backend binary（build → 0ops-server）
