@@ -143,7 +143,7 @@ func TestM28EndToEndPreviewConfirmCallback(t *testing.T) {
 // TestM28AcceptanceScriptShape pins the harness contract surfaced by
 // tasks/m2-8-e2e-acceptance.sh. It guards against accidental phase removal,
 // silent mode renames, and lost executable bit — all of which would mean
-// `make m2-8-e2e-acceptance` no longer drives the four required acceptance
+// `./manage.sh m2-8-e2e-acceptance` no longer drives the four required acceptance
 // paths (CLI --yes / CLI interactive / MCP / public URL probe).
 func TestM28AcceptanceScriptShape(t *testing.T) {
 	scriptPath := filepath.Join("..", "..", "..", "tasks", "m2-8-e2e-acceptance.sh")

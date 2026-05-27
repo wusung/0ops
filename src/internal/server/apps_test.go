@@ -1144,7 +1144,7 @@ func TestAppsPreviewCreateRequiresGitHubInstall(t *testing.T) {
 }
 
 // TestAppsPreviewCreateBypassEnvAllowsMissingInstall guards the dev knob
-// GITHUB_APP_DISABLE_INSTALL_CHECK=true, which keeps `make dev` walkthroughs
+// GITHUB_APP_DISABLE_INSTALL_CHECK=true, which keeps `./manage.sh dev` walkthroughs
 // working when no real GitHub App is installed.
 func TestAppsPreviewCreateBypassEnvAllowsMissingInstall(t *testing.T) {
 	t.Setenv("GITHUB_APP_DISABLE_INSTALL_CHECK", "true")
