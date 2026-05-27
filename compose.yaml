@@ -22,7 +22,7 @@ services:
   migrate:
     image: localhost/0ops-migrations:runtime
     build:
-      context: .
+      context: ./src
       dockerfile: migrations/Dockerfile
     command: ["${DATABASE_URL}", "up"]
     restart: "no"
@@ -47,7 +47,7 @@ services:
   server:
     image: localhost/0ops-server:dev
     build:
-      context: .
+      context: ./src
       dockerfile: cmd/server/Dockerfile
       target: dev
     environment:
@@ -93,7 +93,7 @@ services:
     ports:
       - "${OPS_HOST_PORT:-8080}:8080"
     volumes:
-      - .:/app:Z
+      - ./src:/app:Z
       - go-mod-cache:/go/pkg/mod
       - ./examples:/workspace/examples:Z
       # podman socket mount for LocalBuildDispatcher. High-trust mount;

@@ -48,21 +48,21 @@ migrate-down: ## 回滾一格
 	podman compose run --rm migrate "$$DATABASE_URL" down
 
 migrate-lint: ## 跑 spec § 10.1 migration 安全閘（CONCURRENTLY、ADD COLUMN NOT NULL 三步拆分）
-	go test ./internal/server/db/migrationlint/...
+	go -C src test ./internal/server/db/migrationlint/...
 
 ## --- build ---
 
 build-images: ## 三 binary runtime image + migrations image
-	podman build --target runtime -f cmd/server/Dockerfile -t localhost/0ops-server:runtime --build-arg VERSION=$(VERSION) .
-	podman build --target runtime -f cmd/cli/Dockerfile    -t localhost/0ops-cli:runtime    --build-arg VERSION=$(VERSION) .
-	podman build --target runtime -f cmd/mcp/Dockerfile    -t localhost/0ops-mcp:runtime    --build-arg VERSION=$(VERSION) .
-	podman build                  -f migrations/Dockerfile -t localhost/0ops-migrations:runtime .
+	podman build --target runtime -f src/cmd/server/Dockerfile -t localhost/0ops-server:runtime --build-arg VERSION=$(VERSION) src
+	podman build --target runtime -f src/cmd/cli/Dockerfile    -t localhost/0ops-cli:runtime    --build-arg VERSION=$(VERSION) src
+	podman build --target runtime -f src/cmd/mcp/Dockerfile    -t localhost/0ops-mcp:runtime    --build-arg VERSION=$(VERSION) src
+	podman build                  -f src/migrations/Dockerfile -t localhost/0ops-migrations:runtime src
 
 build: ## 本機 host 編譯三 binary 至 ./bin
 	mkdir -p bin
-	CGO_ENABLED=0 go build -trimpath -ldflags="$(LDFLAGS)" -o bin/0ops-server ./cmd/server
-	CGO_ENABLED=0 go build -trimpath -ldflags="$(LDFLAGS)" -o bin/0ops        ./cmd/cli
-	CGO_ENABLED=0 go build -trimpath -ldflags="$(LDFLAGS)" -o bin/0ops-mcp    ./cmd/mcp
+	cd src && CGO_ENABLED=0 go build -trimpath -ldflags="$(LDFLAGS)" -o ../bin/0ops-server ./cmd/server
+	cd src && CGO_ENABLED=0 go build -trimpath -ldflags="$(LDFLAGS)" -o ../bin/0ops        ./cmd/cli
+	cd src && CGO_ENABLED=0 go build -trimpath -ldflags="$(LDFLAGS)" -o ../bin/0ops-mcp    ./cmd/mcp
 
 ## --- lint / test ---
 
@@ -70,10 +70,10 @@ lint-compose: ## 驗證 compose schema
 	podman compose config -q
 
 lint-docker: ## 驗證 Dockerfile（需安裝 hadolint）
-	hadolint cmd/*/Dockerfile migrations/Dockerfile
+	hadolint src/cmd/*/Dockerfile src/migrations/Dockerfile
 
 lint-go: ## golangci-lint
-	golangci-lint run
+	cd src && golangci-lint run
 
 lint-prom-rules: m2-6-promtool ## 別名：跑 M2.6 promtool 驗證
 
@@ -82,13 +82,13 @@ m2-6-promtool: ## 用 podman + prom/prometheus 跑 promtool check rules 驗證 o
 	@bash tasks/m2-6-promtool-validate.sh
 
 test: ## go test ./...
-	go test ./...
+	go -C src test ./...
 
 contract-test: ## backend/cli/mcp contract path tests
-	go test ./internal/server ./internal/cli ./internal/mcp/server
+	go -C src test ./internal/server ./internal/cli ./internal/mcp/server
 
 tidy: ## go mod tidy
-	go mod tidy
+	go -C src mod tidy
 
 ## --- M2.2 e2e validation ---
 
@@ -142,7 +142,7 @@ m6-source-upload-e2e: ## M6 T22 端到端驗收腳本（upload 路徑；compose 
 	@bash tasks/m6-source-upload-e2e.sh
 
 sqlc: ## 產生 sqlc 程式碼
-	podman run --rm --userns=keep-id -v $(CURDIR):/src -w /src $(SQLC_IMAGE) generate
+	podman run --rm --userns=keep-id -v $(CURDIR)/src:/src -w /src $(SQLC_IMAGE) generate
 
 ## --- task runner ---
 

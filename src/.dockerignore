@@ -1,0 +1,5 @@
+**/*.md
+**/testdata
+**/*.test
+**/*_test.go
+*.log
