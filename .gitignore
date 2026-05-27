@@ -8,7 +8,7 @@ compose.override.yaml
 compose.override.yml
 !compose.override.yaml.example
 
-# build artifacts
+# build artifacts (root)
 /bin/
 /build/
 /dist/
@@ -16,6 +16,14 @@ compose.override.yml
 /out/
 /cli
 *.log
+
+# build artifacts (src/ — Go module root；goreleaser 落 src/dist/、
+# .air.toml 在 container 內寫 src/tmp/、go build host fallback 仍走 bin/)
+/src/bin/
+/src/build/
+/src/dist/
+/src/tmp/
+/src/out/
 
 # editor
 .idea/
