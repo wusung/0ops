@@ -14,8 +14,9 @@ git checkout -q -b main
 mkdir -p tasks internal/fake/f02
 cp "$REPO_ROOT_REAL/tasks/run/test/fixtures/task-list.md" tasks/task-list.md
 cp "$REPO_ROOT_REAL/tasks/run/test/fixtures/task-status.md" tasks/task-status.md
-# Stub Makefile so `make test` succeeds inside the worktree.
-printf 'test:\n\t@echo ok\n' >Makefile
+# Stub manage.sh so `./manage.sh test` succeeds inside the worktree.
+printf '#!/usr/bin/env bash\nif [ "$1" = "test" ]; then echo ok; exit 0; fi\nexit 0\n' >manage.sh
+chmod +x manage.sh
 # Copy run scripts into the test repo so lib.sh's git -C lookup resolves to TMP.
 mkdir -p tasks/run
 cp -r "$REPO_ROOT_REAL/tasks/run/"*.sh tasks/run/

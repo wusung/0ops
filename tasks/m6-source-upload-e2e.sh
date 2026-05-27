@@ -17,7 +17,7 @@
 # Per ADR-0013 / docs/features/app-source-ingestion/spec.md § 22.
 #
 # Usage:
-#   make m6-source-upload-e2e
+#   ./manage.sh m6-source-upload-e2e
 #   # or directly:
 #   bash tasks/m6-source-upload-e2e.sh
 

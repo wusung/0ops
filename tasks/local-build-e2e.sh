@@ -35,9 +35,9 @@ case "$SOCK_PERMS" in
 
       在本機 dev 跑一次：
 
-          make m5-6-podman-socket-loosen
+          ./manage.sh m5-6-podman-socket-loosen
 
-      之後重跑 make m5-6-local-build-e2e。
+      之後重跑 ./manage.sh m5-6-local-build-e2e。
       （ADR-0012 § 6.2 / docs/features/dev-environment/local-file-repo.md § 15）
 EOF
     exit 1

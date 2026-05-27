@@ -21,7 +21,8 @@ git checkout -q -b main
 mkdir -p tasks
 cp "$REPO_ROOT_REAL/tasks/run/test/fixtures/task-list.md" tasks/task-list.md
 cp "$REPO_ROOT_REAL/tasks/run/test/fixtures/task-status.md" tasks/task-status.md
-printf 'test:\n\t@echo ok\n' >Makefile
+printf '#!/usr/bin/env bash\nif [ "$1" = "test" ]; then echo ok; exit 0; fi\nexit 0\n' >manage.sh
+chmod +x manage.sh
 mkdir -p tasks/run
 cp -r "$REPO_ROOT_REAL/tasks/run/"*.sh tasks/run/
 cp -r "$REPO_ROOT_REAL/tasks/run/test" tasks/run/test

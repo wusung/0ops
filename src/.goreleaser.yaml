@@ -4,12 +4,11 @@ project_name: 0ops
 
 before:
   hooks:
-    - make test
+    - go test ./...
 
 builds:
   - id: 0ops
     main: ./cmd/cli
-    dir: src
     binary: 0ops
     env:
       - CGO_ENABLED=0
@@ -28,7 +27,6 @@ builds:
 
   - id: 0ops-mcp
     main: ./cmd/mcp
-    dir: src
     binary: 0ops-mcp
     env:
       - CGO_ENABLED=0
@@ -47,7 +45,6 @@ builds:
 
   - id: 0ops-server
     main: ./cmd/server
-    dir: src
     binary: 0ops-server
     env:
       - CGO_ENABLED=0

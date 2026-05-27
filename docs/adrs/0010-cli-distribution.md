@@ -31,7 +31,7 @@ superseded-by: []
 5. **自更新通知**：`0ops version` 與 `0ops` 任意命令啟動時，背景查 GitHub Release latest tag；版本落後即印一行 hint（不阻擋）。每 24h 至多查一次（cache `~/.config/0ops/version-check`）。
 6. **版本同步**：`0ops` / `0ops-mcp` / `0ops-server` 三 binary 共用同一 version（goreleaser 一次發三 artifact）；`backend version != cli version` 時 backend 回 warn header（v1.1）。
 
-行為與 goreleaser YAML 細節以 `0ops/.goreleaser.yaml` 為準，本 ADR 不重述。
+行為與 goreleaser YAML 細節以 `src/.goreleaser.yaml` 為準，本 ADR 不重述。
 
 ## 1. Context and Problem Statement
 
@@ -93,7 +93,7 @@ Plan 已標 `goreleaser` + `go install` + Homebrew tap 為候選；本 ADR 把�
 
 具體展開：
 
-1. **goreleaser 設定**（`.goreleaser.yaml` 於 repo root）：
+1. **goreleaser 設定**（`src/.goreleaser.yaml`，與 Go module 同層；monorepo 慣例）：
    * 三 binary 一次 build：`0ops`（`./cmd/cli`）、`0ops-mcp`（`./cmd/mcp`）、`0ops-server`（`./cmd/server`）
    * 五平台：`linux/amd64`、`linux/arm64`、`darwin/amd64`、`darwin/arm64`、`windows/amd64`
    * Static binary（CGO 關）；`-ldflags="-s -w -X main.Version=<version>"`

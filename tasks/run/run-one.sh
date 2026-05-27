@@ -129,10 +129,10 @@ if [[ "$verify_failed" -eq 0 ]]; then
   fi
 fi
 
-# 6c. make test
+# 6c. ./manage.sh test
 if [[ "$verify_failed" -eq 0 ]]; then
-  if ! ( cd "$worktree_path" && make test ); then
-    printf 'VERIFY_FAILED=make_test\n' >&2
+  if ! ( cd "$worktree_path" && ./manage.sh test ); then
+    printf 'VERIFY_FAILED=manage_test\n' >&2
     verify_failed=1
   fi
 fi

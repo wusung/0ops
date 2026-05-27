@@ -21,7 +21,7 @@ jobs:
           cache-dependency-path: src/go.sum
 
       - name: go test
-        run: make test
+        run: ./manage.sh test
 
       - name: task-runner self-tests
-        run: make task-runner-test
+        run: ./manage.sh task-runner-test

@@ -8,7 +8,7 @@ Paketo NodeJS buildpack 直接偵測；無 production 用途。
 rootless podman 下 pack 之 lifecycle ephemeral container 因 uid mapping
 不對稱無法讀掛載之 socket，必須先鬆綁 socket perms：
 
-    make m5-6-podman-socket-loosen
+    ./manage.sh m5-6-podman-socket-loosen
 
 效果維持至下次 `systemctl --user restart podman.socket`；host 重開機後
 需重跑。詳見 `docs/features/dev-environment/local-file-repo.md` § 15。
@@ -17,7 +17,7 @@ rootless podman 下 pack 之 lifecycle ephemeral container 因 uid mapping
 
 從 0ops repo 根目錄：
 
-    make dev-create-example
+    ./manage.sh dev-create-example
 
 或手動：
 
