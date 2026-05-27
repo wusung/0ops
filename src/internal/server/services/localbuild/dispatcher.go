@@ -147,7 +147,7 @@ func (d *Dispatcher) run(ctx context.Context, payload workflowdispatch.ClientPay
 // hard-coded default `/var/run/docker.sock`. Without it, pack binds the
 // host docker daemon socket (root:docker 0660) which the lifecycle
 // container's mapped root cannot read; with it, pack binds the rootless
-// podman socket (already chmod 666 via `make m5-6-podman-socket-loosen`)
+// podman socket (already chmod 666 via `./manage.sh m5-6-podman-socket-loosen`)
 // and the lifecycle container connects fine. Per ADR-0012 M5.6.x follow-up.
 func DefaultPack(ctx context.Context, imageRef, path, builder string) error {
 	if imageRef == "" || path == "" || builder == "" {

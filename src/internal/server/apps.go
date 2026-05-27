@@ -400,7 +400,7 @@ func previewCreateAppHandler(store appsStore) http.HandlerFunc {
 		// hard rule #7: team without GitHub App install must fail at preview
 		// (not at confirm, which is the irreversible saga boundary). Dev knob
 		// GITHUB_APP_DISABLE_INSTALL_CHECK mirrors K3S_DISABLE_ISOLATION /
-		// CF_DISABLE_TUNNEL for `make dev` walkthroughs.
+		// CF_DISABLE_TUNNEL for `./manage.sh dev` walkthroughs.
 		if !githubInstallCheckDisabled() {
 			team, err := store.GetTeamByID(r.Context(), auth.TeamID(r.Context()))
 			if err != nil {
