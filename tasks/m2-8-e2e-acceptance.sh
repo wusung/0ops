@@ -194,7 +194,7 @@ phase_preflight() {
   require_cmd python3
   if [[ "$E2E_MODE" == "local" ]]; then
     if ! curl -fsS --max-time 3 "$OPS_HOST/health" >/dev/null 2>&1; then
-      phase_skip "backend unreachable at $OPS_HOST; run 'make dev' first if you intend to drive a live stack"
+      phase_skip "backend unreachable at $OPS_HOST; run './manage.sh dev' first if you intend to drive a live stack"
     else
       phase_pass "backend /health OK at $OPS_HOST"
     fi
@@ -205,7 +205,7 @@ phase_preflight() {
     fi
     for img in "$E2E_CLI_IMAGE" "$E2E_MCP_IMAGE"; do
       if ! podman image exists "$img"; then
-        echo "  ✗ container image $img missing; run 'make build-images'" >&2
+        echo "  ✗ container image $img missing; run './manage.sh build-images'" >&2
         return $EXIT_PHASE_FAIL
       fi
     done
@@ -341,7 +341,7 @@ phase_callback() {
   # 此 phase 用 deploy-run callback 自我比對 HMAC，不依賴實際 deploy_run row
   # 存在；只驗 backend signature/timestamp 路徑與 OPS_CALLBACK_SECRET 一致。
   if ! curl -fsS --max-time 3 "$OPS_HOST/health" >/dev/null 2>&1; then
-    phase_skip "backend unreachable at $OPS_HOST; run 'make dev' or set OPS_HOST"
+    phase_skip "backend unreachable at $OPS_HOST; run './manage.sh dev' or set OPS_HOST"
     return 0
   fi
 
