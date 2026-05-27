@@ -23,8 +23,9 @@ compose.override.yml
 *.swo
 *~
 
-# Claude Code 本地工作區狀態
+# Claude Code / Claire agent 本地工作區狀態
 .claude/
+.claire/
 
 # Go
 *.test
