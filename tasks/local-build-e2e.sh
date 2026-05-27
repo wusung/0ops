@@ -58,7 +58,7 @@ log "3. bootstrap example repo (idempotent)"
 bash examples/node-demo/bootstrap.sh
 
 log "4. bootstrap-owner (idempotent — ignore already-exists)"
-go run ./cmd/cli admin bootstrap-owner \
+go -C src run ./cmd/cli admin bootstrap-owner \
   --host "$HOST" \
   --team-slug "$TEAM_SLUG" \
   --team-name "$TEAM_NAME" \
@@ -79,7 +79,7 @@ if [ -z "$TOKEN" ]; then
 fi
 
 log "6. create app (preview + confirm)"
-go run ./cmd/cli apps create \
+go -C src run ./cmd/cli apps create \
   --host "$HOST" --team "$TEAM_SLUG" --token "$TOKEN" \
   --slug "$APP_SLUG" --repo-url "$REPO_URL" --ref main --yes
 
@@ -108,7 +108,7 @@ while :; do
 done
 
 log "8. confirm deploys status reports live"
-final_status="$(go run ./cmd/cli deploys status "$APP_SLUG" \
+final_status="$(go -C src run ./cmd/cli deploys status "$APP_SLUG" \
   --host "$HOST" --team "$TEAM_SLUG" --token "$TOKEN" --output json 2>/dev/null \
   | jq -r .status 2>/dev/null || echo unknown)"
 log "  status=$final_status"

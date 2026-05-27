@@ -16,8 +16,9 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version-file: src/go.mod
           cache: true
+          cache-dependency-path: src/go.sum
 
       - name: go test
         run: make test

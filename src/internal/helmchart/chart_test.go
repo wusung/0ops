@@ -1,4 +1,4 @@
-package server
+package helmchart
 
 import (
 	"os"
@@ -6,6 +6,11 @@ import (
 	"strings"
 	"testing"
 )
+
+// chartDir points at the Helm chart under the repo root. The Go module
+// lives at src/, so from this package (src/internal/helmchart) the chart
+// sits three directories up.
+const chartDir = "../../../deploy/server"
 
 // Spec § 14 hard rules + § 7 deployment shape are translated into
 // substring assertions against the raw template files. Helm render-time
@@ -84,7 +89,7 @@ var requiredSubstrings = map[string][]string{
 
 func TestChartFilesEnforceSpec(t *testing.T) {
 	for file, substrings := range requiredSubstrings {
-		data, err := os.ReadFile(filepath.Clean(file))
+		data, err := os.ReadFile(filepath.Clean(filepath.Join(chartDir, file)))
 		if err != nil {
 			t.Fatalf("read %s: %v", file, err)
 		}
@@ -119,7 +124,7 @@ func TestTemplateGuards(t *testing.T) {
 		},
 	}
 	for _, c := range cases {
-		data, err := os.ReadFile(filepath.Clean(c.file))
+		data, err := os.ReadFile(filepath.Clean(filepath.Join(chartDir, c.file)))
 		if err != nil {
 			t.Fatalf("read %s: %v", c.file, err)
 		}
@@ -135,10 +140,8 @@ func TestTemplateGuards(t *testing.T) {
 // TestValuesDefaultsMatchSpec ensures the chart ships with the
 // production-required defaults (replicas=2, mode=lease, preStop=5,
 // leaseName=0ops-backend-leader, terminationGracePeriodSeconds=60).
-// Tests in this package run with cwd=deploy/server so relative paths
-// resolve.
 func TestValuesDefaultsMatchSpec(t *testing.T) {
-	data, err := os.ReadFile("values.yaml")
+	data, err := os.ReadFile(filepath.Join(chartDir, "values.yaml"))
 	if err != nil {
 		t.Fatalf("read values.yaml: %v", err)
 	}

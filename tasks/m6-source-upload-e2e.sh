@@ -57,7 +57,7 @@ log "2. bootstrap example repo (idempotent)"
 bash examples/node-demo/bootstrap.sh
 
 log "3. bootstrap owner (idempotent — ignore already-exists)"
-go run ./cmd/cli admin bootstrap-owner \
+go -C src run ./cmd/cli admin bootstrap-owner \
   --host "$HOST" \
   --team-slug "$TEAM_SLUG" \
   --team-name "$TEAM_NAME" \
@@ -84,7 +84,7 @@ CREATE_OUT_FILE=$(mktemp)
 CREATE_ERR_FILE=$(mktemp)
 trap 'rm -f "$CREATE_OUT_FILE" "$CREATE_ERR_FILE" "${ARCHIVE_TMP:-}"' EXIT
 
-if ! go run ./cmd/cli apps create \
+if ! go -C src run ./cmd/cli apps create \
   --host "$HOST" --team "$TEAM_SLUG" --token "$TOKEN" \
   --slug "$APP_SLUG" --source "$SOURCE_PATH" --ref main --yes \
   --output json >"$CREATE_OUT_FILE" 2>"$CREATE_ERR_FILE"; then

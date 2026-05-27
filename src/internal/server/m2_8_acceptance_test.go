@@ -146,7 +146,7 @@ func TestM28EndToEndPreviewConfirmCallback(t *testing.T) {
 // `make m2-8-e2e-acceptance` no longer drives the four required acceptance
 // paths (CLI --yes / CLI interactive / MCP / public URL probe).
 func TestM28AcceptanceScriptShape(t *testing.T) {
-	scriptPath := filepath.Join("..", "..", "tasks", "m2-8-e2e-acceptance.sh")
+	scriptPath := filepath.Join("..", "..", "..", "tasks", "m2-8-e2e-acceptance.sh")
 
 	info, err := os.Stat(scriptPath)
 	if err != nil {
