@@ -11,6 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/winshare/zeroops/internal/server/services/audit"
 )
 
 var (
@@ -54,6 +56,7 @@ type Preview struct {
 	Action      string
 	Args        json.RawMessage
 	LastResult  json.RawMessage
+	TraceID     string
 	CreatedAt   time.Time
 	ExpiresAt   time.Time
 	ConsumedAt  *time.Time
@@ -205,16 +208,19 @@ func (r *Repository) CreatePreview(ctx context.Context, teamID, actorUserID, act
 		return Preview{}, err
 	}
 
+	traceID := audit.TraceIDFromContext(ctx)
+
 	var (
 		id        pgtype.UUID
 		createdAt pgtype.Timestamptz
 		expiresAt pgtype.Timestamptz
+		rowTrace  string
 	)
 	if err := r.pool.QueryRow(ctx, `
-INSERT INTO preview (team_id, actor_user_id, action, args, action_summary, side_effects, idempotency_key, expires_at)
-VALUES ($1, $2, $3, $4::jsonb, $5, '[]'::jsonb, $6, now() + interval '10 minute')
-RETURNING id, created_at, expires_at
-`, parsedTeamID, parsedActorID, action, []byte(args), actionSummary, key).Scan(&id, &createdAt, &expiresAt); err != nil {
+INSERT INTO preview (team_id, actor_user_id, action, args, action_summary, side_effects, idempotency_key, expires_at, trace_id)
+VALUES ($1, $2, $3, $4::jsonb, $5, '[]'::jsonb, $6, now() + interval '10 minute', $7)
+RETURNING id, created_at, expires_at, trace_id
+`, parsedTeamID, parsedActorID, action, []byte(args), actionSummary, key, traceID).Scan(&id, &createdAt, &expiresAt, &rowTrace); err != nil {
 		return Preview{}, err
 	}
 
@@ -224,6 +230,7 @@ RETURNING id, created_at, expires_at
 		ActorUserID: actorUserID,
 		Action:      action,
 		Args:        args,
+		TraceID:     rowTrace,
 		CreatedAt:   createdAt.Time,
 		ExpiresAt:   expiresAt.Time,
 	}, nil
@@ -243,16 +250,17 @@ func (r *Repository) GetPreview(ctx context.Context, previewID string) (Preview,
 		action      string
 		args        []byte
 		lastResult  []byte
+		traceID     string
 		createdAt   pgtype.Timestamptz
 		expiresAt   pgtype.Timestamptz
 		consumedAt  pgtype.Timestamptz
 	)
 
 	if err := r.pool.QueryRow(ctx, `
-SELECT id, team_id, actor_user_id, action, args, last_result, created_at, expires_at, consumed_at
+SELECT id, team_id, actor_user_id, action, args, last_result, trace_id, created_at, expires_at, consumed_at
 FROM preview
 WHERE id = $1
-`, parsedPreviewID).Scan(&id, &teamID, &actorUserID, &action, &args, &lastResult, &createdAt, &expiresAt, &consumedAt); err != nil {
+`, parsedPreviewID).Scan(&id, &teamID, &actorUserID, &action, &args, &lastResult, &traceID, &createdAt, &expiresAt, &consumedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Preview{}, ErrPreviewNotFound
 		}
@@ -266,6 +274,7 @@ WHERE id = $1
 		Action:      action,
 		Args:        json.RawMessage(args),
 		LastResult:  json.RawMessage(lastResult),
+		TraceID:     traceID,
 		CreatedAt:   createdAt.Time,
 		ExpiresAt:   expiresAt.Time,
 		ConsumedAt:  timestamptzPtr(consumedAt),
