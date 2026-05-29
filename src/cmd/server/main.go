@@ -201,8 +201,10 @@ func requestTrace(logger *slog.Logger) func(http.Handler) http.Handler {
 			}
 			w.Header().Set("X-Trace-ID", traceID)
 
+			ctx := audit.WithTraceID(r.Context(), traceID)
+
 			start := time.Now()
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, r.WithContext(ctx))
 			logger.Info("http request completed",
 				"trace_id", traceID,
 				"method", r.Method,
