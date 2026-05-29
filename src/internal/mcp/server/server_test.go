@@ -338,6 +338,10 @@ func (f *mcpFakeStore) ApplyDeployCallback(_ context.Context, _ db.DeployCallbac
 	return nil
 }
 
+func (f *mcpFakeStore) GetDeployRunTeamID(_ context.Context, _ string) (string, error) {
+	return f.team.ID, nil
+}
+
 func (f *mcpFakeStore) FindLiveAppsByRepoAndBranch(_ context.Context, _, _, _ string) ([]db.App, error) {
 	return nil, nil
 }

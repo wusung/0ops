@@ -30,6 +30,7 @@ import (
 	"github.com/winshare/zeroops/internal/server/auth"
 	"github.com/winshare/zeroops/internal/server/db"
 	ratelimit "github.com/winshare/zeroops/internal/server/middleware/ratelimit"
+	"github.com/winshare/zeroops/internal/server/services/audit"
 	"github.com/winshare/zeroops/internal/server/services/cloudflare"
 	createappsvc "github.com/winshare/zeroops/internal/server/services/createapp"
 	"github.com/winshare/zeroops/internal/server/services/createapp/ingestion"
@@ -71,6 +72,10 @@ type appsStore interface {
 	GetAppRepoURLByTeamAndAppSlug(ctx context.Context, teamSlug, appSlug string) (string, error)
 	RegisterWebhookDelivery(ctx context.Context, provider, deliveryID string) (bool, error)
 	ApplyDeployCallback(ctx context.Context, params db.DeployCallbackParams) error
+	// GetDeployRunTeamID is used by the deploy callback handler to look up
+	// the team_id for the audit_log row without a join (trace_id-end-to-end
+	// plan §15 hard rule #10: audit row written exactly once on callback).
+	GetDeployRunTeamID(ctx context.Context, runID string) (string, error)
 	GetTeamByID(ctx context.Context, teamID string) (db.Team, error)
 	FindTeamByGitHubInstallID(ctx context.Context, installID int64) (db.Team, error)
 	SetTeamGitHubInstall(ctx context.Context, teamID, actorUserID string, installID *int64, action string, args map[string]any, result map[string]any) error
@@ -134,6 +139,14 @@ type routerStore interface {
 	appsStore
 	teamsStore
 	toolGrantsStore
+}
+
+// auditWriteService is the dependency surface used by the deploy callback
+// handler to write a single audit_log row on success (trace_id-end-to-end
+// plan §15 hard rule #10). Production injects *audit.Service; tests inject
+// a fake that captures Entry payloads and the ctx-resolved trace_id.
+type auditWriteService interface {
+	Log(ctx context.Context, entry audit.Entry) error
 }
 
 type appCursor struct {
@@ -474,7 +487,7 @@ func createAppHandler(store appsStore, k3sClient infraK3sClient, cfClient infraC
 			auth.ActorUserID(r.Context()),
 			auth.TeamSlug(r.Context()),
 			req.PreviewID,
-			strings.TrimSpace(middleware.GetReqID(r.Context())),
+			audit.TraceIDFromContext(r.Context()),
 		)
 		if err != nil {
 			switch {
@@ -519,7 +532,7 @@ func newGitOpsService() gitopssvc.Service {
 	return svc
 }
 
-func deployRunCallbackHandler(store appsStore) http.HandlerFunc {
+func deployRunCallbackHandler(store appsStore, auditWriter auditWriteService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -576,11 +589,17 @@ func deployRunCallbackHandler(store appsStore) http.HandlerFunc {
 			return
 		}
 
+		// Overwrite the request ctx trace_id with the callback payload's
+		// trace_id before any downstream call. This is trace_id-end-to-end
+		// plan §15 hard rule #3: the GHA-emitted trace MUST win over the
+		// chi req id so deploy_run.trace_id and audit_log.trace_id agree.
+		ctx := audit.WithTraceID(r.Context(), *traceID)
+
 		deliveryID := strings.TrimSpace(r.Header.Get("X-0ops-Delivery-ID"))
 		if deliveryID == "" {
 			deliveryID = runID
 		}
-		inserted, err := store.RegisterWebhookDelivery(r.Context(), deployCallbackProvider, deliveryID)
+		inserted, err := store.RegisterWebhookDelivery(ctx, deployCallbackProvider, deliveryID)
 		if err != nil {
 			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to record callback delivery", nil)
 			return
@@ -591,7 +610,7 @@ func deployRunCallbackHandler(store appsStore) http.HandlerFunc {
 			return
 		}
 
-		err = store.ApplyDeployCallback(r.Context(), db.DeployCallbackParams{
+		err = store.ApplyDeployCallback(ctx, db.DeployCallbackParams{
 			RunID:                 runID,
 			Status:                status,
 			TraceID:               traceID,
@@ -607,6 +626,44 @@ func deployRunCallbackHandler(store appsStore) http.HandlerFunc {
 			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to apply deploy callback", nil)
 			return
 		}
+
+		// Write exactly one audit_log row tagged with the payload trace_id.
+		// Spec §15 hard rule #10: audit MUST NOT block the callback path.
+		// On write failure we log and continue; operator must reconcile
+		// manually (no reconciler retry path exists for deploy_callback
+		// audit rows today).
+		if auditWriter != nil {
+			teamID, terr := store.GetDeployRunTeamID(ctx, runID)
+			if terr != nil || teamID == "" {
+				slog.Warn("audit skipped: team lookup failed",
+					"run_id", runID, "err", terr)
+			} else {
+				auditOutcome := audit.OutcomeSuccess
+				if status == "failed" {
+					auditOutcome = audit.OutcomeFailure
+				}
+				subjectID := runID
+				if auditErr := auditWriter.Log(ctx, audit.Entry{
+					TeamID:      teamID,
+					Source:      audit.SourceSystem,
+					SubjectType: "deploy_run",
+					SubjectID:   &subjectID,
+					Action:      "deploy_callback",
+					Args: map[string]any{
+						"status":                 req.Status,
+						"failure_classification": failureClassification,
+					},
+					Result: map[string]any{
+						"error_summary": trimStringPtr(req.ErrorSummary),
+					},
+					Outcome: auditOutcome,
+				}); auditErr != nil {
+					slog.Warn("audit log write failed",
+						"run_id", runID, "err", auditErr)
+				}
+			}
+		}
+
 		if outcome, ok := deployTerminalOutcome(status); ok {
 			recordDeployTerminalMetric(outcome)
 			if req.BuildMinutes != nil && *req.BuildMinutes > 0 {
@@ -1293,13 +1350,13 @@ func logoutHandler(store appsStore) http.HandlerFunc {
 // NewRouter returns the HTTP router for the server.
 func NewRouter(store routerStore) http.Handler {
 	githubClient := newGitHubOAuthClient()
-	return newRouterFull(store, githubClient, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	return newRouterFull(store, githubClient, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 // NewRouterWithInfra creates a router with infrastructure clients.
 func NewRouterWithInfra(store routerStore, k3sClient infraK3sClient, cfClient infraCloudflareClient) http.Handler {
 	githubClient := newGitHubOAuthClient()
-	return newRouterFull(store, githubClient, k3sClient, cfClient, nil, nil, nil, nil, nil, nil, nil)
+	return newRouterFull(store, githubClient, k3sClient, cfClient, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 // NewRouterWithRateLimit creates a router with infrastructure clients and a
@@ -1315,12 +1372,12 @@ func NewRouterWithRateLimit(store routerStore, k3sClient infraK3sClient, cfClien
 			observerFn(string(scope), string(cat), string(plan))
 		})
 	}
-	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer, nil, nil, nil, nil, nil)
+	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer, nil, nil, nil, nil, nil, nil)
 }
 
 //nolint:revive // exported for public API
 func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient, k3sClient infraK3sClient, cfClient infraCloudflareClient) http.Handler {
-	return newRouterFull(store, githubClient, k3sClient, cfClient, nil, nil, nil, nil, nil, nil, nil)
+	return newRouterFull(store, githubClient, k3sClient, cfClient, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 // NewRouterWithAudit composes the full router with an explicit audit
@@ -1331,7 +1388,7 @@ func NewRouterWithGitHubOAuth(store routerStore, githubClient githubOAuthClient,
 //nolint:revive // exported for public API
 func NewRouterWithAudit(store routerStore, k3sClient infraK3sClient, cfClient infraCloudflareClient, auditSvc auditQueryService) http.Handler {
 	githubClient := newGitHubOAuthClient()
-	return newRouterFull(store, githubClient, k3sClient, cfClient, nil, nil, auditSvc, nil, nil, nil, nil)
+	return newRouterFull(store, githubClient, k3sClient, cfClient, nil, nil, auditSvc, nil, nil, nil, nil, nil)
 }
 
 // NewRouterWithRateLimitAndAudit is the production constructor used by
@@ -1347,15 +1404,17 @@ func NewRouterWithRateLimitAndAudit(store routerStore, k3sClient infraK3sClient,
 			observerFn(string(scope), string(cat), string(plan))
 		})
 	}
-	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer, auditSvc, nil, nil, nil, nil)
+	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer, auditSvc, nil, nil, nil, nil, nil)
 }
 
 // NewRouterWithReconciler is the production constructor used by
 // cmd/server starting at M5.3: it adds incidents endpoints on top of
-// the M4.2 + M5.2 stack.
+// the M4.2 + M5.2 stack. callbackAuditWriter is the audit Service used
+// by the deploy callback handler to emit audit_log rows tagged with the
+// payload trace_id (trace_id-end-to-end plan §15 hard rule #10).
 //
 //nolint:revive // exported for public API
-func NewRouterWithReconciler(store routerStore, k3sClient infraK3sClient, cfClient infraCloudflareClient, limiter *ratelimit.Limiter, observerFn func(scope, category, plan string), auditSvc auditQueryService, incidentSvc incidentService) http.Handler {
+func NewRouterWithReconciler(store routerStore, k3sClient infraK3sClient, cfClient infraCloudflareClient, limiter *ratelimit.Limiter, observerFn func(scope, category, plan string), auditSvc auditQueryService, incidentSvc incidentService, callbackAuditWriter auditWriteService) http.Handler {
 	githubClient := newGitHubOAuthClient()
 	var observer ratelimit.Observer
 	if observerFn != nil {
@@ -1363,16 +1422,18 @@ func NewRouterWithReconciler(store routerStore, k3sClient infraK3sClient, cfClie
 			observerFn(string(scope), string(cat), string(plan))
 		})
 	}
-	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer, auditSvc, incidentSvc, nil, nil, nil)
+	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer, auditSvc, incidentSvc, nil, nil, nil, callbackAuditWriter)
 }
 
 // NewRouterWithIngestion is the production constructor used by cmd/server
 // to enable the app-source-ingestion upload endpoint (M6.8) and the archive
 // download endpoint (M6.9). Pass nil for archiveSigner to skip registering
 // GET /v1/uploads/{id}/archive (useful in dev without OPS_BUILD_TOKEN_SECRET).
+// callbackAuditWriter wires the deploy callback audit_log write path; pass
+// the same *audit.Service used for audit queries.
 //
 //nolint:revive // exported for public API
-func NewRouterWithIngestion(store routerStore, k3sClient infraK3sClient, cfClient infraCloudflareClient, limiter *ratelimit.Limiter, observerFn func(scope, category, plan string), auditSvc auditQueryService, incidentSvc incidentService, uploadIngest ingestionStoreFull, uploadAuditSvc uploadAuditWriter, archiveSigner *ingestion.TokenSigner) http.Handler {
+func NewRouterWithIngestion(store routerStore, k3sClient infraK3sClient, cfClient infraCloudflareClient, limiter *ratelimit.Limiter, observerFn func(scope, category, plan string), auditSvc auditQueryService, incidentSvc incidentService, uploadIngest ingestionStoreFull, uploadAuditSvc uploadAuditWriter, archiveSigner *ingestion.TokenSigner, callbackAuditWriter auditWriteService) http.Handler {
 	githubClient := newGitHubOAuthClient()
 	var observer ratelimit.Observer
 	if observerFn != nil {
@@ -1380,10 +1441,10 @@ func NewRouterWithIngestion(store routerStore, k3sClient infraK3sClient, cfClien
 			observerFn(string(scope), string(cat), string(plan))
 		})
 	}
-	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer, auditSvc, incidentSvc, uploadIngest, uploadAuditSvc, archiveSigner)
+	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer, auditSvc, incidentSvc, uploadIngest, uploadAuditSvc, archiveSigner, callbackAuditWriter)
 }
 
-func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient infraK3sClient, cfClient infraCloudflareClient, limiter *ratelimit.Limiter, observer ratelimit.Observer, auditSvc auditQueryService, incidentSvc incidentService, uploadIngest ingestionStoreFull, uploadAuditSvc uploadAuditWriter, archiveSigner *ingestion.TokenSigner) http.Handler {
+func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient infraK3sClient, cfClient infraCloudflareClient, limiter *ratelimit.Limiter, observer ratelimit.Observer, auditSvc auditQueryService, incidentSvc incidentService, uploadIngest ingestionStoreFull, uploadAuditSvc uploadAuditWriter, archiveSigner *ingestion.TokenSigner, callbackAuditWriter auditWriteService) http.Handler {
 	if argoClient, ok := k3sClient.(k3sArgoCDClient); ok && argoClient != nil {
 		newArgoCDStatusProvider = func() argoCDStatusProvider {
 			return k3sArgoCDStatusProvider{client: argoClient}
@@ -1420,7 +1481,7 @@ func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient 
 
 	r := chi.NewRouter()
 	r.Post("/v1/admin/bootstrap-owner", bootstrapOwnerHandler(store))
-	r.Post("/internal/deploy-runs/{run_id}/callback", deployRunCallbackHandler(store))
+	r.Post("/internal/deploy-runs/{run_id}/callback", deployRunCallbackHandler(store, callbackAuditWriter))
 	r.Route("/v1/auth", func(sr chi.Router) {
 		sr.Post("/device/start", startDeviceLoginHandler(store, githubClient))
 		sr.Post("/device/callback", callbackDeviceLoginHandler(store))

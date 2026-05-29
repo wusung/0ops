@@ -371,6 +371,22 @@ ON CONFLICT (provider, delivery_id) DO NOTHING
 	return tag.RowsAffected() == 1, nil
 }
 
+// GetDeployRunTeamID returns the team_id for a deploy_run, used by the
+// callback handler to populate audit_log.team_id without a join.
+func (r *Repository) GetDeployRunTeamID(ctx context.Context, runID string) (string, error) {
+	parsedRunID, err := parseUUID(runID)
+	if err != nil {
+		return "", fmt.Errorf("parse run id: %w", err)
+	}
+	var teamID pgtype.UUID
+	if err := r.pool.QueryRow(ctx,
+		`SELECT team_id FROM deploy_run WHERE id = $1`,
+		parsedRunID).Scan(&teamID); err != nil {
+		return "", err
+	}
+	return teamID.String(), nil
+}
+
 // ApplyDeployCallback updates a deploy_run from external callback state.
 func (r *Repository) ApplyDeployCallback(ctx context.Context, params DeployCallbackParams) error {
 	parsedRunID, err := parseUUID(params.RunID)

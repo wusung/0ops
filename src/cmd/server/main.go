@@ -136,7 +136,7 @@ func main() {
 		}
 	}
 
-	r.Mount("/", appserver.NewRouterWithIngestion(repo, k3sClient, cfClient, limiter, metrics.RateLimitObserver(), auditSvc, incidentSvc, ingestStore, auditSvc, archiveSigner))
+	r.Mount("/", appserver.NewRouterWithIngestion(repo, k3sClient, cfClient, limiter, metrics.RateLimitObserver(), auditSvc, incidentSvc, ingestStore, auditSvc, archiveSigner, auditSvc))
 
 	srv := &http.Server{
 		Addr:              addr,
@@ -201,8 +201,10 @@ func requestTrace(logger *slog.Logger) func(http.Handler) http.Handler {
 			}
 			w.Header().Set("X-Trace-ID", traceID)
 
+			ctx := audit.WithTraceID(r.Context(), traceID)
+
 			start := time.Now()
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, r.WithContext(ctx))
 			logger.Info("http request completed",
 				"trace_id", traceID,
 				"method", r.Method,

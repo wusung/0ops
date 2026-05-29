@@ -581,6 +581,15 @@ func (f *fakeStore) PauseTeamApps(_ context.Context, teamID string) (int64, erro
 	return paused, nil
 }
 
+func (f *fakeStore) GetDeployRunTeamID(_ context.Context, runID string) (string, error) {
+	for _, d := range f.deploys {
+		if d.ID == runID {
+			return d.TeamID, nil
+		}
+	}
+	return "", pgx.ErrNoRows
+}
+
 func (f *fakeStore) ApplyDeployCallback(_ context.Context, params db.DeployCallbackParams) error {
 	for idx := range f.deploys {
 		if f.deploys[idx].ID != params.RunID {

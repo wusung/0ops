@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/winshare/zeroops/internal/server/apperror"
 	"github.com/winshare/zeroops/internal/server/auth"
+	"github.com/winshare/zeroops/internal/server/services/audit"
 	deleteappsvc "github.com/winshare/zeroops/internal/server/services/deleteapp"
 	"github.com/winshare/zeroops/internal/shared/dto"
 )
@@ -97,7 +97,7 @@ func deleteAppHandler(store appsStore) http.HandlerFunc {
 			auth.ActorUserID(r.Context()),
 			auth.TeamSlug(r.Context()),
 			req.PreviewID,
-			strings.TrimSpace(middleware.GetReqID(r.Context())),
+			audit.TraceIDFromContext(r.Context()),
 		)
 		if err != nil {
 			writeDeleteAppError(w, err)

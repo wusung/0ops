@@ -8,10 +8,10 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/winshare/zeroops/internal/server/apperror"
 	"github.com/winshare/zeroops/internal/server/auth"
+	"github.com/winshare/zeroops/internal/server/services/audit"
 	"github.com/winshare/zeroops/internal/server/services/githubwebhook"
 	"github.com/winshare/zeroops/internal/server/services/redeploy"
 	workflowdispatch "github.com/winshare/zeroops/internal/server/services/workflowdispatch"
@@ -123,7 +123,7 @@ func confirmRedeployHandler(store redeployStore, trigger redeployTriggerFactory)
 			return
 		}
 		svc := redeploy.New(store, trigger(store))
-		traceID := strings.TrimSpace(middleware.GetReqID(r.Context()))
+		traceID := audit.TraceIDFromContext(r.Context())
 		result, err := svc.Confirm(r.Context(), teamID, actorUserID, teamSlug, req.PreviewID, traceID)
 		if err != nil {
 			writeRedeployError(w, err)
