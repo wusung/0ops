@@ -136,7 +136,7 @@ func main() {
 		}
 	}
 
-	r.Mount("/", appserver.NewRouterWithIngestion(repo, k3sClient, cfClient, limiter, metrics.RateLimitObserver(), auditSvc, incidentSvc, ingestStore, auditSvc, archiveSigner))
+	r.Mount("/", appserver.NewRouterWithIngestion(repo, k3sClient, cfClient, limiter, metrics.RateLimitObserver(), auditSvc, incidentSvc, ingestStore, auditSvc, archiveSigner, auditSvc))
 
 	srv := &http.Server{
 		Addr:              addr,

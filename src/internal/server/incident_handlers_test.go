@@ -63,7 +63,7 @@ func TestListIncidentsHandlerReturnsRows(t *testing.T) {
 			},
 		},
 	}
-	srv := httptest.NewServer(NewRouterWithReconciler(store, nil, nil, nil, nil, nil, svc))
+	srv := httptest.NewServer(NewRouterWithReconciler(store, nil, nil, nil, nil, nil, svc, nil))
 	t.Cleanup(srv.Close)
 
 	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/teams/acme/incidents?status=open", nil)
@@ -95,7 +95,7 @@ func TestGetIncidentHandlerNotFound(t *testing.T) {
 	store, token := newFakeStore()
 	upgradeStoreForIncidents(store)
 	svc := &stubIncidentService{getErr: reconciler.ErrNotFound}
-	srv := httptest.NewServer(NewRouterWithReconciler(store, nil, nil, nil, nil, nil, svc))
+	srv := httptest.NewServer(NewRouterWithReconciler(store, nil, nil, nil, nil, nil, svc, nil))
 	t.Cleanup(srv.Close)
 
 	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/teams/acme/incidents/00000000-0000-0000-0000-000000000099", nil)
@@ -122,7 +122,7 @@ func TestCloseIncidentHandlerAcceptsNote(t *testing.T) {
 			ClosedBy: strPtr("user-1"),
 		},
 	}
-	srv := httptest.NewServer(NewRouterWithReconciler(store, nil, nil, nil, nil, nil, svc))
+	srv := httptest.NewServer(NewRouterWithReconciler(store, nil, nil, nil, nil, nil, svc, nil))
 	t.Cleanup(srv.Close)
 
 	body, _ := json.Marshal(map[string]any{"note": "root cause: GitHub outage"})
@@ -150,7 +150,7 @@ func TestCloseIncidentHandlerAlreadyClosedReturns409(t *testing.T) {
 	store, token := newFakeStore()
 	upgradeStoreForIncidents(store)
 	svc := &stubIncidentService{closeErr: reconciler.ErrAlreadyClosed}
-	srv := httptest.NewServer(NewRouterWithReconciler(store, nil, nil, nil, nil, nil, svc))
+	srv := httptest.NewServer(NewRouterWithReconciler(store, nil, nil, nil, nil, nil, svc, nil))
 	t.Cleanup(srv.Close)
 	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/teams/acme/incidents/inc-1:close", strings.NewReader("{}"))
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -166,7 +166,7 @@ func TestCloseIncidentHandlerRequiresAdmin(t *testing.T) {
 	upgradeStoreForIncidents(store)
 	store.role = "member"
 	svc := &stubIncidentService{}
-	srv := httptest.NewServer(NewRouterWithReconciler(store, nil, nil, nil, nil, nil, svc))
+	srv := httptest.NewServer(NewRouterWithReconciler(store, nil, nil, nil, nil, nil, svc, nil))
 	t.Cleanup(srv.Close)
 	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/teams/acme/incidents/inc-1:close", strings.NewReader("{}"))
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -181,7 +181,7 @@ func TestListIncidentsHandlerForbiddenWithoutScope(t *testing.T) {
 	store, token := newFakeStore()
 	// Do not call upgradeStoreForIncidents — token lacks incidents:read.
 	svc := &stubIncidentService{}
-	srv := httptest.NewServer(NewRouterWithReconciler(store, nil, nil, nil, nil, nil, svc))
+	srv := httptest.NewServer(NewRouterWithReconciler(store, nil, nil, nil, nil, nil, svc, nil))
 	t.Cleanup(srv.Close)
 	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/teams/acme/incidents", nil)
 	req.Header.Set("Authorization", "Bearer "+token)

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,7 +13,23 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/winshare/zeroops/internal/server/services/audit"
 )
+
+// fakeAuditWriter captures audit.Entry calls plus the ctx-resolved
+// trace_id so tests can assert ctx propagation without a real
+// audit.Service.
+type fakeAuditWriter struct {
+	entries  []audit.Entry
+	traceIDs []string
+}
+
+func (f *fakeAuditWriter) Log(ctx context.Context, entry audit.Entry) error {
+	f.entries = append(f.entries, entry)
+	f.traceIDs = append(f.traceIDs, audit.TraceIDFromContext(ctx))
+	return nil
+}
 
 func TestDeployCallbackRecordsFailureClassificationMetric(t *testing.T) {
 	t.Setenv("OPS_CALLBACK_SECRET", "test-webhook-secret")
@@ -295,5 +312,72 @@ func TestValidFailureClassification(t *testing.T) {
 	}
 	if isValidFailureClassification("invalid") {
 		t.Fatal("isValidFailureClassification(\"invalid\") = true, want false")
+	}
+}
+
+// TestDeployCallbackWritesAuditLogWithPayloadTraceID verifies the
+// trace_id-end-to-end plan §15 hard rule #10: the callback handler
+// writes exactly one audit_log row on success, tagged with the payload
+// trace_id (not the chi request id). The fake writer captures the
+// ctx-resolved trace via audit.TraceIDFromContext to prove ctx swap
+// landed before the audit.Log call.
+func TestDeployCallbackWritesAuditLogWithPayloadTraceID(t *testing.T) {
+	t.Setenv("OPS_CALLBACK_SECRET", "test-webhook-secret")
+	store, _ := newFakeStore()
+	auditWriter := &fakeAuditWriter{}
+
+	srv := httptest.NewServer(NewRouterWithCallbackAudit(store, auditWriter))
+	t.Cleanup(srv.Close)
+
+	body := `{"run_id":"deploy-1","status":"success","trace_id":"callback-trace-xyz"}`
+	ts := strconv.FormatInt(time.Now().UTC().Unix(), 10)
+	mac := hmac.New(sha256.New, []byte("test-webhook-secret"))
+	_, _ = mac.Write([]byte(ts + "." + body))
+	sig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+
+	req, err := http.NewRequest(http.MethodPost,
+		srv.URL+"/internal/deploy-runs/deploy-1/callback", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-0ops-Timestamp", ts)
+	req.Header.Set("X-0ops-Signature", sig)
+	req.Header.Set("X-Trace-ID", "request-trace-aaa") // proves payload wins
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		bodyText, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, body = %s", resp.StatusCode, string(bodyText))
+	}
+
+	if len(auditWriter.entries) != 1 {
+		t.Fatalf("expected 1 audit entry, got %d", len(auditWriter.entries))
+	}
+	entry := auditWriter.entries[0]
+	if entry.Action != "deploy_callback" {
+		t.Errorf("Action = %q, want deploy_callback", entry.Action)
+	}
+	if entry.SubjectType != "deploy_run" {
+		t.Errorf("SubjectType = %q, want deploy_run", entry.SubjectType)
+	}
+	if entry.SubjectID == nil || *entry.SubjectID != "deploy-1" {
+		t.Errorf("SubjectID = %v, want pointer to \"deploy-1\"", entry.SubjectID)
+	}
+	if entry.Source != audit.SourceSystem {
+		t.Errorf("Source = %q, want %q", entry.Source, audit.SourceSystem)
+	}
+	if entry.Outcome != audit.OutcomeSuccess {
+		t.Errorf("Outcome = %q, want %q", entry.Outcome, audit.OutcomeSuccess)
+	}
+	if entry.TeamID != "team-1" {
+		t.Errorf("TeamID = %q, want team-1", entry.TeamID)
+	}
+	if got, want := auditWriter.traceIDs[0], "callback-trace-xyz"; got != want {
+		t.Errorf("ctx trace_id = %q, want %q (payload trace must win over chi req id)", got, want)
 	}
 }

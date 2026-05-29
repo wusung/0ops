@@ -234,7 +234,7 @@ func newUploadRouter(t *testing.T, ingest ingestionStore, auditSvc uploadAuditWr
 	// Inline a local newRouterFull call: we reuse NewRouter but also need to
 	// inject uploadIngest and uploadAuditSvc. Use newRouterFull directly since
 	// it is unexported but we're in the same package.
-	h := newRouterFull(store, newGitHubOAuthClient(), nil, nil, nil, nil, nil, nil, full, auditSvc, nil)
+	h := newRouterFull(store, newGitHubOAuthClient(), nil, nil, nil, nil, nil, nil, full, auditSvc, nil, nil)
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	return srv, token, store
@@ -259,7 +259,7 @@ func newArchiveTestEnv(t *testing.T) (store *fakeStore, signer *ingestion.TokenS
 		fakeIngest:       &fakeIngest{},
 		fakeArchiveReader: arc,
 	}
-	h := newRouterFull(store, newGitHubOAuthClient(), nil, nil, nil, nil, nil, nil, combined, fa, signer)
+	h := newRouterFull(store, newGitHubOAuthClient(), nil, nil, nil, nil, nil, nil, combined, fa, signer, nil)
 	srv = httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	return
@@ -467,7 +467,7 @@ func TestUploadsPostRequiresScope(t *testing.T) {
 	}
 
 	fi := newFakeIngestFull(&fakeIngest{})
-	h := newRouterFull(store, newGitHubOAuthClient(), nil, nil, nil, nil, nil, nil, fi, nil, nil)
+	h := newRouterFull(store, newGitHubOAuthClient(), nil, nil, nil, nil, nil, nil, fi, nil, nil, nil)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -1227,7 +1227,7 @@ func newUploadRouterWithQuotaStore(t *testing.T, store *fakeStore, ingest ingest
 		t.Fatal("newUploadRouterWithQuotaStore: ingest must be *fakeIngest")
 	}
 	full := newFakeIngestFull(fi)
-	h := newRouterFull(store, newGitHubOAuthClient(), nil, nil, nil, nil, nil, nil, full, auditSvc, nil)
+	h := newRouterFull(store, newGitHubOAuthClient(), nil, nil, nil, nil, nil, nil, full, auditSvc, nil, nil)
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	return srv

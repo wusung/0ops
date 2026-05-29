@@ -207,6 +207,9 @@ func (f *cliFakeStore) RegisterWebhookDelivery(_ context.Context, _, _ string) (
 func (f *cliFakeStore) ApplyDeployCallback(_ context.Context, _ db.DeployCallbackParams) error {
 	return nil
 }
+func (f *cliFakeStore) GetDeployRunTeamID(_ context.Context, _ string) (string, error) {
+	return f.team.ID, nil
+}
 func (f *cliFakeStore) GetTeamByID(_ context.Context, _ string) (db.Team, error) {
 	return f.team, nil
 }
