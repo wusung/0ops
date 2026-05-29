@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# m2-8-e2e-acceptance.sh
-# M2.8 端到端驗收腳本：preview → confirm → dispatch → callback → sync → public URL 200
+# e2e-create-app.sh
+# create_app 端到端驗收：preview → confirm → dispatch → callback → sync → public URL 200
 #
 # 對齊 docs/features/create-app-flow/spec.md § 12「驗證準則」之 End-to-end happy path
-# 行；本腳本是 M2 收尾的單一驗收入口（CLI 互動式 / CLI --yes / MCP / public URL）。
+# 行；本腳本是 create_app flow 的單一驗收入口（CLI 互動式 / CLI --yes / MCP / public URL）。
 #
 # 工作模式（E2E_MODE）：
 #   local       (default) 只在本機 compose stack 上做結構性驗證；create_app 因
@@ -18,7 +18,7 @@ set -euo pipefail
 #               必須 200）；用於正式 rollout 後的單次驗收。
 #
 # 使用方式：
-#   ./tasks/m2-8-e2e-acceptance.sh [--phase=<name>] [--mode=<mode>] [-h|--help]
+#   ./tasks/e2e-create-app.sh [--phase=<name>] [--mode=<mode>] [-h|--help]
 #
 #   --phase=<name>     只跑單一 phase（預設跑全部）
 #                      合法值：preflight | cli-yes | cli-interactive | mcp |
@@ -27,7 +27,7 @@ set -euo pipefail
 #
 # 必要 / 可選環境變數：
 #   E2E_MODE                  預設 local
-#   OPS_HOST                  backend host；local 預設 http://127.0.0.1:8080
+#   OPS_HOST                  backend host；local 預設 http://127.0.0.1:${OPS_HOST_PORT:-8080}
 #   OPS_BEARER_TOKEN          bearer token；local mode 可由 bootstrap 取得後手動匯出
 #   OPS_TEAM_SLUG             team slug；staging+ 必填
 #   OPS_CALLBACK_SECRET       callback HMAC 共用密鑰；預設 dev-callback-secret-change-me
@@ -61,7 +61,7 @@ PHASES_ALL=(preflight cli-yes cli-interactive mcp callback public-url-probe)
 SELECTED_PHASE=""
 
 usage() {
-  sed -n '/^# m2-8-e2e-acceptance.sh/,/^$/p' "$0"
+  sed -n '/^# e2e-create-app.sh/,/^$/p' "$0"
 }
 
 for arg in "$@"; do
@@ -94,7 +94,7 @@ case "$E2E_MODE" in
     ;;
 esac
 
-OPS_HOST="${OPS_HOST:-http://127.0.0.1:8080}"
+OPS_HOST="${OPS_HOST:-http://127.0.0.1:${OPS_HOST_PORT:-8080}}"
 OPS_BEARER_TOKEN="${OPS_BEARER_TOKEN:-}"
 OPS_TEAM_SLUG="${OPS_TEAM_SLUG:-}"
 OPS_CALLBACK_SECRET="${OPS_CALLBACK_SECRET:-dev-callback-secret-change-me}"
@@ -113,8 +113,8 @@ EXIT_SIG_MISMATCH=5
 EXIT_NO_PASS=6
 
 # tmpdir for transient capture files; cleaned on exit
-M2_8_TMPDIR="$(mktemp -d -t m2-8-e2e.XXXXXX)"
-trap 'rm -rf "$M2_8_TMPDIR"' EXIT
+E2E_TMPDIR="$(mktemp -d -t e2e-create-app.XXXXXX)"
+trap 'rm -rf "$E2E_TMPDIR"' EXIT
 
 PASSED=0
 SKIPPED=0
@@ -274,7 +274,7 @@ phase_mcp() {
   local preview_req confirm_req
   preview_req=$(python3 -c "import json,sys; print(json.dumps({'jsonrpc':'2.0','id':2,'method':'tools/call','params':{'name':'create_app_preview','arguments':{'team_slug':sys.argv[1],'slug':sys.argv[2],'repo_url':sys.argv[3],'ref':sys.argv[4]}}}))" "$OPS_TEAM_SLUG" "$slug" "$E2E_REPO_URL" "$E2E_REPO_REF")
 
-  local mcp_out="$M2_8_TMPDIR/mcp-preview.out"
+  local mcp_out="$E2E_TMPDIR/mcp-preview.out"
   if ! run_mcp_call "$init_req"$'\n'"$preview_req" >"$mcp_out" 2>&1; then
     cat "$mcp_out" >&2
     echo "  ✗ MCP create_app_preview round-trip failed" >&2
@@ -322,7 +322,7 @@ sys.exit(1)
 
   confirm_req=$(python3 -c "import json,sys; print(json.dumps({'jsonrpc':'2.0','id':3,'method':'tools/call','params':{'name':'create_app','arguments':{'team_slug':sys.argv[1],'preview_id':sys.argv[2]}}}))" "$OPS_TEAM_SLUG" "$preview_id")
 
-  local confirm_out="$M2_8_TMPDIR/mcp-confirm.out"
+  local confirm_out="$E2E_TMPDIR/mcp-confirm.out"
   if ! run_mcp_call "$init_req"$'\n'"$confirm_req" >"$confirm_out" 2>&1; then
     cat "$confirm_out" >&2
     echo "  ✗ MCP create_app round-trip failed" >&2
@@ -358,7 +358,7 @@ phase_callback() {
   local sig
   sig="sha256=$(printf '%s.%s' "$ts" "$body" | openssl dgst -sha256 -hmac "$OPS_CALLBACK_SECRET" | awk '{print $2}')"
 
-  local cb_out="$M2_8_TMPDIR/callback.out"
+  local cb_out="$E2E_TMPDIR/callback.out"
   local http_status
   http_status=$(curl -sS -o "$cb_out" -w '%{http_code}' \
     -X POST "$OPS_HOST/internal/deploy-runs/$run_id/callback" \
@@ -428,7 +428,7 @@ run_phase() {
   return 0
 }
 
-echo "🔍 M2.8 End-to-End Acceptance"
+echo "🔍 create_app end-to-end acceptance"
 echo "  mode:   $E2E_MODE"
 echo "  host:   $OPS_HOST"
 echo "  team:   ${OPS_TEAM_SLUG:-<unset>}"
@@ -442,7 +442,7 @@ if [[ -n "$SELECTED_PHASE" ]]; then
     echo "✗ E2E_REQUIRE_PASS=1 set but no phase passed (mode=$E2E_MODE)" >&2
     exit $EXIT_NO_PASS
   fi
-  echo "✅ M2.8 phase '$SELECTED_PHASE' done"
+  echo "✅ create_app phase '$SELECTED_PHASE' done"
   exit 0
 fi
 
@@ -453,11 +453,11 @@ done
 echo ""
 echo "  summary: passed=$PASSED skipped=$SKIPPED failed=$FAILED"
 if [[ $FAILED -gt 0 ]]; then
-  echo "✗ M2.8 end-to-end acceptance failed (mode=$E2E_MODE)" >&2
+  echo "✗ create_app end-to-end acceptance failed (mode=$E2E_MODE)" >&2
   exit $EXIT_PHASE_FAIL
 fi
 if [[ "$E2E_REQUIRE_PASS" == "1" && $PASSED -eq 0 ]]; then
   echo "✗ E2E_REQUIRE_PASS=1 set but no phase passed; all phases SKIPped (mode=$E2E_MODE)" >&2
   exit $EXIT_NO_PASS
 fi
-echo "✅ M2.8 end-to-end acceptance completed (mode=$E2E_MODE)"
+echo "✅ create_app end-to-end acceptance completed (mode=$E2E_MODE)"
