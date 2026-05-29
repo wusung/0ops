@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tasks/m6-source-upload-e2e.sh — M6 (T22) acceptance script.
+# tasks/e2e-source-upload.sh — upload-source ingestion end-to-end acceptance.
 #
 # Exercises the upload-source CLI path end-to-end against the live compose
 # stack:
@@ -17,9 +17,9 @@
 # Per ADR-0013 / docs/features/app-source-ingestion/spec.md § 22.
 #
 # Usage:
-#   ./manage.sh m6-source-upload-e2e
+#   ./manage.sh e2e-source-upload
 #   # or directly:
-#   bash tasks/m6-source-upload-e2e.sh
+#   bash tasks/e2e-source-upload.sh
 
 set -euo pipefail
 

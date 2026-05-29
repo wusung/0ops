@@ -16,7 +16,7 @@
 2. 外部 curl 回 `404`（DNS / ingress 沒對到 app）
 3. 外部 curl 回 `5xx`（後端有但 health 不過）
 4. `TunnelDown` 或 `TunnelConnectorsLow` Prometheus alert fire（rules `zeroops_cloudflare_tunnel_connectors_ready`）
-5. M2 acceptance test `E2E_MODE=production ./manage.sh m2-8-e2e-acceptance` fail
+5. create_app acceptance `E2E_MODE=production ./manage.sh e2e-create-app` fail
 
 ## 2. 排查向量（待 infra 落地後補完整步驟）
 

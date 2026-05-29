@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# m2-6-promtool-validate.sh
+# lint-prom-rules.sh
 # 用 podman 拉 prom/prometheus 容器執行 `promtool check rules`，驗證
 # deploy/gitops/observability/ 之 recording + alert rules ConfigMap 內嵌
 # rule 表達式可被 Prometheus 接受（無 PromQL 語法錯誤、label 結構合法）。
 #
-# Usage: ./tasks/m2-6-promtool-validate.sh
+# Usage: ./tasks/lint-prom-rules.sh
 #
 # Hard requirement: podman 必須可用；不允許在 host 直接跑 binary（見 lessons L001）。
 
@@ -43,7 +43,7 @@ extract_rules() {
   ' "$cm_path" >"$out_path"
 }
 
-echo "🔍 M2.6 promtool validation"
+echo "🔍 promtool rule validation"
 echo "  workdir: $WORKDIR"
 echo "  image:   $PROM_IMAGE"
 
