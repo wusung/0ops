@@ -257,7 +257,9 @@ func (r *Repository) GetPreview(ctx context.Context, previewID string) (Preview,
 	)
 
 	if err := r.pool.QueryRow(ctx, `
-SELECT id, team_id, actor_user_id, action, args, last_result, trace_id, created_at, expires_at, consumed_at
+SELECT id, team_id, actor_user_id, action, args, last_result,
+       COALESCE(trace_id, '00000000000000000000000000000000'),
+       created_at, expires_at, consumed_at
 FROM preview
 WHERE id = $1
 `, parsedPreviewID).Scan(&id, &teamID, &actorUserID, &action, &args, &lastResult, &traceID, &createdAt, &expiresAt, &consumedAt); err != nil {
