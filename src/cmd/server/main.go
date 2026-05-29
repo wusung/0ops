@@ -23,6 +23,7 @@ import (
 	ratelimit "github.com/winshare/zeroops/internal/server/middleware/ratelimit"
 	tracemw "github.com/winshare/zeroops/internal/server/middleware/trace"
 	"github.com/winshare/zeroops/internal/server/observability"
+	"github.com/winshare/zeroops/internal/server/observability/slogtrace"
 	"github.com/winshare/zeroops/internal/server/services/audit"
 	"github.com/winshare/zeroops/internal/server/services/cloudflare"
 	"github.com/winshare/zeroops/internal/server/services/k3s"
@@ -32,7 +33,7 @@ import (
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel()}))
+	logger := slog.New(slogtrace.NewHandler(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel()})))
 	slog.SetDefault(logger)
 
 	// Fail fast if any dev-only knob (file:// repo, local build pipeline)
