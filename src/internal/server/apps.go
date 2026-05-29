@@ -487,7 +487,7 @@ func createAppHandler(store appsStore, k3sClient infraK3sClient, cfClient infraC
 			auth.ActorUserID(r.Context()),
 			auth.TeamSlug(r.Context()),
 			req.PreviewID,
-			strings.TrimSpace(middleware.GetReqID(r.Context())),
+			audit.TraceIDFromContext(r.Context()),
 		)
 		if err != nil {
 			switch {
