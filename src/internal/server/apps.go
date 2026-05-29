@@ -628,8 +628,10 @@ func deployRunCallbackHandler(store appsStore, auditWriter auditWriteService) ht
 		}
 
 		// Write exactly one audit_log row tagged with the payload trace_id.
-		// Spec §15 hard rule #10: audit MUST NOT block the callback path; on
-		// error log a slog warn and continue — the reconciler will retry.
+		// Spec §15 hard rule #10: audit MUST NOT block the callback path.
+		// On write failure we log and continue; operator must reconcile
+		// manually (no reconciler retry path exists for deploy_callback
+		// audit rows today).
 		if auditWriter != nil {
 			teamID, terr := store.GetDeployRunTeamID(ctx, runID)
 			if terr != nil || teamID == "" {
@@ -1440,15 +1442,6 @@ func NewRouterWithIngestion(store routerStore, k3sClient infraK3sClient, cfClien
 		})
 	}
 	return newRouterFull(store, githubClient, k3sClient, cfClient, limiter, observer, auditSvc, incidentSvc, uploadIngest, uploadAuditSvc, archiveSigner, callbackAuditWriter)
-}
-
-// NewRouterWithCallbackAudit is a test helper: wires only the deploy
-// callback path with an audit writer and otherwise minimal infra.
-//
-//nolint:revive // exported for tests
-func NewRouterWithCallbackAudit(store routerStore, callbackAuditWriter auditWriteService) http.Handler {
-	githubClient := newGitHubOAuthClient()
-	return newRouterFull(store, githubClient, nil, nil, nil, nil, nil, nil, nil, nil, nil, callbackAuditWriter)
 }
 
 func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient infraK3sClient, cfClient infraCloudflareClient, limiter *ratelimit.Limiter, observer ratelimit.Observer, auditSvc auditQueryService, incidentSvc incidentService, uploadIngest ingestionStoreFull, uploadAuditSvc uploadAuditWriter, archiveSigner *ingestion.TokenSigner, callbackAuditWriter auditWriteService) http.Handler {

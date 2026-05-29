@@ -326,7 +326,11 @@ func TestDeployCallbackWritesAuditLogWithPayloadTraceID(t *testing.T) {
 	store, _ := newFakeStore()
 	auditWriter := &fakeAuditWriter{}
 
-	srv := httptest.NewServer(NewRouterWithCallbackAudit(store, auditWriter))
+	// Mirror uploads_test.go newUploadRouter pattern: call newRouterFull
+	// directly (same package) to inject only the callbackAuditWriter and
+	// leave other deps nil.
+	h := newRouterFull(store, newGitHubOAuthClient(), nil, nil, nil, nil, nil, nil, nil, nil, nil, auditWriter)
+	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 
 	body := `{"run_id":"deploy-1","status":"success","trace_id":"callback-trace-xyz"}`
