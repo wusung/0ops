@@ -6,7 +6,7 @@ set -euo pipefail
 # Usage: ./tasks/m2-2-e2e-validation.sh [--dev]
 
 MODE="${1:-}"
-BACKEND_URL="${OPS_BACKEND_URL:-http://localhost:8080}"
+BACKEND_URL="${OPS_BACKEND_URL:-http://localhost:${OPS_HOST_PORT:-8080}}"
 TEAM_ID="${TEST_TEAM_ID:-team-test}"
 APP_SLUG="${TEST_APP_SLUG:-app-test}"
 
