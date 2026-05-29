@@ -46,9 +46,9 @@ func (stubOpsTokenSigner) Issue(_, _ string, _ []string) (string, error) {
 // wiring (chi.RequestID + audit.WithTraceID) so the e2e test exercises the
 // same ctx-injection that real callers experience. NewRouter does not wire
 // these middlewares (they live in cmd/server/main.go), so the test must
-// install them around newRouterFull. middleware.RequestID is needed because
-// confirmRedeployHandler reads middleware.GetReqID — without it, Confirm
-// falls back to preview.ID and the chain breaks before deploy_run.
+// install them around newRouterFull. confirmRedeployHandler reads the trace
+// via audit.TraceIDFromContext, which falls back to chi.GetReqID when the
+// ctx key is unset — both code paths funnel through audit.WithTraceID below.
 func traceCtxMiddleware(next http.Handler) http.Handler {
 	return middleware.RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		traceID := strings.TrimSpace(r.Header.Get("X-Trace-ID"))
@@ -120,9 +120,9 @@ func TestTracePropagationFullChain(t *testing.T) {
 	previewID := postRedeployPreview(t, srv.URL, token, store.team.Slug, "alpha", headerTrace)
 
 	// Step 2 — Confirm redeploy with the same X-Trace-ID. confirmRedeployHandler
-	// reads middleware.GetReqID; chi's RequestID middleware seeds that from
-	// X-Request-Id, which our traceCtxMiddleware leaves equal to headerTrace
-	// because we set the same value on both headers below.
+	// reads audit.TraceIDFromContext, which surfaces the value our
+	// traceCtxMiddleware injected from the X-Trace-ID header — no
+	// X-Request-Id workaround required.
 	runID := postRedeployConfirm(t, srv.URL, token, store.team.Slug, previewID, headerTrace)
 	if runID == "" {
 		t.Fatalf("confirm returned empty deploy_run_id")
@@ -162,9 +162,9 @@ func TestTracePropagationFullChain(t *testing.T) {
 }
 
 // postRedeployPreview sends POST /v1/teams/{slug}/apps/{app}/redeploys:preview
-// with the bearer token + X-Trace-ID + X-Request-Id headers (the latter so
-// chi's RequestID middleware echoes the trace into ctx). Returns the
-// preview_id from the JSON envelope.
+// with the bearer token + X-Trace-ID header. No X-Request-Id is sent —
+// the chain must compose from X-Trace-ID alone. Returns the preview_id
+// from the JSON envelope.
 func postRedeployPreview(t *testing.T, baseURL, token, teamSlug, appSlug, traceID string) string {
 	t.Helper()
 	url := baseURL + "/v1/teams/" + teamSlug + "/apps/" + appSlug + "/redeploys:preview"
@@ -175,7 +175,6 @@ func postRedeployPreview(t *testing.T, baseURL, token, teamSlug, appSlug, traceI
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("X-Trace-ID", traceID)
-	req.Header.Set("X-Request-Id", traceID)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("preview Do: %v", err)
@@ -199,7 +198,8 @@ func postRedeployPreview(t *testing.T, baseURL, token, teamSlug, appSlug, traceI
 }
 
 // postRedeployConfirm sends POST /v1/teams/{slug}/redeploys and returns the
-// deploy_run_id. Headers mirror the preview call.
+// deploy_run_id. Only X-Trace-ID is sent; the handler reads the trace via
+// audit.TraceIDFromContext, so X-Request-Id is not required.
 func postRedeployConfirm(t *testing.T, baseURL, token, teamSlug, previewID, traceID string) string {
 	t.Helper()
 	url := baseURL + "/v1/teams/" + teamSlug + "/redeploys"
@@ -214,7 +214,6 @@ func postRedeployConfirm(t *testing.T, baseURL, token, teamSlug, previewID, trac
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("X-Trace-ID", traceID)
-	req.Header.Set("X-Request-Id", traceID)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("confirm Do: %v", err)
