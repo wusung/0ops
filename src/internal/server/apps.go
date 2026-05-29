@@ -551,7 +551,7 @@ func deployRunCallbackHandler(store appsStore, auditWriter auditWriteService) ht
 			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "invalid json payload", nil)
 			return
 		}
-		slog.Info("callback received", "run_id", runID, "status", req.Status, "trace_id", trimStringPtr(req.TraceID))
+		slog.Info("callback received", "run_id", runID, "status", req.Status, "trace_id", trimStringValue(req.TraceID))
 		timestamp := strings.TrimSpace(r.Header.Get("X-0ops-Timestamp"))
 		signature := strings.TrimSpace(r.Header.Get("X-0ops-Signature"))
 		if !validateCallbackTimestamp(timestamp, time.Now().UTC(), 5*time.Minute) {
@@ -1769,6 +1769,15 @@ func trimStringPtr(v *string) *string {
 		return nil
 	}
 	return &trimmed
+}
+
+// trimStringValue dereferences trimStringPtr for callers that want a value
+// (e.g. slog fields, where *string would format as a pointer address).
+func trimStringValue(v *string) string {
+	if p := trimStringPtr(v); p != nil {
+		return *p
+	}
+	return ""
 }
 
 func isValidFailureClassification(raw string) bool {
