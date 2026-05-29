@@ -32,7 +32,7 @@
 | deploy_run 持久化 | ✅ | `migrations/00001_init.sql:76` `deploy_run.trace_id NOT NULL` |
 | GHA `repository_dispatch` payload | ✅ | `src/internal/server/services/workflowdispatch/client.go:30` `ClientPayload.TraceID` |
 | GHA callback → deploy_run | ✅ | `src/internal/server/apps.go:564-600` 校驗 + `ApplyDeployCallback` |
-| Callback → audit_log | ⚠️ C3 | callback handler 未呼 `audit.WithTraceID(ctx, payload.TraceID)`，audit fallback 走 `middleware.GetReqID`，與 callback 自帶 trace_id 不一致 |
+| Callback → audit_log | ⚠️ C3 | callback handler **完全未寫** audit_log entry（只更新 deploy_run + metrics）；ADR-0005 § 4.6 / ADR-0006 § 4 點 5 隱含 callback 必須留下 audit 痕跡 |
 | Reconciler → audit_log | ✅ partial | `src/internal/server/services/reconciler/incident.go:130-142` 經 `OpenParams.TraceID` 傳遞 |
 
 ## 4. 變更詳細
@@ -70,17 +70,51 @@ ALTER TABLE preview DROP COLUMN trace_id;
 
 **Postgres 11+ 行為**：`ALTER TABLE ADD COLUMN ... NOT NULL DEFAULT ...` 不重寫資料頁，O(1) 變更。
 
-### 4.3 C3 — callback handler 先 WithTraceID
+### 4.3 C3 — callback handler 補 audit.Log 並用 payload trace_id
 
 **檔**：`src/internal/server/apps.go` GHA callback handler
 
-**改動**：解析 `payload.TraceID` 並驗證非空後，立即：
+**現況**：handler 只呼 `ApplyDeployCallback`（更新 deploy_run）+ metric；無 audit_log 寫入。
+
+**改動**：
+
+1. 解析 `payload.TraceID` 並驗證非空後：
+
+   ```go
+   ctx := audit.WithTraceID(r.Context(), *traceID)
+   ```
+
+2. 把 ctx 傳給 `store.ApplyDeployCallback(ctx, …)`（取代既有 `r.Context()`）
+3. `ApplyDeployCallback` 成功後加 audit 寫入：
+
+   ```go
+   _ = auditSvc.Log(ctx, audit.Entry{
+       TeamID:      <由 deploy_run join 取得>,
+       Source:      audit.SourceSystem,
+       SubjectType: "deploy_run",
+       SubjectID:   runID,
+       Action:      "deploy.callback",
+       Outcome:     <success / failed 由 status 映射>,
+       Args:        <status, failure_classification>,
+       Result:      <error_summary 等>,
+   })
+   ```
+
+   `audit.Log` 失敗只記 metric 不阻斷 callback（spec § 15 hard rule #10：audit 不阻流，但 reconciler 會補）。
+
+4. 介接 `auditSvc`：handler 透過 `deployRunCallbackHandler(store appsStore, auditSvc auditWriteService)` 簽章接入；`NewRouterWithReconciler` 之後的 router 工廠把 audit service 傳下來。
+
+**新增 service 介面**：
 
 ```go
-ctx = audit.WithTraceID(ctx, payload.TraceID)
+type auditWriteService interface {
+    Log(ctx context.Context, entry audit.Entry) error
+}
 ```
 
-後續 `ApplyDeployCallback`、`audit.Log` 都吃這個 ctx；確保 `audit_log.trace_id = callback payload trace_id`，符合 ADR-0005 § 4.6。
+放在 `apps.go` 既有 service interface 區段，與 `auditQueryService` 並列。生產實作直接用 `*audit.Service`。
+
+**符合 ADR**：ADR-0005 § 4.6 callback trace_id propagate 到 audit_log；ADR-0006 § 4 點 5 五段傳遞最後一段成立。
 
 ### 4.4 E2E integration test
 
@@ -106,7 +140,7 @@ ctx = audit.WithTraceID(ctx, payload.TraceID)
 2. 對 callback endpoint 發 POST，payload 帶**不同** trace_id（const-callback）
 3. 斷言：
    - `deploy_run.trace_id` 被 callback overwrite 為 const-callback（既有行為）
-   - `audit_log` 該筆 entry `trace_id` = const-callback（驗 C3 fix）
+   - `audit_log` 新增一筆 `action='deploy.callback'`、`subject_id=runID`、`trace_id=const-callback`（驗 C3 fix；證明 audit entry 來自 payload trace_id 而非 middleware 注入的 request trace_id）
 
 ## 5. 風險與排雷
 
