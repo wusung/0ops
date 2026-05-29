@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tasks/local-build-e2e.sh — M5.6 acceptance script.
+# tasks/local-build-e2e.sh — local file:// → pack build → registry → live deploy acceptance.
 # Exercises: bootstrap → file:// preview → confirm → poll deploy_run live
 # → verify image exists in local registry. Per ADR-0012 / sub-spec § 9.3.
 set -euo pipefail
