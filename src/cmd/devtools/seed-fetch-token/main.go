@@ -1,9 +1,8 @@
 // Package main is a dev-only helper that mints a short-lived HS256 JWT for
 // the GET /v1/uploads/{id}/archive endpoint (scope=download-upload).
 //
-// Used by tasks/m6-source-upload-e2e.sh (T22) to validate the archive
-// download path without an actual GHA runner. Never included in production
-// binaries.
+// Used by tasks/e2e-source-upload.sh to validate the archive download path
+// without an actual GHA runner. Never included in production binaries.
 //
 // Usage:
 //

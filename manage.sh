@@ -57,29 +57,37 @@ cmd_build() {
 }
 
 # --- lint / test ---
-cmd_lint_compose() { podman compose config -q; }
-cmd_lint_docker()  { hadolint src/cmd/*/Dockerfile src/migrations/Dockerfile; }
-cmd_lint_go()      { ( cd src && golangci-lint run ); }
-cmd_lint_prom_rules() { cmd_m2_6_promtool; }
+cmd_lint_compose()    { podman compose config -q; }
+cmd_lint_docker()     { hadolint src/cmd/*/Dockerfile src/migrations/Dockerfile; }
+cmd_lint_go()         { ( cd src && golangci-lint run ); }
+cmd_lint_prom_rules() { bash tasks/lint-prom-rules.sh; }
 
 cmd_test()          { go -C src test ./...; }
 cmd_contract_test() { go -C src test ./internal/server ./internal/cli ./internal/mcp/server; }
 cmd_tidy()          { go -C src mod tidy; }
 
-# --- M2.x ---
-cmd_m2_2_e2e_validation() { bash tasks/m2-2-e2e-validation.sh --dev; }
-cmd_m2_2_check()          { cmd_lint_go && cmd_test && echo "✓ M2.2 code checks passed"; }
-cmd_m2_6_promtool()       { bash tasks/m2-6-promtool-validate.sh; }
-cmd_m2_8_e2e_acceptance() { bash tasks/m2-8-e2e-acceptance.sh; }
-cmd_m2_8_check()          { cmd_lint_go && cmd_test && echo "✓ M2.8 code checks passed"; }
+# --- end-to-end acceptance ---
+# create_app preview → confirm → callback → public URL probe（CLI 互動式 / CLI --yes / MCP / public URL 四路徑）。
+# 對齊 docs/features/create-app-flow/spec.md § 12「End-to-end happy path」。E2E_MODE=local|staging|production。
+cmd_e2e_create_app()    { bash tasks/e2e-create-app.sh "$@"; }
+# local file:// repo → pack build → registry push → live deploy 端到端（dev compose 必須先 healthy）。
+# 對齊 docs/features/dev-environment/local-file-repo.md § 9.3。
+cmd_e2e_local_build()   { bash tasks/local-build-e2e.sh; }
+# upload-source ingestion → preview → confirm → JWT-signed archive fetch（compose 必須先 healthy）。
+# 對齊 ADR-0013 / docs/features/app-source-ingestion/spec.md § 22；dev mode 不觸發實際 GHA workflow。
+cmd_e2e_source_upload() { bash tasks/e2e-source-upload.sh; }
 
-# --- M5.x ---
-cmd_m5_4_pitr_drill() { bash deploy/postgres/scripts/pitr-drill.sh; }
+# --- ops drills ---
+# 本機 Postgres PITR drill（podman compose 迷你 main → staging）；每次 chart 變更應跑一次。
+# 對齊 docs/runbooks/postgres-restore-test.md。
+cmd_pitr_drill() { bash deploy/postgres/scripts/pitr-drill.sh; }
 
-cmd_dev_example_init()  { bash examples/node-demo/bootstrap.sh; }
+# --- dev helpers ---
+cmd_dev_example_init()   { bash examples/node-demo/bootstrap.sh; }
 cmd_dev_create_example() { cmd_dev_example_init && bash tasks/local-build-e2e.sh; }
-cmd_m5_6_local_build_e2e() { bash tasks/local-build-e2e.sh; }
-cmd_m5_6_podman_socket_loosen() {
+# 把 rootless podman socket 改 0666 讓 pack lifecycle container 可讀；host 重啟後跑一次。
+# OPS_ENV=production 時拒絕執行。對齊 docs/features/dev-environment/local-file-repo.md § 14。
+cmd_podman_socket_loosen() {
   local sock="/run/user/$(id -u)/podman/podman.sock"
   if [ ! -S "$sock" ]; then
     echo "socket not found at $sock — 先跑 systemctl --user start podman.socket" >&2
@@ -93,9 +101,6 @@ cmd_m5_6_podman_socket_loosen() {
   ls -la "$sock"
   echo "ok — pack lifecycle container 可讀 socket 至下次 podman.socket 重啟"
 }
-
-# --- M6 app-source-ingestion (ADR-0013) ---
-cmd_m6_source_upload_e2e() { bash tasks/m6-source-upload-e2e.sh; }
 
 # --- sqlc codegen ---
 cmd_sqlc() {
@@ -154,7 +159,7 @@ lint / test:
   lint-compose                 驗證 compose schema
   lint-docker                  驗證 Dockerfile (需安裝 hadolint)
   lint-go                      golangci-lint
-  lint-prom-rules              別名：跑 M2.6 promtool 驗證
+  lint-prom-rules              用 podman + prom/prometheus 跑 promtool check rules
   test                         go test ./... (src/)
   contract-test                backend / cli / mcp contract path tests
   tidy                         go mod tidy (src/)
@@ -162,22 +167,21 @@ lint / test:
 sqlc:
   sqlc                         產生 sqlc 程式碼
 
-M2.x:
-  m2-2-e2e-validation          M2.2 e2e validation (dev mode)
-  m2-2-check                   M2.2 程式檢查 (lint + 測試)
-  m2-6-promtool                用 podman + prom/prometheus 跑 promtool check rules
-  m2-8-e2e-acceptance          M2.8 端到端驗收 (E2E_MODE=local|staging|production)
-  m2-8-check                   M2.8 程式檢查 (lint + 單元/契約測試)
+end-to-end acceptance (compose 必須先 healthy):
+  e2e-create-app               create_app preview→confirm→callback→public URL probe
+                               (E2E_MODE=local|staging|production；spec.md § 12)
+  e2e-local-build              local file:// repo → pack build → registry → live deploy
+  e2e-source-upload            upload-source ingestion → preview → confirm → JWT archive fetch
+                               (ADR-0013；dev mode 不觸發實際 GHA workflow)
 
-M5.x:
-  m5-4-pitr-drill              local PITR drill (spec § 8.3 + § 16 hard rule #5)
+ops drills:
+  pitr-drill                   本機 Postgres PITR drill；每次 chart 變更應跑一次
+
+dev helpers:
   dev-example-init             初始化 examples/node-demo 為 git repo
-  dev-create-example           跑一次 create_app at file:// → live (要求 compose healthy)
-  m5-6-local-build-e2e         M5.6 端到端驗收腳本 (compose 必須先 healthy)
-  m5-6-podman-socket-loosen    把 rootless podman socket 改 0666 讓 pack lifecycle 可讀
-
-M6:
-  m6-source-upload-e2e         M6 T22 端到端驗收腳本 (upload 路徑；compose 必須先 healthy)
+  dev-create-example           bootstrap node-demo 後跑 create_app at file:// → live
+  podman-socket-loosen         把 rootless podman socket 改 0666 讓 pack lifecycle 可讀
+                               (host 重啟後跑一次；OPS_ENV=production 拒絕執行)
 
 task runner:
   task-list                    列出所有 task 與狀態
@@ -224,19 +228,15 @@ main() {
 
     sqlc)            cmd_sqlc "$@" ;;
 
-    m2-2-e2e-validation) cmd_m2_2_e2e_validation "$@" ;;
-    m2-2-check)          cmd_m2_2_check "$@" ;;
-    m2-6-promtool)       cmd_m2_6_promtool "$@" ;;
-    m2-8-e2e-acceptance) cmd_m2_8_e2e_acceptance "$@" ;;
-    m2-8-check)          cmd_m2_8_check "$@" ;;
+    e2e-create-app)       cmd_e2e_create_app "$@" ;;
+    e2e-local-build)      cmd_e2e_local_build "$@" ;;
+    e2e-source-upload)    cmd_e2e_source_upload "$@" ;;
 
-    m5-4-pitr-drill)            cmd_m5_4_pitr_drill "$@" ;;
-    dev-example-init)           cmd_dev_example_init "$@" ;;
-    dev-create-example)         cmd_dev_create_example "$@" ;;
-    m5-6-local-build-e2e)       cmd_m5_6_local_build_e2e "$@" ;;
-    m5-6-podman-socket-loosen)  cmd_m5_6_podman_socket_loosen "$@" ;;
+    pitr-drill)           cmd_pitr_drill "$@" ;;
 
-    m6-source-upload-e2e) cmd_m6_source_upload_e2e "$@" ;;
+    dev-example-init)     cmd_dev_example_init "$@" ;;
+    dev-create-example)   cmd_dev_create_example "$@" ;;
+    podman-socket-loosen) cmd_podman_socket_loosen "$@" ;;
 
     task-list)        cmd_task_list "$@" ;;
     task-next)        cmd_task_next "$@" ;;

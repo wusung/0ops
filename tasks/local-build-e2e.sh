@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tasks/local-build-e2e.sh — M5.6 acceptance script.
+# tasks/local-build-e2e.sh — local file:// → pack build → registry → live deploy acceptance.
 # Exercises: bootstrap → file:// preview → confirm → poll deploy_run live
 # → verify image exists in local registry. Per ADR-0012 / sub-spec § 9.3.
 set -euo pipefail
@@ -35,9 +35,9 @@ case "$SOCK_PERMS" in
 
       在本機 dev 跑一次：
 
-          ./manage.sh m5-6-podman-socket-loosen
+          ./manage.sh podman-socket-loosen
 
-      之後重跑 ./manage.sh m5-6-local-build-e2e。
+      之後重跑 ./manage.sh e2e-local-build。
       （ADR-0012 § 6.2 / docs/features/dev-environment/local-file-repo.md § 15）
 EOF
     exit 1

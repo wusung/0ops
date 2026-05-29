@@ -19,7 +19,7 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
 
 - [ ] **Q1 — production CI workflow 驗證**
   - 目標：`deploy/workflows/deploy-app-from-upload.yml` 對 self-hosted runner 在 production GHA 跑通；JWT fetch 路徑端到端驗
-  - 卡點：需 staging / production GHA runner + `OPS_API_PUBLIC_URL` 對外可達；dev e2e (`tasks/m6-source-upload-e2e.sh`) 不覆蓋 workflow 端
+  - 卡點：需 staging / production GHA runner + `OPS_API_PUBLIC_URL` 對外可達；dev e2e (`tasks/e2e-source-upload.sh`) 不覆蓋 workflow 端
   - Owner：待 production rollout 時 ops + agent 配合
 - [ ] **Q3 — OCI artifact registry ADR-0014**
   - 目標：寫 ADR 評估「OCI artifact 取代本地 ingest tree」之 trade-off
@@ -33,7 +33,7 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
 - [ ] **`nextdemo.winshare.tw` 真實外部 HTTP 200**
   - 來源：M2 驗收基準（`tasks/todo-archive.md` § 驗收基準）
   - 卡點：需 Cloudflare zone wildcard CNAME + `deploy/chart/cloudflare-tunnel/` 部署 + K3s ingress sync
-  - 驗法：`E2E_MODE=production make m2-8-e2e-acceptance`
+  - 驗法：`E2E_MODE=production ./manage.sh e2e-create-app`
 - [ ] **trace_id 全鏈路驗證**
   - 目標：grep + 驗 backend request → preview row → deploy_run → GHA payload → callback → audit_log → structured log 串回同一 trace
   - 注意：M5.2 audit + M5.3 reconciler 已各自實作 `TraceIDFromContext`；動工前需先 audit 而非從零做

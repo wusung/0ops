@@ -20,9 +20,9 @@ import (
 	"github.com/winshare/zeroops/internal/shared/dto"
 )
 
-// TestM28EndToEndPreviewConfirmCallback exercises the M2.8 integration contract
-// against an in-memory backend: preview → confirm → HMAC-signed callback. It is
-// the test counterpart of tasks/m2-8-e2e-acceptance.sh and pins the shape that
+// TestCreateAppEndToEndPreviewConfirmCallback exercises the create_app integration
+// contract against an in-memory backend: preview → confirm → HMAC-signed callback.
+// It is the test counterpart of tasks/e2e-create-app.sh and pins the shape that
 // the script's CLI / MCP / callback phases drive at the protocol layer.
 //
 // Coverage maps to AGENTS.md "高風險區域必測"：
@@ -30,7 +30,7 @@ import (
 //   - idempotent retry（second confirm returns same deploy_run_id without redo）
 //   - webhook 簽章驗證（HMAC signature + timestamp window）
 //   - deploy 狀態轉移（callback success → live via normalizeDeployStatus）
-func TestM28EndToEndPreviewConfirmCallback(t *testing.T) {
+func TestCreateAppEndToEndPreviewConfirmCallback(t *testing.T) {
 	t.Setenv("OPS_CALLBACK_SECRET", "m2-8-callback-secret")
 
 	store, token := newFakeStore()
@@ -140,13 +140,13 @@ func TestM28EndToEndPreviewConfirmCallback(t *testing.T) {
 	}
 }
 
-// TestM28AcceptanceScriptShape pins the harness contract surfaced by
-// tasks/m2-8-e2e-acceptance.sh. It guards against accidental phase removal,
+// TestCreateAppAcceptanceScriptShape pins the harness contract surfaced by
+// tasks/e2e-create-app.sh. It guards against accidental phase removal,
 // silent mode renames, and lost executable bit — all of which would mean
-// `./manage.sh m2-8-e2e-acceptance` no longer drives the four required acceptance
+// `./manage.sh e2e-create-app` no longer drives the four required acceptance
 // paths (CLI --yes / CLI interactive / MCP / public URL probe).
-func TestM28AcceptanceScriptShape(t *testing.T) {
-	scriptPath := filepath.Join("..", "..", "..", "tasks", "m2-8-e2e-acceptance.sh")
+func TestCreateAppAcceptanceScriptShape(t *testing.T) {
+	scriptPath := filepath.Join("..", "..", "..", "tasks", "e2e-create-app.sh")
 
 	info, err := os.Stat(scriptPath)
 	if err != nil {
@@ -179,7 +179,7 @@ func TestM28AcceptanceScriptShape(t *testing.T) {
 	// PHASES_ALL drives the default `--all` run order; assert the slug list is
 	// present so removing a phase from the loop is caught at test time too.
 	if !strings.Contains(body, "PHASES_ALL=(preflight cli-yes cli-interactive mcp callback public-url-probe)") {
-		t.Errorf("%s PHASES_ALL ordering changed; update tasks/todo.md M2.8 acceptance bullets", scriptPath)
+		t.Errorf("%s PHASES_ALL ordering changed; update tasks/todo.md create_app acceptance bullets", scriptPath)
 	}
 
 	requiredModes := []string{"local", "staging", "production"}

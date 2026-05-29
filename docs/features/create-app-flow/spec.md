@@ -443,7 +443,7 @@ LLM 自行呈現給 user 並提示「可以追蹤 deploy_run_id」。
 | GitOps push 失敗 | mock 5 次衝突 | compensate；undo R1+R2；rolled_back |
 | GHA dispatch 失敗 | mock 503 | failed；`gha_dispatch_failed` |
 | Callback success | mock GHA HMAC OK | deploy_run 進 pushing → rendering → syncing → live |
-| End-to-end happy path | `tasks/m2-8-e2e-acceptance.sh`（`E2E_MODE=production`，含 CLI 互動式 / CLI `--yes` / MCP `create_app_preview`→`create_app` / public URL 探測四 phase） | < 10 分鐘 nextdemo.winshare.tw 回 200 |
+| End-to-end happy path | `tasks/e2e-create-app.sh`（`E2E_MODE=production`，含 CLI 互動式 / CLI `--yes` / MCP `create_app_preview`→`create_app` / public URL 探測四 phase） | < 10 分鐘 nextdemo.winshare.tw 回 200 |
 | Preview replay | 同 preview_id confirm 兩次 | 第二次 idempotent_replay=true，副作用未重做 |
 | MCP create_app description lint | `0ops-mcp` 啟動 | description 含 ALWAYS / NEVER clause |
 | trace_id 端到端 | 從 CLI 一個 create_app | audit_log 5 條都同一 trace_id；GHA log 含同 trace_id；callback payload trace_id 一致 |
