@@ -1,19 +1,25 @@
-package main
+package trace_test
 
 import (
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/go-chi/chi/v5/middleware"
+	chimw "github.com/go-chi/chi/v5/middleware"
+
+	tracemw "github.com/winshare/zeroops/internal/server/middleware/trace"
 	"github.com/winshare/zeroops/internal/server/services/audit"
 )
 
-func TestRequestTraceSetsHeader(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(httptest.NewRecorder(), nil))
+func discardLogger(t *testing.T) *slog.Logger {
+	t.Helper()
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
 
-	handler := middleware.RequestID(requestTrace(logger)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+func TestMiddlewareSetsHeader(t *testing.T) {
+	handler := chimw.RequestID(tracemw.Middleware(discardLogger(t))(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})))
 
@@ -26,10 +32,8 @@ func TestRequestTraceSetsHeader(t *testing.T) {
 	}
 }
 
-func TestRequestTracePrefersIncomingTraceHeader(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(httptest.NewRecorder(), nil))
-
-	handler := middleware.RequestID(requestTrace(logger)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+func TestMiddlewarePrefersIncomingTraceHeader(t *testing.T) {
+	handler := chimw.RequestID(tracemw.Middleware(discardLogger(t))(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})))
 
@@ -43,14 +47,12 @@ func TestRequestTracePrefersIncomingTraceHeader(t *testing.T) {
 	}
 }
 
-func TestRequestTraceInjectsTraceIDIntoContext(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(httptest.NewRecorder(), nil))
-
+func TestMiddlewareInjectsTraceIDIntoContext(t *testing.T) {
 	var gotFromCtx string
 	inner := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		gotFromCtx = audit.TraceIDFromContext(r.Context())
 	})
-	handler := middleware.RequestID(requestTrace(logger)(inner))
+	handler := chimw.RequestID(tracemw.Middleware(discardLogger(t))(inner))
 
 	const traceID = "7a9d3c8e4b1f4a2e9c6d5b8a3f0e1d2c"
 	req := httptest.NewRequest(http.MethodGet, "/x", nil)
@@ -62,19 +64,15 @@ func TestRequestTraceInjectsTraceIDIntoContext(t *testing.T) {
 	}
 }
 
-func TestRequestTraceCtxAndHeaderAgreeOnFallback(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(httptest.NewRecorder(), nil))
-
+func TestMiddlewareCtxAndHeaderAgreeOnFallback(t *testing.T) {
 	var gotFromCtx string
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotFromCtx = audit.TraceIDFromContext(r.Context())
 		w.WriteHeader(http.StatusNoContent)
 	})
-	handler := middleware.RequestID(requestTrace(logger)(inner))
+	handler := chimw.RequestID(tracemw.Middleware(discardLogger(t))(inner))
 
 	req := httptest.NewRequest(http.MethodGet, "/x", nil)
-	// no X-Trace-ID — middleware should fall back to chi RequestID, and
-	// the same string must appear in BOTH the response header and the ctx.
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
