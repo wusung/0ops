@@ -96,3 +96,25 @@
   - 兩階段 review（spec → code quality）連續 23 task 撈出 5 critical + 數十個 important；平均 fix 1 task < 5 min（reviewer 提供精準 diff suggestion）
   - 每個 PR 之 fix commit 平均 1.5 個（每 task 平均 2 commit：feat + fix）
   - dev 環境本身（compose stack）為 T1-T21 之舊 binary 無法跑 T22 e2e；要驗端到端需 rebuild，超出 task 範圍
+
+## verify 任務在 audit 結束後常變 fix 任務（2026-05-29）
+
+`trace_id 全鏈路驗證` task 原始描述為 verify-only，但 audit 結果發現 3 個 critical
+gap（middleware ctx 注入、preview.trace_id 欄位、callback 缺 audit.Log）已違 ADR-0005
+/ ADR-0006。實作期間又陸續發現：
+
+- callback handler 不是「呼叫但 trace_id 錯」而是「完全沒寫 audit_log」
+- `confirmRedeployHandler` 讀 `middleware.GetReqID` 而非 `audit.TraceIDFromContext`，
+  同一 bug class 散落 `confirmCreateAppHandler` / `confirmDeleteAppHandler` 也有
+- 專案 `R2_not_null_three_step` lint 禁 `NOT NULL DEFAULT` 一步寫法，需 nullable +
+  app-layer sentinel 模式（與 sibling trace_id 欄位一致）
+
+**Pattern：** 標 verify 的 task 進場前要先區分
+
+- 真 verify（only grep + 寫 test 鎖住現狀）
+- 隱含 fix（audit 結束發現規格未實作 → 應建獨立 task 並改 PR 範圍）
+
+**動作：** audit 階段結束後立即更新 spec（accurate ground truth），避免 plan 階段用
+舊假設展開。本次 C3 spec 重寫一次、Task 1 migration 因 lint 重做一次、Task 5
+surface 隔壁 handler 同 bug 再補 fix 一次 — 都是延遲修正導致 plan 重寫的成本。
+往後 audit subagent 報告必須區分「已存在但 broken」與「完全缺失」兩種 gap。

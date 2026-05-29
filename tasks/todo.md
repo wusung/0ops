@@ -34,9 +34,10 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
   - 來源：M2 驗收基準（`tasks/todo-archive.md` § 驗收基準）
   - 卡點：需 Cloudflare zone wildcard CNAME + `deploy/chart/cloudflare-tunnel/` 部署 + K3s ingress sync
   - 驗法：`E2E_MODE=production make m2-8-e2e-acceptance`
-- [ ] **trace_id 全鏈路驗證**
-  - 目標：grep + 驗 backend request → preview row → deploy_run → GHA payload → callback → audit_log → structured log 串回同一 trace
-  - 注意：M5.2 audit + M5.3 reconciler 已各自實作 `TraceIDFromContext`；動工前需先 audit 而非從零做
+- [x] **trace_id 全鏈路驗證**
+  - 結果：C1（middleware ctx 注入）/ C2（preview.trace_id 欄位）/ C3（callback handler 補 audit.Log）三個 fix + redeploy/create-app/delete-app confirm 都改讀 `audit.TraceIDFromContext` + e2e composition test 已 ship。
+  - 既已驗：HTTP header `X-Trace-ID` → middleware ctx → preview.trace_id → deploy_run.trace_id → workflow_dispatch payload trace_id → callback payload trace_id → audit_log.trace_id 同一 trace 串到底。
+  - 範圍排除（follow-up）：M1 `reconciliation_job.trace_id` 欄位、M2 slog `ContextHandler` 自動注入、`requestTrace` middleware 抽到 shared package、`apps.go:554` slog `*string` 列印 ptr 位址而非值（pre-existing bug）。
 - [ ] **runbook winshare 細節補完**
   - 殘留：`docs/runbooks/winshare-route-failure.md` 為 skeleton，§ 2-5 之 kubectl/cloudflared/argocd 具體指令待 infra 落地後補（同 PR 內補完並刪該檔 § 6）
   - 動工條件：與「`nextdemo.winshare.tw` 真實外部 HTTP 200」同一個 PR 一起處理
