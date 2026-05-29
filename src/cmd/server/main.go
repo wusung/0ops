@@ -21,6 +21,7 @@ import (
 	"github.com/winshare/zeroops/internal/server/services/createapp/ingestion"
 	"github.com/winshare/zeroops/internal/server/leader"
 	ratelimit "github.com/winshare/zeroops/internal/server/middleware/ratelimit"
+	tracemw "github.com/winshare/zeroops/internal/server/middleware/trace"
 	"github.com/winshare/zeroops/internal/server/observability"
 	"github.com/winshare/zeroops/internal/server/services/audit"
 	"github.com/winshare/zeroops/internal/server/services/cloudflare"
@@ -100,7 +101,7 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
-	r.Use(requestTrace(logger))
+	r.Use(tracemw.Middleware(logger))
 	r.Use(middleware.Recoverer)
 	r.Use(metrics.Middleware(routeLabel))
 
@@ -183,35 +184,6 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("graceful shutdown failed", "err", err)
 		os.Exit(1)
-	}
-}
-
-func requestTrace(logger *slog.Logger) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			traceID := strings.TrimSpace(r.Header.Get("X-Trace-ID"))
-			if traceID == "" {
-				traceID = strings.TrimSpace(r.Header.Get("X-Request-ID"))
-			}
-			if traceID == "" {
-				traceID = middleware.GetReqID(r.Context())
-			}
-			if traceID == "" {
-				traceID = "trace-missing"
-			}
-			w.Header().Set("X-Trace-ID", traceID)
-
-			ctx := audit.WithTraceID(r.Context(), traceID)
-
-			start := time.Now()
-			next.ServeHTTP(w, r.WithContext(ctx))
-			logger.Info("http request completed",
-				"trace_id", traceID,
-				"method", r.Method,
-				"path", r.URL.Path,
-				"duration_ms", time.Since(start).Milliseconds(),
-			)
-		})
 	}
 }
 

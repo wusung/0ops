@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -15,9 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-chi/chi/v5/middleware"
-
-	"github.com/winshare/zeroops/internal/server/services/audit"
+	tracemw "github.com/winshare/zeroops/internal/server/middleware/trace"
 	"github.com/winshare/zeroops/internal/server/services/redeploy"
 	workflowdispatch "github.com/winshare/zeroops/internal/server/services/workflowdispatch"
 )
@@ -40,24 +39,6 @@ type stubOpsTokenSigner struct{}
 
 func (stubOpsTokenSigner) Issue(_, _ string, _ []string) (string, error) {
 	return "stub-ops-token", nil
-}
-
-// traceCtxMiddleware mirrors the production cmd/server/main.go::requestTrace
-// wiring (chi.RequestID + audit.WithTraceID) so the e2e test exercises the
-// same ctx-injection that real callers experience. NewRouter does not wire
-// these middlewares (they live in cmd/server/main.go), so the test must
-// install them around newRouterFull. confirmRedeployHandler reads the trace
-// via audit.TraceIDFromContext, which falls back to chi.GetReqID when the
-// ctx key is unset — both code paths funnel through audit.WithTraceID below.
-func traceCtxMiddleware(next http.Handler) http.Handler {
-	return middleware.RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		traceID := strings.TrimSpace(r.Header.Get("X-Trace-ID"))
-		if traceID == "" {
-			traceID = middleware.GetReqID(r.Context())
-		}
-		ctx := audit.WithTraceID(r.Context(), traceID)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	}))
 }
 
 // TestTracePropagationFullChain proves a trace_id supplied in the inbound
@@ -110,7 +91,8 @@ func TestTracePropagationFullChain(t *testing.T) {
 	// inbound X-Trace-ID lands in ctx for downstream handlers.
 	auditWriter := &fakeAuditWriter{}
 	router := newRouterFull(store, newGitHubOAuthClient(), nil, nil, nil, nil, nil, nil, nil, nil, nil, auditWriter)
-	srv := httptest.NewServer(traceCtxMiddleware(router))
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srv := httptest.NewServer(tracemw.Middleware(logger)(router))
 	t.Cleanup(srv.Close)
 
 	// Step 1 — Preview redeploy with X-Trace-ID header. The handler runs
