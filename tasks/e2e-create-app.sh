@@ -27,7 +27,7 @@ set -euo pipefail
 #
 # 必要 / 可選環境變數：
 #   E2E_MODE                  預設 local
-#   OPS_HOST                  backend host；local 預設 http://127.0.0.1:8080
+#   OPS_HOST                  backend host；local 預設 http://127.0.0.1:${OPS_HOST_PORT:-8080}
 #   OPS_BEARER_TOKEN          bearer token；local mode 可由 bootstrap 取得後手動匯出
 #   OPS_TEAM_SLUG             team slug；staging+ 必填
 #   OPS_CALLBACK_SECRET       callback HMAC 共用密鑰；預設 dev-callback-secret-change-me
@@ -94,7 +94,7 @@ case "$E2E_MODE" in
     ;;
 esac
 
-OPS_HOST="${OPS_HOST:-http://127.0.0.1:8080}"
+OPS_HOST="${OPS_HOST:-http://127.0.0.1:${OPS_HOST_PORT:-8080}}"
 OPS_BEARER_TOKEN="${OPS_BEARER_TOKEN:-}"
 OPS_TEAM_SLUG="${OPS_TEAM_SLUG:-}"
 OPS_CALLBACK_SECRET="${OPS_CALLBACK_SECRET:-dev-callback-secret-change-me}"
