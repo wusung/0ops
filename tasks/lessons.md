@@ -118,3 +118,27 @@ gap（middleware ctx 注入、preview.trace_id 欄位、callback 缺 audit.Log�
 舊假設展開。本次 C3 spec 重寫一次、Task 1 migration 因 lint 重做一次、Task 5
 surface 隔壁 handler 同 bug 再補 fix 一次 — 都是延遲修正導致 plan 重寫的成本。
 往後 audit subagent 報告必須區分「已存在但 broken」與「完全缺失」兩種 gap。
+
+## L010｜dev compose 在 systemd-resolved host 上需要 podman 全域 DNS override
+
+- **情境**：2026-05-29 跑 `./manage.sh dev-create-example`，server 容器卡 `building...`
+  永不 healthy；server log 顯示 `lookup proxy.golang.org on 10.89.13.1:53: i/o timeout`。
+  改 `compose.override.yaml` 給 server 加 `dns: [1.1.1.1, 9.9.9.9]` 後 server 通了，
+  但 pack lifecycle ephemeral container 在 ANALYZING/BUILDING phase 又踩同樣坑：
+  `lookup nodejs.org on 10.89.14.1:53: i/o timeout`（注意 14.x 是另一個 podman 網段，
+  由 host podman 經 `DOCKER_HOST` 另起，**不走 compose**）。
+- **錯誤**：
+  1. 只在 compose 層補 DNS 不夠，pack 的 ephemeral container 吃的是 podman 全域 DNS。
+  2. 第一次寫 `~/.config/containers/containers.conf` 把 `dns_servers` 放在 `[network]`
+     section，podman 不報錯但完全不生效。正確是 `[containers].dns_servers`。
+  3. 症狀根因：host `/etc/resolv.conf` 只指 `127.0.0.53`（systemd-resolved stub），
+     aardvark-dns 無法把 query 轉發到任何 container 可達的上游。
+- **規則**：
+  1. 這台 host 跑任何 rootless podman buildpack 流程前，先確認
+     `~/.config/containers/containers.conf` 有 `[containers] dns_servers = ["1.1.1.1", "9.9.9.9"]`。
+  2. 若同時要動 compose container 的 DNS，用 `compose.override.yaml` 加 `dns:` block，
+     不改 root `compose.yaml`（同 L001 § 規則 3）。
+  3. log pattern 看到 `lookup <host> on 10.89.x.1:53: i/o timeout` 直接定位這條規則，
+     不要往 GOPROXY、proxy.golang.org outage、podman socket perms 等方向歪。
+  4. 改 `containers.conf` 後不需要 restart podman；新 container 立即生效，既有 long-running
+     container 要 recreate（或走 compose `up -d <svc>`）。
