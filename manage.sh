@@ -83,6 +83,9 @@ cmd_prod_up()     { bash deploy/bootstrap/up.sh "$@"; }
 cmd_prod_down()   { bash deploy/bootstrap/down.sh "$@"; }
 cmd_prod_smoke()  { bash deploy/bootstrap/smoke.sh "$@"; }
 cmd_prod_verify() { bash deploy/bootstrap/wait-for-sync.sh && bash deploy/bootstrap/smoke.sh; }
+# docs/runbooks/production-oauth-setup.md — 互動式 OAuth App 註冊與驗證。
+cmd_prod_setup_oauth()  { bash deploy/bootstrap/setup-oauth-app.sh "$@"; }
+cmd_prod_verify_oauth() { bash deploy/bootstrap/verify-oauth.sh "$@"; }
 
 # --- ops drills ---
 # 本機 Postgres PITR drill（podman compose 迷你 main → staging）；每次 chart 變更應跑一次。
@@ -188,6 +191,9 @@ production bootstrap (spec docs/features/production-deployment/spec.md):
                                (postgres ns + PVC 保留)
   prod-verify                  等 ArgoCD 全 Synced+Healthy + 跑 smoke
   prod-smoke                   單跑 HTTP 200 smoke（api / demo host）
+  prod-setup-oauth             互動式註冊 production GitHub OAuth App + 寫入 .env.prod
+                               (runbook docs/runbooks/production-oauth-setup.md)
+  prod-verify-oauth            驗 GITHUB_OAUTH_CLIENT_ID 在 GitHub 端有效 + Device Flow 已啟用
 
 ops drills:
   pitr-drill                   本機 Postgres PITR drill；每次 chart 變更應跑一次
@@ -251,6 +257,8 @@ main() {
     prod-down)            cmd_prod_down "$@" ;;
     prod-verify)          cmd_prod_verify "$@" ;;
     prod-smoke)           cmd_prod_smoke "$@" ;;
+    prod-setup-oauth)     cmd_prod_setup_oauth "$@" ;;
+    prod-verify-oauth)    cmd_prod_verify_oauth "$@" ;;
 
     pitr-drill)           cmd_pitr_drill "$@" ;;
 

@@ -12,12 +12,16 @@
 
 # 2. 準備 .env.prod
 cp deploy/bootstrap/env.example deploy/bootstrap/.env.prod
-$EDITOR deploy/bootstrap/.env.prod   # 填 CF token / OAuth / domain / image tag / pg password
+$EDITOR deploy/bootstrap/.env.prod   # 填 CF token / domain / image tag / pg password
 
-# 3. 跑
+# 3. 註冊 production GitHub OAuth App 並寫回 .env.prod
+./manage.sh prod-setup-oauth
+./manage.sh prod-verify-oauth   # 驗 Client ID 在 GitHub 端有效
+
+# 4. 跑
 ./manage.sh prod-up
 
-# 4. 驗
+# 5. 驗
 ./manage.sh prod-smoke
 ```
 
@@ -29,7 +33,7 @@ $EDITOR deploy/bootstrap/.env.prod   # 填 CF token / OAuth / domain / image tag
 | Cloudflare zone `winshare.tw` | 已在 Cloudflare 帳號內 |
 | `*.winshare.tw` CNAME | Cloudflare zone → DNS → wildcard CNAME → tunnel hostname |
 | Cloudflare Tunnel | one.dash.cloudflare.com → Networks → Tunnels → Create → 拿 token |
-| GitHub OAuth App | github.com/settings/developers → New OAuth App，callback 設 `https://api.<domain>/v1/auth/oauth2/callback` |
+| GitHub OAuth App | `./manage.sh prod-setup-oauth` 互動式建立（runbook `docs/runbooks/production-oauth-setup.md`）；或手動 `github.com/settings/developers` |
 | `kubeseal` CLI | `brew install kubeseal` / `pacman -S kubeseal` |
 
 ## 流程
