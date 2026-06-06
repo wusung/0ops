@@ -7,22 +7,34 @@
 
 一台空 K3s host + 一份填好的 `.env.prod` → 一條指令 → `https://api.<domain>/health` HTTP 200。
 
+## Option A：一條指令到底（推薦）
+
 ```bash
-# 1. 準備 host（VPS / homelab，Linux + sshd + 你的 ssh pubkey 在 authorized_keys）
-
-# 2. 準備 .env.prod
 cp deploy/bootstrap/env.example deploy/bootstrap/.env.prod
-$EDITOR deploy/bootstrap/.env.prod   # 填 CF token / domain / image tag / pg password
+$EDITOR deploy/bootstrap/.env.prod    # 填 CF token / domain / image tag / pg password
+./manage.sh prod-bootstrap-all        # 串完 setup-oauth → verify-oauth → up → smoke →
+                                       # install-runner → runner-validate → e2e production
+```
 
-# 3. 註冊 production GitHub OAuth App 並寫回 .env.prod
+`prod-bootstrap-all` 全步冪等；任一步失敗即停。
+重跑 `--resume-from=N` 從第 N 步續。
+不想要 self-hosted runner：`--skip-runner`；不想跑最終 e2e：`--skip-e2e`。
+
+完整 runbook：[`docs/runbooks/production-acceptance.md`](../../docs/runbooks/production-acceptance.md)。
+
+## Option B：分步走
+
+```bash
+cp deploy/bootstrap/env.example deploy/bootstrap/.env.prod
+$EDITOR deploy/bootstrap/.env.prod
 ./manage.sh prod-setup-oauth
-./manage.sh prod-verify-oauth   # 驗 Client ID 在 GitHub 端有效
-
-# 4. 跑
+./manage.sh prod-verify-oauth
 ./manage.sh prod-up
-
-# 5. 驗
 ./manage.sh prod-smoke
+./manage.sh prod-install-runner    # 可選
+gh variable set GHA_RUNNER_LABEL --repo wusung/0ops --body 0ops-builder
+./manage.sh prod-runner-validate
+E2E_MODE=production OPS_HOST=https://api.<domain> ./manage.sh e2e-create-app
 ```
 
 ## 前置（user 手動，repo 內不自動完成）

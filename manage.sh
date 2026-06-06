@@ -90,6 +90,8 @@ cmd_prod_verify_oauth() { bash deploy/bootstrap/verify-oauth.sh "$@"; }
 cmd_prod_install_runner()  { bash deploy/runner/install-runner.sh "$@"; }
 cmd_prod_runner_status()   { bash deploy/runner/status.sh "$@"; }
 cmd_prod_runner_validate() { bash tasks/m6-q1-runner-validate.sh "$@"; }
+# docs/runbooks/production-acceptance.md — 一條指令串完所有 prod-* 達 HTTP 200。
+cmd_prod_bootstrap_all() { bash deploy/bootstrap/all.sh "$@"; }
 
 # --- ops drills ---
 # 本機 Postgres PITR drill（podman compose 迷你 main → staging）；每次 chart 變更應跑一次。
@@ -202,6 +204,10 @@ production bootstrap (spec docs/features/production-deployment/spec.md):
                                (spec docs/features/self-hosted-runner/spec.md)
   prod-runner-status           印 runner online 狀態 + 最近 N runs + vars.GHA_RUNNER_LABEL
   prod-runner-validate         端到端驗 self-hosted runner 鏈路（runner + vars + workflow + callback）
+  prod-bootstrap-all           一條指令串完 setup-oauth → verify-oauth → up → smoke →
+                               install-runner → runner-validate → e2e production，到 HTTP 200
+                               (runbook docs/runbooks/production-acceptance.md)
+                               flags: --skip-runner / --skip-e2e / --resume-from=N
 
 ops drills:
   pitr-drill                   本機 Postgres PITR drill；每次 chart 變更應跑一次
@@ -270,6 +276,7 @@ main() {
     prod-install-runner)  cmd_prod_install_runner "$@" ;;
     prod-runner-status)   cmd_prod_runner_status "$@" ;;
     prod-runner-validate) cmd_prod_runner_validate "$@" ;;
+    prod-bootstrap-all)   cmd_prod_bootstrap_all "$@" ;;
 
     pitr-drill)           cmd_pitr_drill "$@" ;;
 
