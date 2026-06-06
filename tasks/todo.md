@@ -30,18 +30,24 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
 
 ### v1 收尾殘留（不阻擋 ship）
 
-- [ ] **`nextdemo.winshare.tw` 真實外部 HTTP 200**
+- [ ] **`nextdemo.winshare.tw` 真實外部 HTTP 200**（waiting on user-side resources）
   - 來源：M2 驗收基準（`tasks/todo-archive.md` § 驗收基準）
-  - 卡點：需 Cloudflare zone wildcard CNAME + `deploy/chart/cloudflare-tunnel/` 部署 + K3s ingress sync
-  - 驗法：`E2E_MODE=production ./manage.sh e2e-create-app`
+  - 工程封裝完成 2026-06-06（PR `feat/production-deployment`）：
+    `docs/features/production-deployment/spec.md` + `deploy/bootstrap/` + `deploy/gitops/argocd/` +
+    `deploy/server` ingress/config templates + `manage.sh prod-{up,down,verify,smoke}` +
+    補完 `docs/runbooks/winshare-route-failure.md` § 2-5
+  - 剩下動工：user 提供外部資源後跑 `./manage.sh prod-up`
+    - Cloudflare zone `winshare.tw` 管理權 + wildcard CNAME `*.winshare.tw` → tunnel
+    - Cloudflare Tunnel token（one.dash.cloudflare.com → Networks → Tunnels）
+    - GitHub OAuth App (production)，callback URL = `https://api.winshare.tw/v1/auth/oauth2/callback`
+    - K3s host（VPS / homelab，Linux + sshd + ssh key）
+    - `kubeseal` CLI on local
+  - 驗法：`./manage.sh prod-smoke` + `E2E_MODE=production ./manage.sh e2e-create-app`
 - [x] **trace_id 全鏈路驗證**
   - 結果：C1（middleware ctx 注入）/ C2（preview.trace_id 欄位）/ C3（callback handler 補 audit.Log）三個 fix + redeploy/create-app/delete-app confirm 都改讀 `audit.TraceIDFromContext` + e2e composition test 已 ship。
   - 既已驗：HTTP header `X-Trace-ID` → middleware ctx → preview.trace_id → deploy_run.trace_id → workflow_dispatch payload trace_id → callback payload trace_id → audit_log.trace_id 同一 trace 串到底。
   - 範圍排除（follow-up）：M1 `reconciliation_job.trace_id` 欄位、M2 slog `ContextHandler` 自動注入、`requestTrace` middleware 抽到 shared package、`apps.go:554` slog `*string` 列印 ptr 位址而非值（pre-existing bug）。
-- [ ] **runbook winshare 細節補完**
-  - 殘留：`docs/runbooks/winshare-route-failure.md` 為 skeleton，§ 2-5 之 kubectl/cloudflared/argocd 具體指令待 infra 落地後補（同 PR 內補完並刪該檔 § 6）
-  - 動工條件：與「`nextdemo.winshare.tw` 真實外部 HTTP 200」同一個 PR 一起處理
-  - 既有：`docs/runbooks/{postgres-failover,postgres-pitr,postgres-restore-test,goose-create-workflow,gha-callback-signature-failure,create-app-stuck,winshare-route-failure,burn-rate-alert-response}.md`
+- [x] **runbook winshare 細節補完** — 2026-06-06，隨 `feat/production-deployment` PR 收。§ 6 「待落地」段移除；§ 2-5 已補 kubectl / cloudflared / argocd 具體指令。
 
 ### 治理 / 商業（文件層 backlog）
 

@@ -52,6 +52,11 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: ops-server-config
+            - secretRef:
+                name: {{ .Values.secretRef.name | quote }}
           env:
             - name: OPS_LEADER_MODE
               value: {{ .Values.leaderElection.mode | quote }}

@@ -1,0 +1,27 @@
+# production-deployment spec § 7 — app-of-apps root。
+# repoURL / targetRevision 由 deploy/bootstrap/up.sh 在 kubectl apply 前以 envsubst
+# 替換（ARGOCD_REPO_URL / ARGOCD_TARGET_REVISION），或 user 自行 fork 後修改。
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root-app
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: ${ARGOCD_REPO_URL:-https://github.com/wusung/0ops.git}
+    targetRevision: ${ARGOCD_TARGET_REVISION:-main}
+    path: deploy/gitops/argocd/apps
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
