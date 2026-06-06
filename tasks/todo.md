@@ -39,17 +39,18 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
 
 - [ ] **`nextdemo.winshare.tw` 真實外部 HTTP 200**（waiting on user-side resources）
   - 來源：M2 驗收基準（`tasks/todo-archive.md` § 驗收基準）
-  - 工程封裝完成 2026-06-06（PR `feat/production-deployment`）：
-    `docs/features/production-deployment/spec.md` + `deploy/bootstrap/` + `deploy/gitops/argocd/` +
-    `deploy/server` ingress/config templates + `manage.sh prod-{up,down,verify,smoke}` +
-    補完 `docs/runbooks/winshare-route-failure.md` § 2-5
-  - 剩下動工：user 提供外部資源後跑 `./manage.sh prod-up`
-    - Cloudflare zone `winshare.tw` 管理權 + wildcard CNAME `*.winshare.tw` → tunnel
-    - Cloudflare Tunnel token（one.dash.cloudflare.com → Networks → Tunnels）
-    - GitHub OAuth App (production)，callback URL = `https://api.winshare.tw/v1/auth/oauth2/callback`
-    - K3s host（VPS / homelab，Linux + sshd + ssh key）
-    - `kubeseal` CLI on local
-  - 驗法：`./manage.sh prod-smoke` + `E2E_MODE=production ./manage.sh e2e-create-app`
+  - 工程封裝**全部完成**（2026-06-06，PR #107 / #108 / #109 / #110 + 本次）：
+    - 部署層：`docs/features/production-deployment/spec.md` + `deploy/bootstrap/` + `deploy/gitops/argocd/` + server ingress/config
+    - OAuth：`./manage.sh prod-setup-oauth` / `prod-verify-oauth` + `docs/runbooks/production-oauth-setup.md`
+    - End-user：`scripts/install.sh` + `0ops mcp setup <host>` + `docs/quickstart.md`
+    - Self-hosted runner：workflow opt-in + `./manage.sh prod-install-runner` + `prod-runner-validate`
+    - One-shot：`./manage.sh prod-bootstrap-all` + `docs/runbooks/production-acceptance.md`
+    - Runbook：`winshare-route-failure.md` § 2-5 全填
+  - 剩下純 user 動作：
+    1. 備齊外部資源：Cloudflare zone + wildcard CNAME + tunnel token + K3s host + `kubeseal`/`gh`/`gh auth login`
+    2. `cp deploy/bootstrap/env.example deploy/bootstrap/.env.prod`，填值
+    3. `./manage.sh prod-bootstrap-all`
+  - 驗收：`docs/runbooks/production-acceptance.md` § 9 三條 curl 全 200
 - [x] **trace_id 全鏈路驗證**
   - 結果：C1（middleware ctx 注入）/ C2（preview.trace_id 欄位）/ C3（callback handler 補 audit.Log）三個 fix + redeploy/create-app/delete-app confirm 都改讀 `audit.TraceIDFromContext` + e2e composition test 已 ship。
   - 既已驗：HTTP header `X-Trace-ID` → middleware ctx → preview.trace_id → deploy_run.trace_id → workflow_dispatch payload trace_id → callback payload trace_id → audit_log.trace_id 同一 trace 串到底。
