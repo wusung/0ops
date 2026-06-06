@@ -86,6 +86,10 @@ cmd_prod_verify() { bash deploy/bootstrap/wait-for-sync.sh && bash deploy/bootst
 # docs/runbooks/production-oauth-setup.md — 互動式 OAuth App 註冊與驗證。
 cmd_prod_setup_oauth()  { bash deploy/bootstrap/setup-oauth-app.sh "$@"; }
 cmd_prod_verify_oauth() { bash deploy/bootstrap/verify-oauth.sh "$@"; }
+# docs/features/self-hosted-runner/spec.md — production GHA self-hosted runner。
+cmd_prod_install_runner()  { bash deploy/runner/install-runner.sh "$@"; }
+cmd_prod_runner_status()   { bash deploy/runner/status.sh "$@"; }
+cmd_prod_runner_validate() { bash tasks/m6-q1-runner-validate.sh "$@"; }
 
 # --- ops drills ---
 # 本機 Postgres PITR drill（podman compose 迷你 main → staging）；每次 chart 變更應跑一次。
@@ -194,6 +198,10 @@ production bootstrap (spec docs/features/production-deployment/spec.md):
   prod-setup-oauth             互動式註冊 production GitHub OAuth App + 寫入 .env.prod
                                (runbook docs/runbooks/production-oauth-setup.md)
   prod-verify-oauth            驗 GITHUB_OAUTH_CLIENT_ID 在 GitHub 端有效 + Device Flow 已啟用
+  prod-install-runner          ssh 到 PROD_HOST 裝 GHA self-hosted runner + pack + podman
+                               (spec docs/features/self-hosted-runner/spec.md)
+  prod-runner-status           印 runner online 狀態 + 最近 N runs + vars.GHA_RUNNER_LABEL
+  prod-runner-validate         端到端驗 self-hosted runner 鏈路（runner + vars + workflow + callback）
 
 ops drills:
   pitr-drill                   本機 Postgres PITR drill；每次 chart 變更應跑一次
@@ -259,6 +267,9 @@ main() {
     prod-smoke)           cmd_prod_smoke "$@" ;;
     prod-setup-oauth)     cmd_prod_setup_oauth "$@" ;;
     prod-verify-oauth)    cmd_prod_verify_oauth "$@" ;;
+    prod-install-runner)  cmd_prod_install_runner "$@" ;;
+    prod-runner-status)   cmd_prod_runner_status "$@" ;;
+    prod-runner-validate) cmd_prod_runner_validate "$@" ;;
 
     pitr-drill)           cmd_pitr_drill "$@" ;;
 
