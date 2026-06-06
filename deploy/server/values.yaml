@@ -70,3 +70,22 @@ resources:
 podAntiAffinityWeight: 100
 
 env: []
+
+# production-deployment spec § 6 — ingress / config / secretRef
+ingress:
+  enabled: true
+  className: traefik
+  host: ""              # render-time guard：production 必填，如 api.winshare.tw
+  path: /
+  pathType: Prefix
+
+config:
+  publicURL: ""         # render-time guard：production 必填，如 https://api.winshare.tw
+  domainBase: "winshare.tw"
+  gitopsRepo: "git@github.com:wusung/0ops-gitops.git"
+
+# Backend 從這個 Secret envFrom 取 GITHUB_OAUTH_CLIENT_ID/SECRET、DATABASE_URL 等。
+# Secret 物件由 sealed-secrets controller 在 cluster 內 unseal 產生；
+# 本 chart 不渲明文 Secret，避免 commit 風險（spec § 10）。
+secretRef:
+  name: ops-server-env

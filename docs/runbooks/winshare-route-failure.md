@@ -1,14 +1,11 @@
-# Runbook：winshare subdomain 路由失敗（skeleton）
+# Runbook：winshare subdomain 路由失敗
 
 > 對應 spec：`docs/features/winshare-subdomain-and-tunnel/spec.md`
+> 對應 spec：`docs/features/production-deployment/spec.md`
 > 對應 ADR：ADR-0007（customer-domain TLS）
-> 適用範圍：`<slug>.winshare.tw` 外部 HTTP 不可達 / 回 4xx 5xx
->
-> **狀態**：skeleton。Cloudflare wildcard CNAME + `deploy/chart/cloudflare-tunnel/` + K3s wildcard ingress
-> 在 `tasks/todo.md`「`nextdemo.winshare.tw` 真實外部 HTTP 200」條目完成前 infra 尚未部署上線，
-> 本檔僅列出觸發條件與已知排查向量；infra 落地後須補完具體 kubectl/cloudflared/argocd 指令。
+> 適用範圍：`<slug>.winshare.tw` 與 `api.winshare.tw` 外部 HTTP 不可達 / 回 4xx 5xx
 
-## 1. 觸發條件（預期）
+## 1. 觸發條件
 
 任一條件成立時進本 runbook：
 
@@ -16,59 +13,178 @@
 2. 外部 curl 回 `404`（DNS / ingress 沒對到 app）
 3. 外部 curl 回 `5xx`（後端有但 health 不過）
 4. `TunnelDown` 或 `TunnelConnectorsLow` Prometheus alert fire（rules `zeroops_cloudflare_tunnel_connectors_ready`）
-5. create_app acceptance `E2E_MODE=production ./manage.sh e2e-create-app` fail
+5. acceptance `E2E_MODE=production bash tasks/e2e-create-app.sh` fail
+6. `./manage.sh prod-smoke` fail
 
-## 2. 排查向量（待 infra 落地後補完整步驟）
+## 2. 排查向量
 
-依「離客戶最近 → 離客戶最遠」順序逐層排除：
+依「離客戶最近 → 離客戶最遠」順序逐層排除。每層附可直接複貼指令。
 
 ### 2.1 Cloudflare zone
 
-- wildcard CNAME `*.winshare.tw` 是否指向 tunnel hostname
-- Cloudflare proxy 是否 enabled（橘雲）
-- WAF / firewall rule 是否誤擋
-- 觀察 Cloudflare dashboard `Analytics → Traffic` 該 hostname 是否有 hit
+```bash
+# wildcard CNAME 是否指向 tunnel hostname
+dig +short '*.winshare.tw' CNAME
+# 應回 <tunnel-uuid>.cfargotunnel.com 或自設 tunnel hostname
+
+# 該 hostname 公開 TLS handshake 是否正常
+openssl s_client -connect "${HOST:-nextdemo.winshare.tw}:443" \
+  -servername "${HOST:-nextdemo.winshare.tw}" </dev/null 2>&1 | head -20
+
+# Cloudflare proxy 是否 enabled（橘雲）
+dig +short '@1.1.1.1' "${HOST:-nextdemo.winshare.tw}" A
+# 應回 Cloudflare anycast IP (104.x / 172.67.x)
+```
+
+故障：
+
+- DNS 沒回 CNAME → 進 Cloudflare dashboard → DNS → 補 `*.winshare.tw` CNAME → tunnel hostname → proxy=on。
+- 回 origin IP（不是 Cloudflare）→ proxy 關了，dashboard 把橘雲開回來。
+- WAF / firewall rule 阻擋 → Cloudflare dashboard → Security → WAF → 看 events 找 block 規則。
+- 觀察 dashboard `Analytics → Traffic` 該 hostname 是否有 hit；無 hit 表示流量沒到 Cloudflare。
 
 ### 2.2 Cloudflared tunnel
 
-- `kubectl -n cloudflare-tunnel get pod -l app=cloudflared` 應有 ≥ 2 ready connector（spec § redundancy）
-- `kubectl logs -l app=cloudflared --tail=100` 看是否報 `failed to dial origin` 或 `connection refused`
-- 對應 `TunnelConnectorsLow` / `TunnelDown` alert 之觸發條件
-- tunnel credential secret 是否還在效期
+```bash
+export KUBECONFIG=~/.kube/0ops-prod
 
-### 2.3 K3s ingress
+# 至少 2 connector ready（spec § redundancy；chart 預設 3）
+kubectl -n cloudflare-tunnel get pod -l app=cloudflared
+kubectl -n cloudflare-tunnel get pod -l app=cloudflared \
+  -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.containerStatuses[0].ready}{"\n"}{end}'
 
-- 該 app 對應 `Ingress` 是否存在：`kubectl -n <app-namespace> get ingress`
-- ingress backend `service` 是否指向 healthy pod
-- ingress controller log（traefik 或 nginx）是否報 backend connect fail
+# log 看是否報 origin 不通
+kubectl -n cloudflare-tunnel logs -l app=cloudflared --tail=200 \
+  | grep -E 'failed to dial|connection refused|origin|ERR|Error'
+
+# /metrics 端點看 connector ready 數
+kubectl -n cloudflare-tunnel exec deploy/cloudflared -- \
+  wget -qO- http://127.0.0.1:2000/metrics | grep cloudflared_tunnel_active_streams
+
+# tunnel token secret 是否在
+kubectl -n cloudflare-tunnel get secret cloudflared-tunnel-token -o jsonpath='{.data.token}' | head -c 12
+```
+
+故障：
+
+- 0 connector ready → 確認 `cloudflared-tunnel-token` Secret 存在且 token 未過期；
+  Cloudflare zerotrust dashboard → Networks → Tunnels 看狀態。
+- Token 失效 → 在 Cloudflare dashboard rotate token → 修 `.env.prod` 的 `CF_TUNNEL_TOKEN` → 重跑 `bash deploy/bootstrap/seal-secrets.sh && kubectl apply -f deploy/bootstrap/tmp/sealed/` → 重啟 cloudflared：
+  ```bash
+  kubectl -n cloudflare-tunnel rollout restart deploy/cloudflared
+  ```
+- log 報 `failed to dial origin` → 走 § 2.3 查 traefik / ingress。
+
+### 2.3 K3s ingress (traefik)
+
+```bash
+# api.winshare.tw 由 ops-server chart ingress 提供
+kubectl -n system-0ops get ingress ops-server -o yaml | head -40
+
+# 該 app 對應 ingress（app-* namespace 由 backend 動態建立）
+kubectl get ingress -A | grep "${SLUG:-nextdemo}"
+
+# ingress backend service 是否有 healthy endpoints
+kubectl -n "${NS:-app-nextdemo}" get endpoints
+
+# traefik 自身 log
+kubectl -n kube-system logs -l app.kubernetes.io/name=traefik --tail=200 | grep -i error
+```
+
+故障：
+
+- Ingress 物件缺失 → 走 `docs/runbooks/create-app-stuck.md` § 2B（ArgoCD 未 sync）。
+- Endpoints 為空 → app pod 沒 ready，走 § 2.4。
+- traefik log 報 backend connect refused → app pod 拒連，走 § 2.4。
 
 ### 2.4 App pod
 
-- `kubectl -n <app-namespace> get pod` 是否 ready
-- `/health` endpoint 是否 200
+```bash
+# 該 app pod 狀態
+kubectl -n "${NS:-app-nextdemo}" get pod
+
+# health 端點
+kubectl -n "${NS:-app-nextdemo}" exec deploy/app -- wget -qO- http://127.0.0.1:8080/health || \
+  kubectl -n "${NS:-app-nextdemo}" port-forward svc/app 18080:8080 &
+  curl -sf http://127.0.0.1:18080/health
+```
+
+故障：
+
+- Pod 不 ready → `kubectl describe` 看 events；常見原因：image pull fail / OOM / liveness fail。
+- `/health` 不 200 → 看 app log；非 0ops 範疇，回報 app owner。
 
 ### 2.5 ArgoCD sync state
 
-- ArgoCD application 是否 `Synced + Healthy`；若 OutOfSync 走 `create-app-stuck.md` § 2B
+```bash
+# 全部 app 狀態
+kubectl -n argocd get application
 
-## 3. 介入手段（待補）
+# 對應 app 為何 OutOfSync
+kubectl -n argocd describe application "${APP:-ops-server}" | tail -40
 
-infra 落地後補：
-- 重啟 cloudflared connector 的步驟與最小衝擊順序
-- 手動 patch ingress 的安全閘
-- 緊急切離 winshare 走 fallback hostname 的流程（如有）
+# 強制 sync（謹慎用，可能 mask 真正問題）
+kubectl -n argocd patch application "${APP:-ops-server}" --type merge \
+  -p '{"operation":{"sync":{"revision":"main"}}}'
+```
 
-## 4. 失敗回退（待補）
+OutOfSync → 走 `docs/runbooks/create-app-stuck.md` § 2B。
 
-infra 落地後補：
-- 整個 tunnel down 時，是否有 backup hostname / fallback DNS
-- Cloudflare zone-level outage 時的 customer-facing 通報模板
+## 3. 介入手段
 
-## 5. 演練要求（待補）
+### 3.1 重啟 cloudflared connector（rolling，零中斷）
 
-infra 落地後補：依 spec § SLO 排月度 chaos 演練（kill 1 connector → 應仍維持 redundancy；kill 2 connector → TunnelDown alert 應 fire 內 1 min）。
+```bash
+kubectl -n cloudflare-tunnel rollout restart deploy/cloudflared
+kubectl -n cloudflare-tunnel rollout status deploy/cloudflared --timeout=120s
+```
 
-## 6. 落地時補完此 runbook 的觸發條件
+`Deployment.spec.strategy.rollingUpdate` 預設 maxUnavailable=25%，3 replica 至少維持 2 個 ready。
 
-當 `tasks/todo.md`「`nextdemo.winshare.tw` 真實外部 HTTP 200」條目完成（M2 驗收基準），
-應於同一 PR 內把本檔 § 2-5 的「待補」部分填完並把本節（§ 6）刪除。
+### 3.2 手動 patch ingress backend service port（緊急）
+
+```bash
+# 限：spec change 來不及走 ArgoCD sync 的緊急情境
+kubectl -n "${NS:-system-0ops}" patch ingress ops-server --type=json -p='[
+  {"op": "replace",
+   "path": "/spec/rules/0/http/paths/0/backend/service/port/number",
+   "value": 8080}
+]'
+```
+
+緊急 patch 後，必須同 PR 改 chart values 並合回 git，否則 ArgoCD `selfHeal=true` 會把 patch 還原。
+
+### 3.3 緊急切離 winshare 走 fallback hostname
+
+v1 無 fallback hostname（spec § Open Questions Q3）。
+緊急狀態建議：
+1. Cloudflare dashboard → page rule 將 `winshare.tw` 全站導向 status page。
+2. 公告維運。
+3. 修正後撤 page rule。
+
+## 4. 失敗回退
+
+| 情境 | 回退步驟 |
+|---|---|
+| tunnel 整個 down，無 fallback hostname | 走 § 3.3 + 公告；估計 RTO ≤ 30 min |
+| Cloudflare zone-level outage（CF 全域故障） | 不可控；Cloudflare status 通報 + 暫停 SLO 計時 |
+| K3s host 整個失聯 | 觸發 ADR-0009 PITR：在新 host 走 `prod-up` + Postgres restore（runbook `postgres-restore-test.md`） |
+| cloudflared image pull fail（registry 故障） | values.yaml image.pullPolicy 暫改 IfNotPresent；ghcr 修好後改回 |
+
+## 5. 演練要求
+
+依 spec § SLO 月度 chaos 演練：
+
+```bash
+# 1) Kill 1 connector → 應仍有 ≥ 2 ready
+kubectl -n cloudflare-tunnel delete pod -l app=cloudflared --field-selector=status.phase=Running \
+  --grace-period=0 --force | head -n1
+# 期望 < 30s 內 readyReplicas 恢復 3
+
+# 2) Kill 2 connector → TunnelDown alert 應在 1 min 內 fire
+kubectl -n cloudflare-tunnel scale deploy/cloudflared --replicas=1
+# 監看 alertmanager UI；確認 TunnelConnectorsLow 進入 firing
+kubectl -n cloudflare-tunnel scale deploy/cloudflared --replicas=3  # 還原
+```
+
+演練後填 `tasks/lessons.md`：發現的失敗模式、修正動作、需 ADR 追加項。

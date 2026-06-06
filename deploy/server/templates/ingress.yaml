@@ -1,0 +1,35 @@
+{{- if .Values.ingress.enabled }}
+{{- /* production-deployment spec § 6：ingress.host 為空拒渲，避免靜默部署成內網 only */ -}}
+{{- if not .Values.ingress.host }}
+{{- fail "ops-server chart requires ingress.host to be set (production-deployment spec § 6) — set values.ingress.host=api.<your-domain>" }}
+{{- end }}
+{{- /* spec § 6：production class 鎖 traefik（K3s 自帶），避免誤掛其他 controller */ -}}
+{{- if ne .Values.ingress.className "traefik" }}
+{{- fail "ops-server chart locks ingress.className=traefik (K3s native) — change requires ADR" }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ops-server
+  namespace: {{ .Values.namespace | quote }}
+  labels:
+    app: ops-server
+    app.0ops.io/managed-by: 0ops
+  annotations:
+    # Cloudflare proxy 端 TLS 終結，origin 走 HTTP；
+    # production-deployment spec § 3.1 + § 11 Q2 待 ADR 收 Full(strict) 升級。
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: {{ .Values.ingress.path | quote }}
+            pathType: {{ .Values.ingress.pathType | quote }}
+            backend:
+              service:
+                name: ops-server
+                port:
+                  number: {{ .Values.service.port }}
+{{- end }}

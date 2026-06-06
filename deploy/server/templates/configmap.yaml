@@ -1,0 +1,16 @@
+{{- /* production-deployment spec § 6：publicURL 為空拒渲（驅動 OAuth callback / GHA payload） */ -}}
+{{- if not .Values.config.publicURL }}
+{{- fail "ops-server chart requires config.publicURL (production-deployment spec § 6) — set values.config.publicURL=https://api.<your-domain>" }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ops-server-config
+  namespace: {{ .Values.namespace | quote }}
+  labels:
+    app: ops-server
+    app.0ops.io/managed-by: 0ops
+data:
+  OPS_API_PUBLIC_URL: {{ .Values.config.publicURL | quote }}
+  OPS_DOMAIN_BASE: {{ .Values.config.domainBase | quote }}
+  OPS_GITOPS_REPO: {{ .Values.config.gitopsRepo | quote }}

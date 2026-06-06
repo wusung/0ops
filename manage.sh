@@ -77,6 +77,13 @@ cmd_e2e_local_build()   { bash tasks/local-build-e2e.sh; }
 # 對齊 ADR-0013 / docs/features/app-source-ingestion/spec.md § 22；dev mode 不觸發實際 GHA workflow。
 cmd_e2e_source_upload() { bash tasks/e2e-source-upload.sh; }
 
+# --- production bootstrap ---
+# docs/features/production-deployment/spec.md — 一鍵 production 部署 / 卸載 / smoke。
+cmd_prod_up()     { bash deploy/bootstrap/up.sh "$@"; }
+cmd_prod_down()   { bash deploy/bootstrap/down.sh "$@"; }
+cmd_prod_smoke()  { bash deploy/bootstrap/smoke.sh "$@"; }
+cmd_prod_verify() { bash deploy/bootstrap/wait-for-sync.sh && bash deploy/bootstrap/smoke.sh; }
+
 # --- ops drills ---
 # 本機 Postgres PITR drill（podman compose 迷你 main → staging）；每次 chart 變更應跑一次。
 # 對齊 docs/runbooks/postgres-restore-test.md。
@@ -174,6 +181,14 @@ end-to-end acceptance (compose 必須先 healthy):
   e2e-source-upload            upload-source ingestion → preview → confirm → JWT archive fetch
                                (ADR-0013；dev mode 不觸發實際 GHA workflow)
 
+production bootstrap (spec docs/features/production-deployment/spec.md):
+  prod-up                      一鍵裝 K3s + ArgoCD + sealed-secrets + 套用 root app + smoke
+                               (需 deploy/bootstrap/.env.prod；冪等)
+  prod-down                    刪 ArgoCD root app + system-0ops / cloudflare-tunnel ns
+                               (postgres ns + PVC 保留)
+  prod-verify                  等 ArgoCD 全 Synced+Healthy + 跑 smoke
+  prod-smoke                   單跑 HTTP 200 smoke（api / demo host）
+
 ops drills:
   pitr-drill                   本機 Postgres PITR drill；每次 chart 變更應跑一次
 
@@ -231,6 +246,11 @@ main() {
     e2e-create-app)       cmd_e2e_create_app "$@" ;;
     e2e-local-build)      cmd_e2e_local_build "$@" ;;
     e2e-source-upload)    cmd_e2e_source_upload "$@" ;;
+
+    prod-up)              cmd_prod_up "$@" ;;
+    prod-down)            cmd_prod_down "$@" ;;
+    prod-verify)          cmd_prod_verify "$@" ;;
+    prod-smoke)           cmd_prod_smoke "$@" ;;
 
     pitr-drill)           cmd_pitr_drill "$@" ;;
 

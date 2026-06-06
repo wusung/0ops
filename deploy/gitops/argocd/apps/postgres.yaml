@@ -1,0 +1,27 @@
+# production-deployment spec § 7 — postgres child app。
+# spec § 10 風險表：postgres PVC 鎖 Prune=false，避免 root prune 誤刪資料。
+# 變更 repoURL / targetRevision 需 fork 後改本檔（ArgoCD 不做 env substitution）。
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: postgres
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/wusung/0ops.git
+    targetRevision: main
+    path: deploy/postgres
+    helm:
+      releaseName: pg
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: postgres
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
