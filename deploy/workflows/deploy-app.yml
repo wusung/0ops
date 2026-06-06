@@ -21,7 +21,9 @@ env:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    # docs/features/self-hosted-runner/spec.md § 4：
+    # 設 repo var GHA_RUNNER_LABEL=0ops-builder → 走 self-hosted；不設 → fallback ubuntu-latest。
+    runs-on: ${{ vars.GHA_RUNNER_LABEL || 'ubuntu-latest' }}
     timeout-minutes: 20            # 硬上限；超過自動 cancel → callback failure
     steps:
       # 1. checkout 使用者 repo（非 0ops 自身）

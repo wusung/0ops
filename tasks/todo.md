@@ -17,10 +17,17 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
 
 ### M6 follow-up（來源：`docs/features/app-source-ingestion/spec.md` § 16-17）
 
-- [ ] **Q1 — production CI workflow 驗證**
+- [ ] **Q1 — production CI workflow 驗證**（waiting on user-side resources）
   - 目標：`deploy/workflows/deploy-app-from-upload.yml` 對 self-hosted runner 在 production GHA 跑通；JWT fetch 路徑端到端驗
-  - 卡點：需 staging / production GHA runner + `OPS_API_PUBLIC_URL` 對外可達；dev e2e (`tasks/e2e-source-upload.sh`) 不覆蓋 workflow 端
-  - Owner：待 production rollout 時 ops + agent 配合
+  - 工程封裝完成 2026-06-06：`docs/features/self-hosted-runner/spec.md` + workflow opt-in
+    (`runs-on: ${{ vars.GHA_RUNNER_LABEL || 'ubuntu-latest' }}`) + `deploy/runner/`（install-runner.sh、
+    status.sh、systemd unit template、values.yaml）+ `manage.sh prod-{install-runner,runner-status,
+    runner-validate}` + `tasks/m6-q1-runner-validate.sh` + `docs/runbooks/gha-self-hosted-runner.md`
+  - 剩下動工：user 端
+    1. `prod-up` 完成、`api.<domain>/health` 200（已工程封裝；user 端外部資源到位後）
+    2. `./manage.sh prod-install-runner`（會自動安裝 actions-runner + pack + podman、註冊 + systemd）
+    3. `gh variable set GHA_RUNNER_LABEL --repo wusung/0ops --body 0ops-builder`
+    4. `./manage.sh prod-runner-validate` 全綠
 - [ ] **Q3 — OCI artifact registry ADR-0014**
   - 目標：寫 ADR 評估「OCI artifact 取代本地 ingest tree」之 trade-off
   - 動工條件：v2 多 region / artifact promotion 需求浮現；v1 不採

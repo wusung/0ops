@@ -1,0 +1,14 @@
+# self-hosted runner 預設值。spec § 5 與 install-runner.sh 互相覆蓋：
+# .env.prod 設值勝出；未設時走本檔預設。
+runner:
+  name: 0ops-prod-1
+  label: 0ops-builder
+  version: "2.319.1"           # https://github.com/actions/runner/releases
+  user: ghrunner
+  home: /opt/0ops-runner
+
+tools:
+  pack:
+    version: "0.36.0"          # https://github.com/buildpacks/pack/releases
+  podman:
+    enable: true               # 用 podman；不裝 docker

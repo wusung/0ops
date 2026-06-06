@@ -1,0 +1,31 @@
+# systemd unit template for 0ops self-hosted runner.
+# spec: docs/features/self-hosted-runner/spec.md § 5
+# install-runner.sh 寫入 /etc/systemd/system/0ops-runner.service 並 enable + start。
+# {{HOME}} / {{USER}} 由 install-runner.sh envsubst 替換為實際值。
+[Unit]
+Description=0ops self-hosted GitHub Actions runner
+After=network-online.target podman.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{USER}}
+Group={{USER}}
+WorkingDirectory={{HOME}}
+ExecStart={{HOME}}/run.sh
+Restart=always
+RestartSec=10
+KillMode=process
+KillSignal=SIGTERM
+TimeoutStopSec=5min
+
+# 安全：限縮權限；runner 不需要 root
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=false        # podman 需要 /dev 存取
+ReadWritePaths={{HOME}} /var/run/podman /var/tmp
+
+[Install]
+WantedBy=multi-user.target
