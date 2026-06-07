@@ -3,30 +3,37 @@
 > 對應 spec：`docs/features/end-user-onboarding/spec.md`
 > 目標：5 分鐘內，在你的 AI CLI 內一句話 deploy 一個 app 到 0ops。
 
-## 1. 安裝（30 秒）
+## 1. 安裝 + 設定（一條 curl，1 分鐘）
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/wusung/0ops/main/scripts/install.sh | sh
+OPS_HOST=https://api.<your-0ops> \
+  curl -fsSL https://raw.githubusercontent.com/wusung/0ops/main/scripts/install.sh | sh
 ```
 
-裝完印「DONE — 0ops vX.Y.Z installed.」。預設裝在 `~/.local/bin`，
-若該目錄不在 PATH，腳本會印你要在 shell rc 加哪一行。
+`OPS_HOST` 設了就一次做完：
 
-驗證：
+1. 下載 `0ops` + `0ops-mcp` binary（驗 sha256）到 `~/.local/bin`
+2. 跑 `0ops onboard $OPS_HOST`：
+   - GitHub Device Flow login（印 user_code + verification URL；你在瀏覽器授權）
+   - 自動偵測已裝的 AI CLI（`claude` / `codex`）
+   - 對每個 AI CLI 寫 MCP server config（idempotent；備份原檔）
+3. 印「重啟 AI CLI」指引
 
-```sh
-0ops --version
-0ops-mcp --version
-```
+不設 `OPS_HOST` → 只裝 binary，後續手動 `0ops auth login` + `0ops mcp setup`，
+或補一條 `0ops onboard https://api.<your-0ops>`。
 
 進階：
 
 ```sh
-OPS_VERSION=v0.1.1 INSTALL_DIR=$HOME/bin curl -fsSL https://raw.githubusercontent.com/wusung/0ops/main/scripts/install.sh | sh
-DRY_RUN=1 curl -fsSL ... | sh    # 只印會做什麼，不真下載
+NO_ONBOARD=1 OPS_HOST=... curl ... | sh                       # 只裝 binary，跳過 onboard
+OPS_HOST=http://127.0.0.1:18080 curl ... | sh                 # 對 local dev compose
+OPS_VERSION=v0.1.1 INSTALL_DIR=$HOME/bin curl ... | sh        # 指定版本與路徑
+DRY_RUN=1 curl ... | sh                                       # 只印會做什麼，不真下載
 ```
 
-## 2. 登入（1 分鐘）
+裝完跑 `0ops --version` 驗。預設 `~/.local/bin` 若不在 PATH，腳本會印 shell rc 加哪一行。
+
+## 2. 登入 / 接 AI CLI 已內含在第 1 步
 
 預設走 GitHub Device Flow，不需瀏覽器 redirect：
 

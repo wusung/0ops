@@ -42,6 +42,7 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(newAuditCommand())
 	root.AddCommand(newIncidentsCommand())
 	root.AddCommand(newMcpCommand())
+	root.AddCommand(newOnboardCommand())
 	return root
 }
 

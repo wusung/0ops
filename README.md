@@ -6,18 +6,19 @@ to a running app on `*.winshare.tw` or your own domain.
 ## TL;DR
 
 ```sh
-# 1. install (30 s)
-curl -fsSL https://raw.githubusercontent.com/wusung/0ops/main/scripts/install.sh | sh
+# 1. install + login + AI CLI 接線（一條 curl）
+OPS_HOST=https://api.<your-0ops> \
+  curl -fsSL https://raw.githubusercontent.com/wusung/0ops/main/scripts/install.sh | sh
+# device flow login → 自動偵測 claude / codex CLI → 寫 MCP config
 
-# 2. login (1 min, GitHub Device Flow)
-0ops auth login --host=https://api.<your-0ops>
+# 2. 重啟 AI CLI
 
-# 3. wire your AI CLI (30 s)
-0ops mcp setup claude-code    # or: codex / copilot-cli
-
-# 4. in your AI CLI, just say:
+# 3. 在 AI CLI 內，直接說：
 #    "幫我把這個 repo deploy 到 0ops，叫 nextdemo"
 ```
+
+不設 `OPS_HOST` → 只裝 binary；事後手動 `0ops auth login` + `0ops mcp setup`，
+或補一條 `0ops onboard https://api.<your-0ops>`。
 
 Full walkthrough: [`docs/quickstart.md`](docs/quickstart.md).
 
