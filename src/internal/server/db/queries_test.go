@@ -159,6 +159,15 @@ func TestRepositoryCreateCLITokenStoresDeviceKind(t *testing.T) {
 	if row.TeamID != teamID || row.OwnerUserID != userID {
 		t.Fatalf("unexpected token row: %#v", row)
 	}
+	// Schema (migration 00003) requires expires_at NOT NULL. Device tokens
+	// get dbpkg.DeviceTokenTTL (~30 days) from now; assert at least 29 days
+	// remaining to allow for test execution latency.
+	if row.ExpiresAt == nil || row.ExpiresAt.IsZero() {
+		t.Fatalf("expected expires_at to be set, got %#v", row.ExpiresAt)
+	}
+	if remaining := time.Until(*row.ExpiresAt); remaining < 29*24*time.Hour {
+		t.Errorf("expires_at too soon: %v remaining (want >= 29d)", remaining)
+	}
 }
 
 func TestRepositoryCreatePATStoresExpiry(t *testing.T) {
