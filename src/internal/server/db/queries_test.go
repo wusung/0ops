@@ -2,7 +2,6 @@ package db_test
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -17,7 +16,7 @@ import (
 func TestNewPoolAndRepositorySmoke(t *testing.T) {
 	t.Helper()
 
-	databaseURL := os.Getenv("DATABASE_URL")
+	databaseURL := resolveTestDatabaseURL()
 	if databaseURL == "" {
 		t.Skip("DATABASE_URL is required for db smoke tests")
 	}
@@ -245,7 +244,7 @@ func TestRepositoryRevokePATByName(t *testing.T) {
 func newTestRepository(t *testing.T) (*dbpkg.Repository, context.Context, *pgxpool.Pool) {
 	t.Helper()
 
-	databaseURL := os.Getenv("DATABASE_URL")
+	databaseURL := resolveTestDatabaseURL()
 	if databaseURL == "" {
 		t.Skip("DATABASE_URL is required for db smoke tests")
 	}
