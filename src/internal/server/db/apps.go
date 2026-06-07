@@ -729,7 +729,15 @@ LIMIT 1
 	return userID.String(), teamID.String(), slug, nil
 }
 
+// DeviceTokenTTL is the default lifetime for device-flow CLI tokens.
+// Matches migration 00003 backfill (created_at + 30 day) so newly
+// minted device tokens align with the historical baseline that the
+// schema NOT NULL constraint was sized for.
+const DeviceTokenTTL = 30 * 24 * time.Hour
+
 // CreateCLIToken creates a new CLI bearer token and stores only its hash.
+// Migration 00003 made cli_token.expires_at NOT NULL; device tokens get
+// DeviceTokenTTL from now. Callers may rotate via 0ops auth login.
 func (r *Repository) CreateCLIToken(ctx context.Context, ownerUserID, teamID string, scopes []string) (string, error) {
 	parsedUserID, err := parseUUID(ownerUserID)
 	if err != nil {
@@ -747,12 +755,13 @@ func (r *Repository) CreateCLIToken(ctx context.Context, ownerUserID, teamID str
 	if err != nil {
 		return "", err
 	}
+	expiresAt := time.Now().UTC().Add(DeviceTokenTTL)
 	var tokenID string
 	if err := r.pool.QueryRow(ctx, `
-INSERT INTO cli_token (owner_user_id, team_id, kind, token_hash, name, scopes)
-VALUES ($1, $2, 'device', $3, $4, $5)
+INSERT INTO cli_token (owner_user_id, team_id, kind, token_hash, name, scopes, expires_at)
+VALUES ($1, $2, 'device', $3, $4, $5, $6)
 RETURNING id
-`, parsedUserID, parsedTeamID, hash, "device-login", scopes).Scan(&tokenID); err != nil {
+`, parsedUserID, parsedTeamID, hash, "device-login", scopes, expiresAt).Scan(&tokenID); err != nil {
 		return "", err
 	}
 	return sharedtoken.FormatBearerToken("device", tokenID, secret), nil
