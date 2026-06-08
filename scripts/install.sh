@@ -2,18 +2,27 @@
 # 0ops one-line installer.
 # spec: docs/features/end-user-onboarding/spec.md § 3
 #
-# Usage:
+# Usage (zero-arg defaults the official SaaS):
 #   curl -fsSL https://raw.githubusercontent.com/wusung/0ops/main/scripts/install.sh | sh
 #
+# Point at a self-host / staging / local backend:
+#   OPS_HOST=https://api.my-domain.com  curl ... | sh
+#   OPS_HOST=http://127.0.0.1:18080     curl ... | sh
+#
 # Env:
+#   OPS_HOST      backend host. Triggers post-install `0ops onboard`
+#                 (device-flow login + AI CLI auto-wire). Unset → install only.
 #   OPS_VERSION   release tag (default: latest)
 #   INSTALL_DIR   install target (default: $HOME/.local/bin)
 #   OPS_REPO      override repo (default: wusung/0ops)
 #   DRY_RUN=1     print actions without downloading/installing
+#   NO_ONBOARD=1  skip post-install onboard even when OPS_HOST is set
 #
 # Installs:
 #   $INSTALL_DIR/0ops
 #   $INSTALL_DIR/0ops-mcp
+# Then (when OPS_HOST set + interactive TTY + NO_ONBOARD unset):
+#   $INSTALL_DIR/0ops onboard $OPS_HOST
 #
 # Verifies sha256 from the release's checksums.txt.
 
@@ -137,7 +146,39 @@ case ":$PATH:" in
     ;;
 esac
 
-cat >&2 <<EOF
+# --- post-install onboard ---
+# One-liner UX: if OPS_HOST is set + user didn't opt out, run `0ops onboard`.
+# Device-flow login prints a code + URL (no stdin needed); mcp setup runs with
+# --yes default so it doesn't prompt. Works under `curl ... | sh` (no TTY).
+ops_bin="$INSTALL_DIR/0ops"
+should_onboard=1
+[ -z "${OPS_HOST:-}" ]      && should_onboard=0
+[ "${NO_ONBOARD:-0}" = "1" ] && should_onboard=0
+[ -x "$ops_bin" ]            || should_onboard=0
+
+if [ "$should_onboard" = "1" ]; then
+  log "running: 0ops onboard $OPS_HOST"
+  if "$ops_bin" onboard "$OPS_HOST"; then
+    cat >&2 <<EOF
+
+================================================================================
+DONE — 0ops $tag installed + onboarded to ${OPS_HOST}.
+Restart your AI CLI to load the 0ops MCP server.
+EOF
+  else
+    warn "onboard step failed (binary may be an older release without 'onboard'); re-run after upgrading:"
+    printf '  %s onboard %s\n' "$ops_bin" "$OPS_HOST" >&2
+    cat >&2 <<EOF
+
+================================================================================
+DONE — 0ops $tag installed; onboard FAILED.
+Manual steps:
+  $ops_bin auth login --host=$OPS_HOST
+  $ops_bin mcp setup claude-code     # or: codex
+EOF
+  fi
+else
+  cat >&2 <<EOF
 
 ================================================================================
 DONE — 0ops $tag installed.
@@ -148,5 +189,9 @@ Next:
   # 或：
   0ops mcp setup codex                            # 接 Codex CLI
 
+Hint: set OPS_HOST before piping to skip these steps:
+  OPS_HOST=https://api.winshare.tw curl -fsSL https://raw.githubusercontent.com/${OPS_REPO}/main/scripts/install.sh | sh
+
 Quickstart: https://github.com/${OPS_REPO}/blob/main/docs/quickstart.md
 EOF
+fi
