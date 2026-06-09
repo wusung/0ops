@@ -231,6 +231,9 @@ func (f *mcpFakeStore) HasAnyOwner(_ context.Context) (bool, error) { return fal
 func (f *mcpFakeStore) BootstrapOwner(_ context.Context, _ db.BootstrapOwnerParams) (string, string, error) {
 	return "team-bootstrap", "user-bootstrap", nil
 }
+func (f *mcpFakeStore) RetryStuckDelete(_ context.Context, _, _ string) (string, error) {
+	return "job-retry-1", nil
+}
 func (f *mcpFakeStore) ListTeamMembers(_ context.Context, _ string) ([]db.Member, error) {
 	return f.memberRows, nil
 }

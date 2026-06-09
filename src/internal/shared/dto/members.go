@@ -31,6 +31,24 @@ type BootstrapOwnerResponse struct {
 	UserID string `json:"user_id"`
 }
 
+// AdminRetryDeleteRequest re-drives a stuck app delete (status='deleting' with
+// a failed_permanently cleanup_residue job). Admin-only recovery action.
+//
+//nolint:revive // exported for public API
+type AdminRetryDeleteRequest struct {
+	TeamSlug string `json:"team_slug"`
+	AppSlug  string `json:"app_slug"`
+}
+
+// AdminRetryDeleteResponse returns the freshly enqueued cleanup_residue job id.
+//
+//nolint:revive // exported for public API
+type AdminRetryDeleteResponse struct {
+	JobID   string `json:"job_id"`
+	AppSlug string `json:"app_slug"`
+	Status  string `json:"status"`
+}
+
 //nolint:revive // exported for public API
 type InviteMemberRequest struct {
 	GithubLogin *string `json:"github_login,omitempty"`

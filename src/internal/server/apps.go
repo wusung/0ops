@@ -53,6 +53,7 @@ type appsStore interface {
 	ListDeployLogLines(ctx context.Context, teamID string, appSlug string, limit int) ([]db.DeployLogLine, error)
 	HasAnyOwner(ctx context.Context) (bool, error)
 	BootstrapOwner(ctx context.Context, params db.BootstrapOwnerParams) (teamID string, userID string, err error)
+	RetryStuckDelete(ctx context.Context, teamSlug, appSlug string) (jobID string, err error)
 	ListTeamMembers(ctx context.Context, teamID string) ([]db.Member, error)
 	ListTeamTokens(ctx context.Context, teamID string) ([]db.CliToken, error)
 	CreatePreview(ctx context.Context, teamID, actorUserID, action string, args json.RawMessage, summary string) (db.Preview, error)
@@ -895,6 +896,45 @@ func bootstrapOwnerHandler(store appsStore) http.HandlerFunc {
 	}
 }
 
+// retryStuckDeleteHandler re-drives an app delete stuck in 'deleting'. Admin
+// recovery path for spec § 6.2 (cleanup_residue failed_permanently). See
+// docs/runbooks/delete-app-residue.md.
+func retryStuckDeleteHandler(store appsStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req dto.AdminRetryDeleteRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		if req.TeamSlug == "" || req.AppSlug == "" {
+			apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "team_slug, app_slug are required", nil)
+			return
+		}
+
+		jobID, err := store.RetryStuckDelete(r.Context(), req.TeamSlug, req.AppSlug)
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrTeamNotFound):
+				apperror.Write(w, "team_not_found", apperror.ClassNotFound, "team not found", nil)
+			case errors.Is(err, db.ErrAppNotFound):
+				apperror.Write(w, "app_not_found", apperror.ClassNotFound, "app not found", nil)
+			case errors.Is(err, db.ErrAppNotDeleting):
+				apperror.Write(w, "app_not_deleting", apperror.ClassConflict, "app is not in deleting state; only stuck deletes can be retried", nil)
+			default:
+				apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to retry stuck delete", nil)
+			}
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(dto.AdminRetryDeleteResponse{
+			JobID:   jobID,
+			AppSlug: req.AppSlug,
+			Status:  "deleting",
+		})
+	}
+}
+
 func listMembersHandler(store appsStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rows, err := store.ListTeamMembers(r.Context(), auth.TeamID(r.Context()))
@@ -1480,6 +1520,7 @@ func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient 
 
 	r := chi.NewRouter()
 	r.Post("/v1/admin/bootstrap-owner", bootstrapOwnerHandler(store))
+	r.Post("/v1/admin/retry-delete", retryStuckDeleteHandler(store))
 	r.Post("/internal/deploy-runs/{run_id}/callback", deployRunCallbackHandler(store, callbackAuditWriter))
 	r.Route("/v1/auth", func(sr chi.Router) {
 		sr.Post("/device/start", startDeviceLoginHandler(store, githubClient))
