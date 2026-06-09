@@ -180,11 +180,23 @@ func newAppsCommand() *cobra.Command {
 
 			switch classifySource(createSource) {
 			case sourceKindUnset:
-				// Only --repo-url set — deprecated legacy path.
-				fmt.Fprintln(cmd.ErrOrStderr(), "warning: --repo-url is deprecated; will be removed in M8.")
-				fmt.Fprintln(cmd.ErrOrStderr(), "  migrate to --source — see docs/features/app-source-ingestion/release/2026-05-21-cli-source-flag-migration.md")
-				request.RepoURL = strings.TrimSpace(createRepoURL)
-				request.Ref = strings.TrimSpace(createRef)
+				// classifySource(createSource) is Unset for two cases:
+				//   (a) only --repo-url provided (legacy path), or
+				//   (b) --source provided with an unsupported scheme.
+				if !repoURLSet {
+					return fmt.Errorf("unsupported --source value %q; expected a local path, upload://<id>, or github URL", strings.TrimSpace(createSource))
+				}
+				// M8: --repo-url no longer accepts github URLs; the only remaining
+				// legacy use is the ADR-0012 dev file:// path.
+				switch classifySource(createRepoURL) {
+				case sourceKindGitHubURL:
+					return fmt.Errorf("--repo-url no longer accepts github URLs; use --source %s", strings.TrimSpace(createRepoURL))
+				case sourceKindFileURL:
+					request.RepoURL = strings.TrimSpace(createRepoURL)
+					request.Ref = strings.TrimSpace(createRef)
+				default:
+					return fmt.Errorf("unsupported --repo-url value; use --source for github URLs and local paths")
+				}
 
 			case sourceKindFileURL:
 				// ADR-0012 dev legacy path — server normalizes server-side.
@@ -278,7 +290,7 @@ func newAppsCommand() *cobra.Command {
 	createCmd.Flags().StringVar(&createSlug, "slug", "", "app slug")
 	createCmd.Flags().StringVar(&createSource, "source", "",
 		"app source (local path, upload://<id>, github URL). Replaces --repo-url.")
-	createCmd.Flags().StringVar(&createRepoURL, "repo-url", "", "source repository URL (deprecated; use --source)")
+	createCmd.Flags().StringVar(&createRepoURL, "repo-url", "", "dev file:// repo URL only (ADR-0012); use --source for github URLs and local paths")
 	createCmd.Flags().StringVar(&createRef, "ref", "main",
 		"git ref (branch/tag/sha) for github/file sources; optional audit tag for upload sources")
 	createCmd.Flags().StringVar(&createBuilder, "builder", "", "optional buildpack builder")

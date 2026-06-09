@@ -1,8 +1,17 @@
 # CLI `--source` flag migration
 
-> **狀態**：Released（M6 milestone）
+> **狀態**：Released（M6 milestone）；github alias 已於 M8 移除（2026-06-09）
 > **適用版本**：CLI v1.x（M6 release onwards）
-> **取代**：`--repo-url`（deprecated，M8 移除）
+> **取代**：`--repo-url` 之 github URL 用法（M8 移除）；`--repo-url` 僅保留 dev `file://`（ADR-0012）
+
+## M8 更新（2026-06-09）— github-via-`repo_url` 已移除
+
+- `--repo-url <github URL>` / API `repo_url=<github>` / MCP `repo_url=<github>`：**移除**。
+  github source 一律改走 `source` sum type（`source.github`）。
+- server 端 `repo_url(github) → Source{github}` normalize shim：**刪除**。
+- MCP `create_app_preview`：新增 `source` 欄位（等同 API DTO）；`repo_url`/`ref` 僅留 dev `file://`。
+- 保留不動：ADR-0012 dev `file://`（`--repo-url file://` 與 `--source file://` 皆可用，spec § 2.2）。
+- 觸發後行為：給 github URL 之 `repo_url` 一律報 `unsupported_source`「use source.github」。
 
 ## 對外變更
 
@@ -13,17 +22,16 @@
 - `dto.Source` sum type (`type` ∈ `{github, upload}`)
 - ADR-0013 production file-source ingestion
 
-Deprecated：
-- `--repo-url`（CLI 仍接受，印 stderr warning）
-- `AppCreateRequest.RepoURL` + `Ref`（API 接受並 normalize 為 `Source.GitHub`）
-
-移除時程：M8（或下個 major release，視 client usage 衰退數據而定，spec § 16 Q6）
+Deprecated → Removed（M8，2026-06-09）：
+- `--repo-url <github>`：移除（改用 `--source`）。`--repo-url file://`（dev, ADR-0012）保留。
+- `AppCreateRequest.RepoURL` + `Ref` 之 github 語意：移除（不再 normalize 為 `Source.GitHub`）。
+  欄位本身保留，僅服務 dev `file://` 路徑。
 
 ## Migration cheat-sheet
 
 | 舊用法 | 新用法 | 說明 |
 |---|---|---|
-| `--repo-url https://github.com/foo/bar --ref main` | `--source https://github.com/foo/bar --ref main` | GitHub URL；行為等價 |
+| `--repo-url https://github.com/foo/bar --ref main` | `--source https://github.com/foo/bar --ref main` | **M8 起 `--repo-url` github 不再接受，必須改 `--source`** |
 | 無對應（本地路徑無法部署） | `--source ./my-app` | 自動 pack tar.zst + 上傳 |
 | 無對應 | `--source upload://upl_xxx` | 複用既有 upload（無需重傳）|
 | `--repo-url file:///workspace/x --ref main` | （不變）`--repo-url file:///workspace/x --ref main` | dev-only ADR-0012 路徑；無 `--source` 對等 |
@@ -85,7 +93,8 @@ CLI 對 server 端 `*UploadError` 包裝 user-actionable hint：
 
 ## 補充：對既有 CI / scripts 之影響
 
-若你有自動化腳本使用 `0ops apps create --repo-url`：
-- **無需立即改**：CLI 仍接受，只印 stderr warning
-- **建議**：M7 末更新為 `--source`，避免 M8 移除時 CI 中斷
-- **server-side**：API 自動把 `repo_url + ref` 之請求 normalize 為 `Source{Type:github}`，無需 client side 配合
+若你有自動化腳本使用 `0ops apps create --repo-url <github>`：
+- **M8 起必須改**：`--repo-url` 的 github URL 已移除，會直接報錯導向 `--source`。
+- **改法**：`--repo-url https://github.com/...` → `--source https://github.com/...`（行為等價）。
+- **server-side**：API / MCP 收到 github `repo_url` 一律回 `unsupported_source`，不再 normalize。
+- **dev 例外**：`--repo-url file://...`（ADR-0012）不受影響，照舊可用。

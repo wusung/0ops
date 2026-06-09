@@ -1065,7 +1065,7 @@ func TestAppsPreviewCreateAndCreate(t *testing.T) {
 	srv := httptest.NewServer(NewRouter(store))
 	t.Cleanup(srv.Close)
 
-	reqBody := `{"slug":"nextdemo","repo_url":"https://github.com/example/nextdemo","ref":"main"}`
+	reqBody := `{"slug":"nextdemo","source":{"type":"github","github":{"url":"https://github.com/example/nextdemo","ref":"main"}}}`
 	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/teams/"+store.team.Slug+"/apps:preview", strings.NewReader(reqBody))
 	if err != nil {
 		t.Fatalf("http.NewRequest() error = %v", err)
@@ -1119,7 +1119,7 @@ func TestAppsPreviewCreateRequiresGitHubInstall(t *testing.T) {
 	srv := httptest.NewServer(NewRouter(store))
 	t.Cleanup(srv.Close)
 
-	reqBody := `{"slug":"nextdemo","repo_url":"https://github.com/example/nextdemo","ref":"main"}`
+	reqBody := `{"slug":"nextdemo","source":{"type":"github","github":{"url":"https://github.com/example/nextdemo","ref":"main"}}}`
 	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/teams/"+store.team.Slug+"/apps:preview", strings.NewReader(reqBody))
 	if err != nil {
 		t.Fatalf("http.NewRequest() error = %v", err)
@@ -1162,7 +1162,7 @@ func TestAppsPreviewCreateBypassEnvAllowsMissingInstall(t *testing.T) {
 	srv := httptest.NewServer(NewRouter(store))
 	t.Cleanup(srv.Close)
 
-	reqBody := `{"slug":"nextdemo","repo_url":"https://github.com/example/nextdemo","ref":"main"}`
+	reqBody := `{"slug":"nextdemo","source":{"type":"github","github":{"url":"https://github.com/example/nextdemo","ref":"main"}}}`
 	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/teams/"+store.team.Slug+"/apps:preview", strings.NewReader(reqBody))
 	if err != nil {
 		t.Fatalf("http.NewRequest() error = %v", err)
@@ -1189,9 +1189,11 @@ func TestAppsCreateConfirmIdempotentReplay(t *testing.T) {
 
 	client := backendclient.New(srv.URL, token)
 	preview, err := client.PreviewCreateApp(context.Background(), store.team.Slug, dto.AppCreateRequest{
-		Slug:    "nextdemo",
-		RepoURL: "https://github.com/example/nextdemo",
-		Ref:     "main",
+		Slug: "nextdemo",
+		Source: &dto.Source{
+			Type:   dto.SourceKindGitHub,
+			GitHub: &dto.SourceGitHub{URL: "https://github.com/example/nextdemo", Ref: "main"},
+		},
 	})
 	if err != nil {
 		t.Fatalf("PreviewCreateApp() error = %v", err)
@@ -1649,42 +1651,41 @@ func TestValidateAppCreate_AcceptsSourceUpload(t *testing.T) {
 	}
 }
 
-func TestValidateAppCreate_NormalizesRepoURLToGitHubSource(t *testing.T) {
+// TestValidateAppCreate_RejectsRepoURLGitHubHTTPS guards M8: the deprecated
+// github-via-repo_url alias is removed. github sources must use the Source sum
+// type; a github repo_url is rejected (no longer normalized into Source).
+func TestValidateAppCreate_RejectsRepoURLGitHubHTTPS(t *testing.T) {
 	req := &dto.AppCreateRequest{
 		Slug:    "my-app",
 		RepoURL: "https://github.com/example/repo",
 		Ref:     "main",
 	}
-	ok, _ := callValidate(req)
-	if !ok {
-		t.Fatal("expected true for legacy repo_url + ref")
+	ok, w := callValidate(req)
+	if ok {
+		t.Fatal("expected false: github via repo_url is removed (M8); use source")
 	}
-	if req.Source == nil {
-		t.Fatal("expected req.Source to be populated after normalization")
+	if got := decodeErrorCode(t, w.Body.Bytes()); got != "unsupported_source" {
+		t.Fatalf("error.code = %q, want unsupported_source", got)
 	}
-	if req.Source.Type != dto.SourceKindGitHub {
-		t.Fatalf("source.type = %q, want github", req.Source.Type)
+	if req.Source != nil {
+		t.Fatal("expected req.Source to remain nil; github repo_url must not normalize")
 	}
 }
 
-func TestValidateAppCreate_NormalizationPreservesRef(t *testing.T) {
+// TestValidateAppCreate_RejectsRepoURLGitHubSSH guards the git@github.com form
+// of the removed alias.
+func TestValidateAppCreate_RejectsRepoURLGitHubSSH(t *testing.T) {
 	req := &dto.AppCreateRequest{
 		Slug:    "my-app",
-		RepoURL: "https://github.com/example/repo",
-		Ref:     "v1.2.3",
+		RepoURL: "git@github.com:example/repo.git",
+		Ref:     "main",
 	}
-	ok, _ := callValidate(req)
-	if !ok {
-		t.Fatal("expected true")
+	ok, w := callValidate(req)
+	if ok {
+		t.Fatal("expected false: git@github.com via repo_url is removed (M8)")
 	}
-	if req.Source == nil || req.Source.GitHub == nil {
-		t.Fatal("expected req.Source.GitHub to be set")
-	}
-	if req.Source.GitHub.Ref != "v1.2.3" {
-		t.Fatalf("source.github.ref = %q, want v1.2.3", req.Source.GitHub.Ref)
-	}
-	if req.Source.GitHub.URL != "https://github.com/example/repo" {
-		t.Fatalf("source.github.url = %q, want https://github.com/example/repo", req.Source.GitHub.URL)
+	if got := decodeErrorCode(t, w.Body.Bytes()); got != "unsupported_source" {
+		t.Fatalf("error.code = %q, want unsupported_source", got)
 	}
 }
 
@@ -1889,25 +1890,6 @@ func TestValidateAppCreate_RejectsLegacyRepoURLWithUnknownScheme(t *testing.T) {
 	}
 }
 
-func TestValidateAppCreate_RejectsLegacyRepoURLMissingRef(t *testing.T) {
-	req := &dto.AppCreateRequest{
-		Slug:    "valid-slug",
-		RepoURL: "https://github.com/example/repo",
-		// Ref intentionally empty
-	}
-	ok, w := callValidate(req)
-	if ok {
-		t.Fatalf("expected validateAppCreateRequest to return false for missing Ref on legacy path")
-	}
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
-	body := w.Body.Bytes()
-	if !strings.Contains(string(body), "ref is required") {
-		t.Fatalf("expected 'ref is required' message, body=%s", body)
-	}
-}
-
 func TestValidateAppCreate_AcceptsSourceGitHubWithSSHURL(t *testing.T) {
 	req := &dto.AppCreateRequest{
 		Slug: "valid-slug",
@@ -1922,24 +1904,6 @@ func TestValidateAppCreate_AcceptsSourceGitHubWithSSHURL(t *testing.T) {
 	ok, w := callValidate(req)
 	if !ok {
 		t.Fatalf("expected true for git@github.com URL, got body=%s", w.Body.String())
-	}
-}
-
-func TestValidateAppCreate_NormalizesLegacySSHURL(t *testing.T) {
-	req := &dto.AppCreateRequest{
-		Slug:    "valid-slug",
-		RepoURL: "git@github.com:example/repo.git",
-		Ref:     "main",
-	}
-	ok, w := callValidate(req)
-	if !ok {
-		t.Fatalf("expected true for legacy SSH URL, got body=%s", w.Body.String())
-	}
-	if req.Source == nil || req.Source.Type != dto.SourceKindGitHub || req.Source.GitHub == nil {
-		t.Fatalf("expected normalized Source, got %+v", req.Source)
-	}
-	if req.Source.GitHub.URL != "git@github.com:example/repo.git" {
-		t.Fatalf("URL not preserved, got %q", req.Source.GitHub.URL)
 	}
 }
 

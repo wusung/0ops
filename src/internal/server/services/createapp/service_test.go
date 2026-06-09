@@ -26,6 +26,7 @@ type fakeStore struct {
 	preview      db.Preview
 	app          db.App
 	createCalls  int
+	createParams db.AppCreateParams
 	deleteCalls  int
 	deletedAppID string
 	consumeArgs  []json.RawMessage
@@ -57,6 +58,7 @@ func (f *fakeStore) ConsumePreviewWithResult(_ context.Context, _ string, result
 
 func (f *fakeStore) CreateApp(_ context.Context, params db.AppCreateParams) (db.AppCreateResult, error) {
 	f.createCalls++
+	f.createParams = params
 	f.app = db.App{
 		ID:     "app-1",
 		TeamID: params.TeamID,
@@ -191,7 +193,7 @@ func TestConfirmCreatesAppAndConsumesPreview(t *testing.T) {
 			TeamID:      "team-1",
 			ActorUserID: "user-1",
 			Action:      previewAction,
-			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", RepoURL: "https://github.com/example/nextdemo", Ref: "main"}),
+			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", Source: &dto.Source{Type: dto.SourceKindGitHub, GitHub: &dto.SourceGitHub{URL: "https://github.com/example/nextdemo", Ref: "main"}}}),
 			ExpiresAt:   now.Add(10 * time.Minute),
 		},
 	}
@@ -225,7 +227,7 @@ func TestConfirmRejectsExpiredPreview(t *testing.T) {
 			TeamID:      "team-1",
 			ActorUserID: "user-1",
 			Action:      previewAction,
-			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", RepoURL: "https://github.com/example/nextdemo", Ref: "main"}),
+			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", Source: &dto.Source{Type: dto.SourceKindGitHub, GitHub: &dto.SourceGitHub{URL: "https://github.com/example/nextdemo", Ref: "main"}}}),
 			ExpiresAt:   time.Now().UTC().Add(-time.Minute),
 		},
 	}
@@ -245,7 +247,7 @@ func TestConfirmRollsBackAppOnCloudflareFailure(t *testing.T) {
 			TeamID:      "team-1",
 			ActorUserID: "user-1",
 			Action:      previewAction,
-			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", RepoURL: "https://github.com/example/nextdemo", Ref: "main"}),
+			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", Source: &dto.Source{Type: dto.SourceKindGitHub, GitHub: &dto.SourceGitHub{URL: "https://github.com/example/nextdemo", Ref: "main"}}}),
 			ExpiresAt:   now.Add(10 * time.Minute),
 		},
 	}
@@ -277,7 +279,7 @@ func TestConfirmCreatesTunnelRouteAfterDomainRouting(t *testing.T) {
 			TeamID:      "team-1",
 			ActorUserID: "user-1",
 			Action:      previewAction,
-			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", RepoURL: "https://github.com/example/nextdemo", Ref: "main"}),
+			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", Source: &dto.Source{Type: dto.SourceKindGitHub, GitHub: &dto.SourceGitHub{URL: "https://github.com/example/nextdemo", Ref: "main"}}}),
 			ExpiresAt:   now.Add(10 * time.Minute),
 		},
 	}
@@ -313,7 +315,7 @@ func TestConfirmRollsBackAppWhenK3sIsolationFails(t *testing.T) {
 			TeamID:      "team-1",
 			ActorUserID: "user-1",
 			Action:      previewAction,
-			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", RepoURL: "https://github.com/example/nextdemo", Ref: "main"}),
+			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", Source: &dto.Source{Type: dto.SourceKindGitHub, GitHub: &dto.SourceGitHub{URL: "https://github.com/example/nextdemo", Ref: "main"}}}),
 			ExpiresAt:   now.Add(10 * time.Minute),
 		},
 	}
@@ -339,7 +341,7 @@ func TestConfirmRollsBackWhenCreateTunnelRouteFails(t *testing.T) {
 			TeamID:      "team-1",
 			ActorUserID: "user-1",
 			Action:      previewAction,
-			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", RepoURL: "https://github.com/example/nextdemo", Ref: "main"}),
+			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", Source: &dto.Source{Type: dto.SourceKindGitHub, GitHub: &dto.SourceGitHub{URL: "https://github.com/example/nextdemo", Ref: "main"}}}),
 			ExpiresAt:   now.Add(10 * time.Minute),
 		},
 	}
@@ -455,31 +457,6 @@ func TestConfirm_NoPinForGitHubSource(t *testing.T) {
 	}
 }
 
-// TestConfirm_NoPinForLegacyRepoURL verifies that a legacy repo_url confirm
-// (Source=nil) does NOT call PinUpload.
-func TestConfirm_NoPinForLegacyRepoURL(t *testing.T) {
-	now := time.Now().UTC()
-	store := &fakeStore{
-		preview: db.Preview{
-			ID:          "preview-1",
-			TeamID:      "team-1",
-			ActorUserID: "user-1",
-			Action:      previewAction,
-			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", RepoURL: "https://github.com/example/nextdemo", Ref: "main"}),
-			ExpiresAt:   now.Add(10 * time.Minute),
-		},
-	}
-
-	svc := New(store, noopK3s{}, noopCF{}, nil, nil, nil, "")
-	_, err := svc.Confirm(context.Background(), "team-1", "user-1", "team-slug", "preview-1", "trace-1")
-	if err != nil {
-		t.Fatalf("Confirm() error = %v", err)
-	}
-	if len(store.pinCalls) != 0 {
-		t.Fatalf("PinUpload calls = %d, want 0 for legacy repo_url", len(store.pinCalls))
-	}
-}
-
 // TestConfirm_PinFailureDoesNotRollback verifies that a PinUpload failure
 // does NOT cause the confirm to fail — the deploy_run continues and the
 // response is returned normally.
@@ -571,16 +548,21 @@ func TestValidateRequest_RejectsSourceInvalid(t *testing.T) {
 	}
 }
 
-// TestValidateRequest_AcceptsLegacyRepoURL verifies that the legacy
-// repo_url + ref path still passes when Source is nil.
-func TestValidateRequest_AcceptsLegacyRepoURL(t *testing.T) {
+// TestValidateRequest_RejectsLegacyGitHubRepoURL guards M8: the github-via-repo_url
+// alias is removed at the service layer too; only the dev file:// legacy path
+// remains for Source=nil requests.
+func TestValidateRequest_RejectsLegacyGitHubRepoURL(t *testing.T) {
 	req := dto.AppCreateRequest{
 		Slug:    "nextdemo",
 		RepoURL: "https://github.com/example/nextdemo",
 		Ref:     "main",
 	}
-	if err := validateRequest(req); err != nil {
-		t.Fatalf("validateRequest() error = %v, want nil", err)
+	err := validateRequest(req)
+	if err == nil {
+		t.Fatal("validateRequest() error = nil, want unsupported repo_url (github via repo_url removed in M8)")
+	}
+	if err.Error() != "unsupported repo_url" {
+		t.Fatalf("err = %q, want %q", err.Error(), "unsupported repo_url")
 	}
 }
 
@@ -766,7 +748,9 @@ func TestConfirm_UploadSourceWithoutSignerSkipsTokenFields(t *testing.T) {
 }
 
 // TestConfirm_GitHubSourceSetsKindOnly verifies that a GitHub source sets
-// source_kind="github" and leaves upload fields empty.
+// source_kind="github", leaves upload fields empty, and (M8) flows the github
+// URL + ref from Source.GitHub into the stored app and the dispatch payload —
+// the legacy top-level RepoURL/Ref are empty for a Source-only github request.
 func TestConfirm_GitHubSourceSetsKindOnly(t *testing.T) {
 	now := time.Now().UTC()
 	store := &fakeStore{
@@ -800,6 +784,19 @@ func TestConfirm_GitHubSourceSetsKindOnly(t *testing.T) {
 	if p.UploadID != "" || p.FetchToken != "" || p.FetchURL != "" {
 		t.Fatalf("upload fields must be empty for github source: upload_id=%q fetch_token=%q fetch_url=%q",
 			p.UploadID, p.FetchToken, p.FetchURL)
+	}
+	// M8: github URL + ref must reach the build/deploy pipeline via Source.GitHub.
+	if p.Ref != "main" {
+		t.Fatalf("dispatch ref = %q, want main (derived from Source.GitHub.Ref)", p.Ref)
+	}
+	if p.CommitSHA != "main" {
+		t.Fatalf("dispatch commit_sha = %q, want main (defaults to ref when gitops nil)", p.CommitSHA)
+	}
+	if store.createParams.RepoURL != "https://github.com/example/nextdemo" {
+		t.Fatalf("stored repo_url = %q, want github URL from Source.GitHub.URL", store.createParams.RepoURL)
+	}
+	if store.createParams.Ref != "main" {
+		t.Fatalf("stored ref = %q, want main from Source.GitHub.Ref", store.createParams.Ref)
 	}
 }
 

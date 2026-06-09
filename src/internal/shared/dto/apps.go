@@ -33,14 +33,14 @@ type ListAppsResponse struct {
 
 // AppCreateRequest is the create_app preview payload.
 type AppCreateRequest struct {
-	Slug    string  `json:"slug"`
-	Source  *Source `json:"source,omitempty"`
+	Slug   string  `json:"slug"`
+	Source *Source `json:"source,omitempty"`
 
-	// Deprecated: use Source instead. Retained for v1 backward compat
-	// (ADR-0013 §4.2). Server normalizes RepoURL+Ref into
-	// Source{Type:github, GitHub:{...}} during validation.
-	RepoURL string  `json:"repo_url,omitempty"`
-	Ref     string  `json:"ref,omitempty"`
+	// Deprecated: use Source instead. M8 removed the github-via-repo_url alias;
+	// the only remaining use of RepoURL/Ref is the ADR-0012 dev file:// path
+	// (spec § 2.2). github and upload sources must use Source.
+	RepoURL string `json:"repo_url,omitempty"`
+	Ref     string `json:"ref,omitempty"`
 
 	Builder *string `json:"builder,omitempty"`
 }

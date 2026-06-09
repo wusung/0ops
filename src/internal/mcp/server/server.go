@@ -57,11 +57,15 @@ type getAppInput struct {
 }
 
 type createAppPreviewInput struct {
-	TeamSlug string  `json:"team_slug"`
-	Slug     string  `json:"slug"`
-	RepoURL  string  `json:"repo_url"`
-	Ref      string  `json:"ref"`
-	Builder  *string `json:"builder,omitempty"`
+	TeamSlug string      `json:"team_slug"`
+	Slug     string      `json:"slug"`
+	Source   *dto.Source `json:"source,omitempty"`
+	// RepoURL is the deprecated legacy field. M8 removed the github-via-repo_url
+	// alias; the only remaining use is the ADR-0012 dev file:// path. github and
+	// upload sources must use Source.
+	RepoURL string  `json:"repo_url,omitempty"`
+	Ref     string  `json:"ref,omitempty"`
+	Builder *string `json:"builder,omitempty"`
 }
 
 type createAppInput struct {
@@ -239,8 +243,11 @@ func registerTools(srv *mcp.Server, reg *appmcp.Registry) {
 		Name:        "create_app_preview",
 		Description: "ALWAYS call this BEFORE create_app. Returns a PlanPreview (action_summary, side_effects, expires_at) for creating a new app. Show the user the action_summary and the FULL side_effects list, then obtain explicit approval before calling create_app with the returned preview_id.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input createAppPreviewInput) (*mcp.CallToolResult, dto.PreviewResponse, error) {
-		if input.TeamSlug == "" || input.Slug == "" || input.RepoURL == "" || input.Ref == "" {
-			return nil, dto.PreviewResponse{}, fmt.Errorf("team_slug, slug, repo_url and ref are required")
+		if input.TeamSlug == "" || input.Slug == "" {
+			return nil, dto.PreviewResponse{}, fmt.Errorf("team_slug and slug are required")
+		}
+		if input.Source == nil && input.RepoURL == "" {
+			return nil, dto.PreviewResponse{}, fmt.Errorf("source is required (or repo_url for the dev file:// path)")
 		}
 		host, token, err := resolveBackendAuth()
 		if err != nil {
@@ -248,6 +255,7 @@ func registerTools(srv *mcp.Server, reg *appmcp.Registry) {
 		}
 		out, err := backendclient.New(host, token).PreviewCreateApp(ctx, input.TeamSlug, dto.AppCreateRequest{
 			Slug:    input.Slug,
+			Source:  input.Source,
 			RepoURL: input.RepoURL,
 			Ref:     input.Ref,
 			Builder: input.Builder,

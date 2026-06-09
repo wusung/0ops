@@ -41,9 +41,11 @@ func TestCreateAppEndToEndPreviewConfirmCallback(t *testing.T) {
 	ctx := context.Background()
 
 	preview, err := client.PreviewCreateApp(ctx, store.team.Slug, dto.AppCreateRequest{
-		Slug:    "nextdemo",
-		RepoURL: "https://github.com/example/nextdemo",
-		Ref:     "main",
+		Slug: "nextdemo",
+		Source: &dto.Source{
+			Type:   dto.SourceKindGitHub,
+			GitHub: &dto.SourceGitHub{URL: "https://github.com/example/nextdemo", Ref: "main"},
+		},
 	})
 	if err != nil {
 		t.Fatalf("PreviewCreateApp() error = %v", err)

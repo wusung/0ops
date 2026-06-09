@@ -13,8 +13,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/winshare/zeroops/internal/server/db"
-	gitopssvc "github.com/winshare/zeroops/internal/server/services/gitops"
 	"github.com/winshare/zeroops/internal/server/services/createapp/ingestion"
+	gitopssvc "github.com/winshare/zeroops/internal/server/services/gitops"
 	workflowdispatch "github.com/winshare/zeroops/internal/server/services/workflowdispatch"
 	"github.com/winshare/zeroops/internal/shared/dto"
 )
@@ -199,6 +199,19 @@ func (s *Service) Confirm(ctx context.Context, teamID, actorUserID, teamSlug, pr
 		return ConfirmResult{}, fmt.Errorf("%w: %v", ErrValidationFailed, err)
 	}
 
+	// M8: github sources carry the URL/ref in Source.GitHub. The build/deploy
+	// pipeline below (DB persist, gitops render, workflow dispatch) consumes the
+	// top-level repoURL/ref, so derive them from Source here. A Source-only
+	// github request is the only github path post-M8; without this bridge it
+	// would deploy against an empty repo URL and ref. Upload and dev file://
+	// sources keep using the top-level fields unchanged.
+	repoURL := payload.RepoURL
+	ref := payload.Ref
+	if payload.Source != nil && payload.Source.Type == dto.SourceKindGitHub && payload.Source.GitHub != nil {
+		repoURL = payload.Source.GitHub.URL
+		ref = payload.Source.GitHub.Ref
+	}
+
 	if _, err := s.store.GetTeamAppBySlug(ctx, teamID, payload.Slug); err == nil {
 		return ConfirmResult{}, ErrSlugTaken
 	} else if !errors.Is(err, pgx.ErrNoRows) {
@@ -214,8 +227,8 @@ func (s *Service) Confirm(ctx context.Context, teamID, actorUserID, teamSlug, pr
 		TeamID:      teamID,
 		ActorUserID: actorUserID,
 		Slug:        payload.Slug,
-		RepoURL:     payload.RepoURL,
-		Ref:         payload.Ref,
+		RepoURL:     repoURL,
+		Ref:         ref,
 		Builder:     payload.Builder,
 		TraceID:     traceID,
 	})
@@ -223,7 +236,7 @@ func (s *Service) Confirm(ctx context.Context, teamID, actorUserID, teamSlug, pr
 		return ConfirmResult{}, err
 	}
 
-	commitSHA := payload.Ref
+	commitSHA := ref
 	imageRef := fmt.Sprintf("ghcr.io/winshare/0ops-apps/%s/%s:%s", teamSlug, result.AppSlug, result.DeployRunID)
 	subdomain := fmt.Sprintf("%s.winshare.tw", result.AppSlug)
 
@@ -258,8 +271,8 @@ func (s *Service) Confirm(ctx context.Context, teamID, actorUserID, teamSlug, pr
 			Action:      previewAction,
 			TeamSlug:    teamSlug,
 			AppSlug:     result.AppSlug,
-			RepoURL:     payload.RepoURL,
-			Ref:         payload.Ref,
+			RepoURL:     repoURL,
+			Ref:         ref,
 			DeployRunID: result.DeployRunID,
 			PreviewID:   preview.ID,
 			TraceID:     traceID,
@@ -323,7 +336,7 @@ func (s *Service) Confirm(ctx context.Context, teamID, actorUserID, teamSlug, pr
 			AppSlug:     result.AppSlug,
 			TeamSlug:    teamSlug,
 			CommitSHA:   commitSHA,
-			Ref:         payload.Ref,
+			Ref:         ref,
 			ImageRef:    imageRef,
 			OpsToken:    opsToken,
 			CallbackURL: fmt.Sprintf("%s/internal/deploy-runs/%s/callback", s.callbackBaseURL, result.DeployRunID),
@@ -394,11 +407,11 @@ func validateRequest(req dto.AppCreateRequest) error {
 		return fmt.Errorf("reserved slug")
 	}
 
-	// Source-aware path: T11's HTTP-layer validator already normalized legacy
-	// repo_url into Source for github URLs, and rejected file:// in production.
-	// The service layer trusts that pre-validation and only does minimal kind
-	// sanity here (defense in depth, in case the preview row was written by a
-	// bypassed code path).
+	// Source-aware path: the HTTP-layer validator accepts github/upload only via
+	// the Source sum type (M8 removed the github-via-repo_url alias) and rejects
+	// file:// in production. The service layer trusts that pre-validation and only
+	// does minimal kind sanity here (defense in depth, in case the preview row
+	// was written by a bypassed code path).
 	if req.Source != nil {
 		switch req.Source.Type {
 		case dto.SourceKindGitHub:
@@ -415,21 +428,19 @@ func validateRequest(req dto.AppCreateRequest) error {
 		return nil
 	}
 
-	// Legacy path: repo_url + ref. Kept for the dev file:// inspector flow
-	// (T11 leaves req.Source nil for dev file:// requests).
+	// Legacy path: repo_url + ref. Kept ONLY for the dev file:// inspector flow
+	// (the HTTP validator leaves req.Source nil for dev file:// requests). M8
+	// removed the github-via-repo_url alias, so a non-file:// repo_url here is
+	// unsupported.
 	repoURL := strings.TrimSpace(req.RepoURL)
 	if repoURL == "" {
 		return fmt.Errorf("repo_url is required")
 	}
-	switch {
-	case strings.HasPrefix(repoURL, "file://"):
-		if err := validateLocalRepoURL(repoURL); err != nil {
-			return err
-		}
-	case strings.HasPrefix(repoURL, "https://github.com/"), strings.HasPrefix(repoURL, "git@github.com:"):
-		// allowed
-	default:
+	if !strings.HasPrefix(repoURL, "file://") {
 		return fmt.Errorf("unsupported repo_url")
+	}
+	if err := validateLocalRepoURL(repoURL); err != nil {
+		return err
 	}
 	if strings.TrimSpace(req.Ref) == "" {
 		return fmt.Errorf("ref is required")

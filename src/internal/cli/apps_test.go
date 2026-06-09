@@ -419,7 +419,7 @@ func TestAppsCreateYesCommand(t *testing.T) {
 		"--host", srv.URL,
 		"--token", token,
 		"--slug", "nextdemo",
-		"--repo-url", "https://github.com/example/nextdemo",
+		"--source", "https://github.com/example/nextdemo",
 		"--ref", "main",
 		"--yes",
 		"--output", "json",
