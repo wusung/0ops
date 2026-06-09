@@ -63,6 +63,37 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
   - 範圍排除（follow-up）：M1 `reconciliation_job.trace_id` 欄位、M2 slog `ContextHandler` 自動注入、`requestTrace` middleware 抽到 shared package、`apps.go:554` slog `*string` 列印 ptr 位址而非值（pre-existing bug）。
 - [x] **runbook winshare 細節補完** — 2026-06-06，隨 `feat/production-deployment` PR 收。§ 6 「待落地」段移除；§ 2-5 已補 kubectl / cloudflared / argocd 具體指令。
 
+### Bug fixes / hardening（2026-06-09，end-user UX 驗證連帶）
+
+> 起點：真實在 Claude Code 內用 `0ops onboard` + MCP `delete_app` 驗證 end-user UX 時連環暴露。
+> 全部對 dev compose backend 端到端驗證，非僅單元測試。
+
+- [x] **delete_app 永遠卡 `deleting`（P0）** — PR #117 + #118，2026-06-09
+  - Root cause：`cmd/server/main.go` 給 reconciler 傳空 `HandlerRegistry`，`cleanup_residue`
+    job 撞 `unknown job kind` → 8 次 retry 後 `failed_permanently` → app row 永遠 `deleting`。
+    `deleteapp.HandleResidue` 早寫好且有測試，只是從沒接上 M5.3 runner。
+  - **#117**（修因）：`deleteapp.ResidueJobKind` 常數 + `Service.ResidueHandler()` adapter +
+    `server.RegisterReconcilerHandlers` 可測 wiring；`cmd/server` 改呼叫它而非傳空 registry。
+    紅綠驗證 + live 驗證（`hello` app 自動收斂消失）。
+  - **#118**（修果）：`0ops admin retry-delete --team-slug --app-slug` + `db.RetryStuckDelete`
+    （驗 app 仍 `deleting`，re-enqueue fresh job）+ `docs/runbooks/delete-app-residue.md`
+    （spec § 6.3 標「待 M5 撰寫」那份）。清掉卡 10 天的 node-demo / node-demo-2（live 驗證收斂）。
+  - 連帶修復（同期暴露）：
+    - **#113** `CreateCLIToken` 漏 `expires_at`（migration 00003 NOT NULL）→ device flow login 在套了
+      00003 的 DB 會 fail；verification 跑 `manage.sh test` 才暴露。
+    - **#112** host-side DB test DSN translation（`@db:5432` → `@127.0.0.1:15432`）讓 `manage.sh test`
+      在 host 端能跑 DB integration（先前全 SKIP）。
+    - **#114** CI 加 postgres service + migrations，讓 `internal/server/db` smoke tests 在 GHA 真跑
+      （root cause：CI 從沒設 DATABASE_URL → 上述 schema-vs-query 不一致沒被攔下）。
+
+### end-user onboarding（2026-06-08/09）
+
+- [x] **一條 curl install + login + AI CLI 接線** — PR #115，2026-06-08
+  - `scripts/install.sh` 設 `OPS_HOST` 後自動跑 `0ops onboard`（device flow login + 偵測 claude/codex
+    + 寫 MCP config）。`0ops mcp setup <host>` + `0ops onboard <host>` 子命令。
+  - 端到端驗證：v0.1.2 release binary `curl|sh` → onboard → MCP `tools/list` 24 tools →
+    `tools/call list_apps` 回真實資料。
+
 ### 治理 / 商業（文件層 backlog）
 
 > 不是工程任務；user / founder 決策範疇。
