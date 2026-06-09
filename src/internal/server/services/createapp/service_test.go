@@ -26,6 +26,7 @@ type fakeStore struct {
 	preview      db.Preview
 	app          db.App
 	createCalls  int
+	createParams db.AppCreateParams
 	deleteCalls  int
 	deletedAppID string
 	consumeArgs  []json.RawMessage
@@ -57,6 +58,7 @@ func (f *fakeStore) ConsumePreviewWithResult(_ context.Context, _ string, result
 
 func (f *fakeStore) CreateApp(_ context.Context, params db.AppCreateParams) (db.AppCreateResult, error) {
 	f.createCalls++
+	f.createParams = params
 	f.app = db.App{
 		ID:     "app-1",
 		TeamID: params.TeamID,
@@ -746,7 +748,9 @@ func TestConfirm_UploadSourceWithoutSignerSkipsTokenFields(t *testing.T) {
 }
 
 // TestConfirm_GitHubSourceSetsKindOnly verifies that a GitHub source sets
-// source_kind="github" and leaves upload fields empty.
+// source_kind="github", leaves upload fields empty, and (M8) flows the github
+// URL + ref from Source.GitHub into the stored app and the dispatch payload —
+// the legacy top-level RepoURL/Ref are empty for a Source-only github request.
 func TestConfirm_GitHubSourceSetsKindOnly(t *testing.T) {
 	now := time.Now().UTC()
 	store := &fakeStore{
@@ -780,6 +784,19 @@ func TestConfirm_GitHubSourceSetsKindOnly(t *testing.T) {
 	if p.UploadID != "" || p.FetchToken != "" || p.FetchURL != "" {
 		t.Fatalf("upload fields must be empty for github source: upload_id=%q fetch_token=%q fetch_url=%q",
 			p.UploadID, p.FetchToken, p.FetchURL)
+	}
+	// M8: github URL + ref must reach the build/deploy pipeline via Source.GitHub.
+	if p.Ref != "main" {
+		t.Fatalf("dispatch ref = %q, want main (derived from Source.GitHub.Ref)", p.Ref)
+	}
+	if p.CommitSHA != "main" {
+		t.Fatalf("dispatch commit_sha = %q, want main (defaults to ref when gitops nil)", p.CommitSHA)
+	}
+	if store.createParams.RepoURL != "https://github.com/example/nextdemo" {
+		t.Fatalf("stored repo_url = %q, want github URL from Source.GitHub.URL", store.createParams.RepoURL)
+	}
+	if store.createParams.Ref != "main" {
+		t.Fatalf("stored ref = %q, want main from Source.GitHub.Ref", store.createParams.Ref)
 	}
 }
 
