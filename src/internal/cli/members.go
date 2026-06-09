@@ -188,6 +188,35 @@ func newAdminCommand() *cobra.Command {
 	_ = bootstrapCmd.MarkFlagRequired("github-login")
 	cmd.AddCommand(bootstrapCmd)
 
+	var (
+		retryTeamSlug string
+		retryAppSlug  string
+		retryOutput   string
+	)
+	retryDeleteCmd := &cobra.Command{
+		Use:   "retry-delete",
+		Short: "Re-drive an app delete stuck in 'deleting' (recovery)",
+		Long: `Re-enqueue a cleanup_residue job for an app stuck in 'deleting' whose
+original job went failed_permanently. See docs/runbooks/delete-app-residue.md.`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			host := firstNonEmpty(baseURL, envOr("OPS_HOST", "http://127.0.0.1:8080"))
+			out, err := backendclient.New(host, "").RetryStuckDelete(commandContext(cmd), dto.AdminRetryDeleteRequest{
+				TeamSlug: retryTeamSlug,
+				AppSlug:  retryAppSlug,
+			})
+			if err != nil {
+				return err
+			}
+			return renderJSONOrYAML(cmd, out, retryOutput)
+		},
+	}
+	retryDeleteCmd.Flags().StringVar(&retryTeamSlug, "team-slug", "", "team slug")
+	retryDeleteCmd.Flags().StringVar(&retryAppSlug, "app-slug", "", "app slug")
+	retryDeleteCmd.Flags().StringVar(&retryOutput, "output", envOr("OPS_OUTPUT", "json"), "output format")
+	_ = retryDeleteCmd.MarkFlagRequired("team-slug")
+	_ = retryDeleteCmd.MarkFlagRequired("app-slug")
+	cmd.AddCommand(retryDeleteCmd)
+
 	return cmd
 }
 

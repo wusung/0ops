@@ -202,10 +202,14 @@ func compensate(ctx, completed []string) {
   - 等 ArgoCD Application 物件不存在 → 即可 hard delete app row
   - 5 min 後仍存在 → audit + alert ops
 - 退避：`min(60s × 2^attempts, 30min)`；> 8 次 → `failed_permanently`，需 ops 介入
+- `failed_permanently` 後由 ops 走 `0ops admin retry-delete` 重新 enqueue（runbook § 3）；
+  reconciler 只掃 `pending`，終態 job 不會自行重撿
 
 ### 6.3 Manual cleanup runbook
 
-`docs/runbooks/delete-app-residue.md`（待 M5 撰寫）：列出常見 stuck 情境（PVC 卡 finalizer、ingress 卡 webhook 等）與 kubectl 指令
+`docs/runbooks/delete-app-residue.md`：診斷（reconciliation_job 狀態判讀）、標準回復
+（`0ops admin retry-delete --team-slug --app-slug`）、底層 stuck 情境（PVC 卡 finalizer、
+ingress 卡 webhook、ArgoCD Application 殘留）與 kubectl / argocd 指令。
 
 ## 7. CLI / MCP 行為
 

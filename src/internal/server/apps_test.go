@@ -32,6 +32,8 @@ type fakeStore struct {
 	tokens            map[string]db.CliToken
 	team              db.Team
 	role              string
+	retryDeleteErr    error
+	retryDeleteCalls  []string
 	apps              []db.App
 	domains           []db.DomainBinding
 	deploys           []db.DeployRun
@@ -239,6 +241,14 @@ func (f *fakeStore) BootstrapOwner(_ context.Context, _ db.BootstrapOwnerParams)
 	}
 	f.hasOwner = true
 	return "team-bootstrap", "user-bootstrap", nil
+}
+
+func (f *fakeStore) RetryStuckDelete(_ context.Context, teamSlug, appSlug string) (string, error) {
+	f.retryDeleteCalls = append(f.retryDeleteCalls, teamSlug+"/"+appSlug)
+	if f.retryDeleteErr != nil {
+		return "", f.retryDeleteErr
+	}
+	return "job-retry-1", nil
 }
 
 func (f *fakeStore) ListTeamMembers(_ context.Context, _ string) ([]db.Member, error) {

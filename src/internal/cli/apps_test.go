@@ -114,6 +114,9 @@ func (f *cliFakeStore) HasAnyOwner(_ context.Context) (bool, error) { return fal
 func (f *cliFakeStore) BootstrapOwner(_ context.Context, _ db.BootstrapOwnerParams) (string, string, error) {
 	return "team-bootstrap", "user-bootstrap", nil
 }
+func (f *cliFakeStore) RetryStuckDelete(_ context.Context, _, _ string) (string, error) {
+	return "job-retry-1", nil
+}
 func (f *cliFakeStore) ListTeamMembers(_ context.Context, _ string) ([]db.Member, error) {
 	return []db.Member{{UserID: "user-1", GithubLogin: strPtr("owner"), Role: "owner"}}, nil
 }

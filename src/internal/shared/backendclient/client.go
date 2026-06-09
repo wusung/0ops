@@ -451,6 +451,18 @@ func (c *Client) BootstrapOwner(ctx context.Context, reqBody dto.BootstrapOwnerR
 	return out, nil
 }
 
+// RetryStuckDelete re-drives an app delete stuck in 'deleting' (admin recovery).
+//
+//nolint:revive // exported for public API
+func (c *Client) RetryStuckDelete(ctx context.Context, reqBody dto.AdminRetryDeleteRequest) (dto.AdminRetryDeleteResponse, error) {
+	endpoint := c.BaseURL + "/v1/admin/retry-delete"
+	var out dto.AdminRetryDeleteResponse
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, reqBody, &out); err != nil {
+		return dto.AdminRetryDeleteResponse{}, err
+	}
+	return out, nil
+}
+
 //nolint:revive // exported for public API
 func (c *Client) ListMembers(ctx context.Context, teamSlug string) (dto.ListMembersResponse, error) {
 	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/members"
