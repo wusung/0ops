@@ -286,13 +286,19 @@ func startReconciler(ctx context.Context, logger *slog.Logger, repo *db.Reposito
 		Audit:  auditSvc,
 		Logger: logger,
 	}
+	// Register reconciliation_job handlers (cleanup_residue, …) so the
+	// job_queue loop can drive app deletes past 'deleting' instead of
+	// stalling on "unknown job kind". See server.RegisterReconcilerHandlers.
+	handlers := reconciler.NewHandlerRegistry()
+	appserver.RegisterReconcilerHandlers(handlers, repo)
+
 	cfg := reconciler.Config{
 		Leader:              reconcilerLeaderGate{l: ldr},
 		Store:               repo,
 		Logger:              logger,
 		Observer:            observer,
 		Incidents:           incidentSvc,
-		Handlers:            reconciler.NewHandlerRegistry(),
+		Handlers:            handlers,
 		DeployStatusScanner: scanners.deploy,
 		ArgoSyncScanner:     scanners.argo,
 		UploadGCScanner:     uploadGC,

@@ -12,6 +12,7 @@ import (
 	"github.com/winshare/zeroops/internal/server/auth"
 	"github.com/winshare/zeroops/internal/server/services/audit"
 	deleteappsvc "github.com/winshare/zeroops/internal/server/services/deleteapp"
+	"github.com/winshare/zeroops/internal/server/services/reconciler"
 	"github.com/winshare/zeroops/internal/shared/dto"
 )
 
@@ -42,6 +43,18 @@ func newDeleteAppService(store appsStore) *deleteappsvc.Service {
 		defaultDeleteAppDeps.gitops,
 		defaultDeleteAppDeps.argoCD,
 	)
+}
+
+// RegisterReconcilerHandlers binds every reconciliation_job kind this package
+// owns onto the runner's registry. cmd/server calls it once at startup so the
+// job_queue loop can dispatch the jobs the HTTP/MCP write paths enqueue.
+//
+// Keeping the wiring here (next to the producers) instead of inline in
+// cmd/server makes it unit-testable: a missing registration — the bug that
+// stalled every app delete in 'deleting' — fails RegisterReconcilerHandlers's
+// test rather than only surfacing in production.
+func RegisterReconcilerHandlers(reg *reconciler.HandlerRegistry, store appsStore) {
+	reg.Register(deleteappsvc.ResidueJobKind, newDeleteAppService(store).ResidueHandler())
 }
 
 func previewDeleteAppHandler(store appsStore) http.HandlerFunc {
