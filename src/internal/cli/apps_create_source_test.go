@@ -280,9 +280,10 @@ func TestAppsCreate_SourceFileURL(t *testing.T) {
 	}
 }
 
-// TestAppsCreate_RepoURLDeprecationWarning verifies that using --repo-url
-// alone prints a deprecation warning to stderr but still proceeds.
-func TestAppsCreate_RepoURLDeprecationWarning(t *testing.T) {
+// TestAppsCreate_RepoURLGitHubRejected guards M8: --repo-url with a github URL
+// is rejected client-side directing the user to --source; the request must not
+// be sent.
+func TestAppsCreate_RepoURLGitHubRejected(t *testing.T) {
 	teamSlug := "test-team"
 	token := sourceTestToken()
 	srv, captured := sourceTestServer(t, teamSlug)
@@ -303,16 +304,15 @@ func TestAppsCreate_RepoURLDeprecationWarning(t *testing.T) {
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
 
-	if err := cmd.ExecuteContext(context.Background()); err != nil {
-		t.Fatalf("Execute() error = %v\nstderr: %s", err, stderr.String())
+	err := cmd.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected error for --repo-url github URL (removed in M8), got nil")
 	}
-
-	if !strings.Contains(stderr.String(), "deprecated") {
-		t.Errorf("expected deprecation warning in stderr, got: %s", stderr.String())
+	if !strings.Contains(err.Error(), "--source") {
+		t.Errorf("expected error to direct to --source, got: %v", err)
 	}
-	// Verify the request still went through.
-	if captured.RepoURL != "https://github.com/foo/bar" {
-		t.Errorf("RepoURL = %q, want https://github.com/foo/bar", captured.RepoURL)
+	if captured.RepoURL != "" || captured.Source != nil {
+		t.Errorf("expected no request to be sent, got RepoURL=%q Source=%+v", captured.RepoURL, captured.Source)
 	}
 }
 

@@ -81,6 +81,11 @@ type Source struct {
 
 `AppCreateRequest` 加 `Source *Source`；舊 `RepoURL` / `Ref` 保留並標 deprecated。server 收到 `RepoURL` 時 normalize 為 `Source{Type:github, GitHub:{URL:..., Ref:...}}`。`file://` 在 production 一律 422 `unsupported_source`。
 
+> **Status update（M8，2026-06-09）**：上述 github-via-`repo_url` normalize shim 已依原訂
+> deprecation 時程（spec § 16 Q6）移除。github source 一律走 `Source`；github `repo_url`
+> 現回 `unsupported_source`。`RepoURL`/`Ref` 欄位僅保留 ADR-0012 dev `file://` 路徑。
+> 詳見 `docs/features/app-source-ingestion/release/2026-05-21-cli-source-flag-migration.md`「M8 更新」段。
+
 ### 3.2 Upload-based ingest
 
 `POST /v1/uploads`：multipart tarball（tar.zst 或 tar.gz）→ 解壓至 `<APP_SOURCE_INGEST_ROOT>/<team_id>/<upload_id>/tree/`，寫 `uploads` metadata row，回傳 `upload_id`。

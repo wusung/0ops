@@ -191,7 +191,7 @@ func TestConfirmCreatesAppAndConsumesPreview(t *testing.T) {
 			TeamID:      "team-1",
 			ActorUserID: "user-1",
 			Action:      previewAction,
-			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", RepoURL: "https://github.com/example/nextdemo", Ref: "main"}),
+			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", Source: &dto.Source{Type: dto.SourceKindGitHub, GitHub: &dto.SourceGitHub{URL: "https://github.com/example/nextdemo", Ref: "main"}}}),
 			ExpiresAt:   now.Add(10 * time.Minute),
 		},
 	}
@@ -225,7 +225,7 @@ func TestConfirmRejectsExpiredPreview(t *testing.T) {
 			TeamID:      "team-1",
 			ActorUserID: "user-1",
 			Action:      previewAction,
-			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", RepoURL: "https://github.com/example/nextdemo", Ref: "main"}),
+			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", Source: &dto.Source{Type: dto.SourceKindGitHub, GitHub: &dto.SourceGitHub{URL: "https://github.com/example/nextdemo", Ref: "main"}}}),
 			ExpiresAt:   time.Now().UTC().Add(-time.Minute),
 		},
 	}
@@ -245,7 +245,7 @@ func TestConfirmRollsBackAppOnCloudflareFailure(t *testing.T) {
 			TeamID:      "team-1",
 			ActorUserID: "user-1",
 			Action:      previewAction,
-			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", RepoURL: "https://github.com/example/nextdemo", Ref: "main"}),
+			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", Source: &dto.Source{Type: dto.SourceKindGitHub, GitHub: &dto.SourceGitHub{URL: "https://github.com/example/nextdemo", Ref: "main"}}}),
 			ExpiresAt:   now.Add(10 * time.Minute),
 		},
 	}
@@ -277,7 +277,7 @@ func TestConfirmCreatesTunnelRouteAfterDomainRouting(t *testing.T) {
 			TeamID:      "team-1",
 			ActorUserID: "user-1",
 			Action:      previewAction,
-			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", RepoURL: "https://github.com/example/nextdemo", Ref: "main"}),
+			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", Source: &dto.Source{Type: dto.SourceKindGitHub, GitHub: &dto.SourceGitHub{URL: "https://github.com/example/nextdemo", Ref: "main"}}}),
 			ExpiresAt:   now.Add(10 * time.Minute),
 		},
 	}
@@ -313,7 +313,7 @@ func TestConfirmRollsBackAppWhenK3sIsolationFails(t *testing.T) {
 			TeamID:      "team-1",
 			ActorUserID: "user-1",
 			Action:      previewAction,
-			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", RepoURL: "https://github.com/example/nextdemo", Ref: "main"}),
+			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", Source: &dto.Source{Type: dto.SourceKindGitHub, GitHub: &dto.SourceGitHub{URL: "https://github.com/example/nextdemo", Ref: "main"}}}),
 			ExpiresAt:   now.Add(10 * time.Minute),
 		},
 	}
@@ -339,7 +339,7 @@ func TestConfirmRollsBackWhenCreateTunnelRouteFails(t *testing.T) {
 			TeamID:      "team-1",
 			ActorUserID: "user-1",
 			Action:      previewAction,
-			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", RepoURL: "https://github.com/example/nextdemo", Ref: "main"}),
+			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", Source: &dto.Source{Type: dto.SourceKindGitHub, GitHub: &dto.SourceGitHub{URL: "https://github.com/example/nextdemo", Ref: "main"}}}),
 			ExpiresAt:   now.Add(10 * time.Minute),
 		},
 	}
@@ -455,31 +455,6 @@ func TestConfirm_NoPinForGitHubSource(t *testing.T) {
 	}
 }
 
-// TestConfirm_NoPinForLegacyRepoURL verifies that a legacy repo_url confirm
-// (Source=nil) does NOT call PinUpload.
-func TestConfirm_NoPinForLegacyRepoURL(t *testing.T) {
-	now := time.Now().UTC()
-	store := &fakeStore{
-		preview: db.Preview{
-			ID:          "preview-1",
-			TeamID:      "team-1",
-			ActorUserID: "user-1",
-			Action:      previewAction,
-			Args:        mustJSON(t, dto.AppCreateRequest{Slug: "nextdemo", RepoURL: "https://github.com/example/nextdemo", Ref: "main"}),
-			ExpiresAt:   now.Add(10 * time.Minute),
-		},
-	}
-
-	svc := New(store, noopK3s{}, noopCF{}, nil, nil, nil, "")
-	_, err := svc.Confirm(context.Background(), "team-1", "user-1", "team-slug", "preview-1", "trace-1")
-	if err != nil {
-		t.Fatalf("Confirm() error = %v", err)
-	}
-	if len(store.pinCalls) != 0 {
-		t.Fatalf("PinUpload calls = %d, want 0 for legacy repo_url", len(store.pinCalls))
-	}
-}
-
 // TestConfirm_PinFailureDoesNotRollback verifies that a PinUpload failure
 // does NOT cause the confirm to fail — the deploy_run continues and the
 // response is returned normally.
@@ -571,16 +546,21 @@ func TestValidateRequest_RejectsSourceInvalid(t *testing.T) {
 	}
 }
 
-// TestValidateRequest_AcceptsLegacyRepoURL verifies that the legacy
-// repo_url + ref path still passes when Source is nil.
-func TestValidateRequest_AcceptsLegacyRepoURL(t *testing.T) {
+// TestValidateRequest_RejectsLegacyGitHubRepoURL guards M8: the github-via-repo_url
+// alias is removed at the service layer too; only the dev file:// legacy path
+// remains for Source=nil requests.
+func TestValidateRequest_RejectsLegacyGitHubRepoURL(t *testing.T) {
 	req := dto.AppCreateRequest{
 		Slug:    "nextdemo",
 		RepoURL: "https://github.com/example/nextdemo",
 		Ref:     "main",
 	}
-	if err := validateRequest(req); err != nil {
-		t.Fatalf("validateRequest() error = %v, want nil", err)
+	err := validateRequest(req)
+	if err == nil {
+		t.Fatal("validateRequest() error = nil, want unsupported repo_url (github via repo_url removed in M8)")
+	}
+	if err.Error() != "unsupported repo_url" {
+		t.Fatalf("err = %q, want %q", err.Error(), "unsupported repo_url")
 	}
 }
 

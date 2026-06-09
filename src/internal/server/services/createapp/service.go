@@ -13,8 +13,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/winshare/zeroops/internal/server/db"
-	gitopssvc "github.com/winshare/zeroops/internal/server/services/gitops"
 	"github.com/winshare/zeroops/internal/server/services/createapp/ingestion"
+	gitopssvc "github.com/winshare/zeroops/internal/server/services/gitops"
 	workflowdispatch "github.com/winshare/zeroops/internal/server/services/workflowdispatch"
 	"github.com/winshare/zeroops/internal/shared/dto"
 )
@@ -394,11 +394,11 @@ func validateRequest(req dto.AppCreateRequest) error {
 		return fmt.Errorf("reserved slug")
 	}
 
-	// Source-aware path: T11's HTTP-layer validator already normalized legacy
-	// repo_url into Source for github URLs, and rejected file:// in production.
-	// The service layer trusts that pre-validation and only does minimal kind
-	// sanity here (defense in depth, in case the preview row was written by a
-	// bypassed code path).
+	// Source-aware path: the HTTP-layer validator accepts github/upload only via
+	// the Source sum type (M8 removed the github-via-repo_url alias) and rejects
+	// file:// in production. The service layer trusts that pre-validation and only
+	// does minimal kind sanity here (defense in depth, in case the preview row
+	// was written by a bypassed code path).
 	if req.Source != nil {
 		switch req.Source.Type {
 		case dto.SourceKindGitHub:
@@ -415,21 +415,19 @@ func validateRequest(req dto.AppCreateRequest) error {
 		return nil
 	}
 
-	// Legacy path: repo_url + ref. Kept for the dev file:// inspector flow
-	// (T11 leaves req.Source nil for dev file:// requests).
+	// Legacy path: repo_url + ref. Kept ONLY for the dev file:// inspector flow
+	// (the HTTP validator leaves req.Source nil for dev file:// requests). M8
+	// removed the github-via-repo_url alias, so a non-file:// repo_url here is
+	// unsupported.
 	repoURL := strings.TrimSpace(req.RepoURL)
 	if repoURL == "" {
 		return fmt.Errorf("repo_url is required")
 	}
-	switch {
-	case strings.HasPrefix(repoURL, "file://"):
-		if err := validateLocalRepoURL(repoURL); err != nil {
-			return err
-		}
-	case strings.HasPrefix(repoURL, "https://github.com/"), strings.HasPrefix(repoURL, "git@github.com:"):
-		// allowed
-	default:
+	if !strings.HasPrefix(repoURL, "file://") {
 		return fmt.Errorf("unsupported repo_url")
+	}
+	if err := validateLocalRepoURL(repoURL); err != nil {
+		return err
 	}
 	if strings.TrimSpace(req.Ref) == "" {
 		return fmt.Errorf("ref is required")

@@ -118,8 +118,9 @@ type AppCreateRequest struct {
     Slug    string  `json:"slug"`
     Source  *Source `json:"source,omitempty"`   // 新欄位
 
-    // Deprecated: use Source instead. Retained for v1 backward compat.
-    // Server normalizes RepoURL+Ref into Source{Type:github, GitHub:{...}}.
+    // Deprecated: use Source instead. M8 removed the github-via-repo_url alias;
+    // only the ADR-0012 dev file:// path still uses RepoURL/Ref. github sources
+    // must use Source (a github repo_url now returns unsupported_source).
     RepoURL string  `json:"repo_url,omitempty"`
     Ref     string  `json:"ref,omitempty"`
 
@@ -473,6 +474,10 @@ Dashboard：observability-skeleton 加 upload pane（latency p50/p95、reject �
 
    [Status 2026-05-21]: M8 目標不變；T23 release migration doc + CLI warning 文案已加
 
+   [Status 2026-06-09]: **Done（M8）**。github-via-`repo_url` alias 已移除（API/CLI/MCP），
+   server normalize shim 刪除，MCP `create_app_preview` 補 `source` 欄位。`repo_url` 僅留
+   ADR-0012 dev `file://`（spec § 2.2 不變）。詳見 release migration doc「M8 更新」段。
+
 ## 17. Release status
 
 | Milestone | Status | Notes |
@@ -480,4 +485,4 @@ Dashboard：observability-skeleton 加 upload pane（latency p50/p95、reject �
 | M6 implementation (T1-T22) | Completed 2026-05-21 | 23 PRs merged sequentially |
 | M6 release migration | Released 2026-05-21 | See [release/2026-05-21-cli-source-flag-migration.md](release/2026-05-21-cli-source-flag-migration.md) |
 | Production CI workflow validation | Pending | T15 deploy-app-from-upload.yml 待第一次 production deploy 驗 |
-| `repo_url` deprecation removal | Target M8 | Q6 |
+| `repo_url` github alias removal | Done 2026-06-09 (M8) | Q6；github via `source` only；dev `file://` 保留（ADR-0012）|

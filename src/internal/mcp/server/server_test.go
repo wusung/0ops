@@ -57,8 +57,10 @@ func TestListAppsAndGetAppTools(t *testing.T) {
 		Arguments: map[string]any{
 			"team_slug": store.team.Slug,
 			"slug":      "nextdemo",
-			"repo_url":  "https://github.com/example/nextdemo",
-			"ref":       "main",
+			"source": map[string]any{
+				"type":   "github",
+				"github": map[string]any{"url": "https://github.com/example/nextdemo", "ref": "main"},
+			},
 		},
 	})
 	if err != nil {

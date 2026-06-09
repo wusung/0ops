@@ -1346,7 +1346,6 @@ func logoutHandler(store appsStore) http.HandlerFunc {
 	}
 }
 
-
 // NewRouter returns the HTTP router for the server.
 func NewRouter(store routerStore) http.Handler {
 	githubClient := newGitHubOAuthClient()
@@ -1468,8 +1467,8 @@ func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient 
 			nil, // github inspector — wired by T13/T14 if needed
 			createappsvc.LocalInspector{},
 			createappsvc.UploadInspector{
-				Repo:  store,         // routerStore.GetUpload satisfies uploadInspectStore
-				Store: uploadIngest,  // ingestionStoreFull.Open satisfies uploadArchiveReader
+				Repo:  store,        // routerStore.GetUpload satisfies uploadInspectStore
+				Store: uploadIngest, // ingestionStoreFull.Open satisfies uploadArchiveReader
 			},
 		)
 	}
@@ -1539,9 +1538,9 @@ func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient 
 				store,
 				uploadIngest,
 				uploadAuditSvc,
-				store,                          // *db.Repository satisfies uploadQuotaStore
+				store, // *db.Repository satisfies uploadQuotaStore
 				DefaultUploadQuotas(),
-				DefaultUploadMaxArchiveBytes,   // 100 MiB, matches T6 ingestion.Store default
+				DefaultUploadMaxArchiveBytes, // 100 MiB, matches T6 ingestion.Store default
 				time.Now,
 			))
 		}
@@ -1965,8 +1964,11 @@ func validMemberRole(role string) bool {
 }
 
 // validateAppCreateRequest validates a create_app preview payload against the
-// app-source-ingestion contract (ADR-0013 §4) and normalizes legacy
-// repo_url+ref input into the Source sum type IN PLACE.
+// app-source-ingestion contract (ADR-0013 §4).
+//
+// M8: the deprecated github-via-repo_url alias is removed. github sources must
+// use the Source sum type (source.github). The only remaining use of repo_url
+// is the ADR-0012 dev file:// path (spec § 2.2), which is left untouched.
 //
 // Returns true on success and false on any failure (it also writes the
 // appropriate HTTP error response before returning false). On success the
@@ -2060,19 +2062,11 @@ func validateAppCreateRequest(w http.ResponseWriter, req *dto.AppCreateRequest) 
 			// req.Source == nil && strings.HasPrefix(req.RepoURL, "file://").
 
 		case strings.HasPrefix(repoURL, "https://github.com/"), strings.HasPrefix(repoURL, "git@github.com:"):
-			// Require ref for github legacy path.
-			if strings.TrimSpace(req.Ref) == "" {
-				apperror.Write(w, "validation_failed", apperror.ClassBadRequest, "ref is required", map[string]any{"field": "ref"})
-				return false
-			}
-			// Normalize into req.Source (in-place mutation).
-			req.Source = &dto.Source{
-				Type: dto.SourceKindGitHub,
-				GitHub: &dto.SourceGitHub{
-					URL: repoURL,
-					Ref: strings.TrimSpace(req.Ref),
-				},
-			}
+			// M8: the deprecated github-via-repo_url alias is removed. github
+			// sources must use the Source sum type (source.github). The dev
+			// file:// path above is retained per ADR-0012 (spec § 2.2).
+			apperror.Write(w, apperror.CodeUnsupportedSource, apperror.ClassUnprocessable, "repo_url github source is removed; use source.github with url and ref", map[string]any{"field": "repo_url"})
+			return false
 
 		default:
 			apperror.Write(w, apperror.CodeUnsupportedSource, apperror.ClassUnprocessable, "unsupported repo_url scheme", map[string]any{"field": "repo_url"})

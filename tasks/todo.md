@@ -31,9 +31,15 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
 - [ ] **Q3 — OCI artifact registry ADR-0014**
   - 目標：寫 ADR 評估「OCI artifact 取代本地 ingest tree」之 trade-off
   - 動工條件：v2 多 region / artifact promotion 需求浮現；v1 不採
-- [ ] **Q6 — `repo_url` 全面移除**
-  - 目標：CLI/API 完全移除 deprecated `repo_url` 路徑；只剩 `source` sum type
-  - 動工條件：M8 啟動（spec § 17 Target M8）；release migration doc 已預告
+- [x] **Q6 — `repo_url` github alias 移除（M8）** — Done 2026-06-09
+  - 範圍決策（窄刪）：移除 github-via-`repo_url` alias（API/CLI/MCP），刪 server normalize shim，
+    MCP `create_app_preview` 補 `source` 欄位。github 一律走 `source`；`repo_url` 僅留 ADR-0012
+    dev `file://`（spec § 2.2 不改動，非「完全移除 repo_url」）。
+  - 落地：`internal/server/apps.go`（reject github repo_url）、`createapp/service.go`（service 層同步）、
+    `internal/cli/root.go`（`--repo-url github` 硬錯導向 `--source`）、`internal/mcp/server/server.go`
+    （`source` 欄位 + 透傳）、`dto/apps.go`（comment）。測試全綠（36 套件）。文件：spec § 16/§ 17 +
+    release migration doc「M8 更新」段。
+  - 殘留（非本次範圍）：dev `file://` 之最終移除須待 ADR-0012 supersede，屬獨立決策。
 
 ### v1 收尾殘留（不阻擋 ship）
 
