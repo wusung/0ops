@@ -142,3 +142,24 @@ surface 隔壁 handler 同 bug 再補 fix 一次 — 都是延遲修正導致 pl
      不要往 GOPROXY、proxy.golang.org outage、podman socket perms 等方向歪。
   4. 改 `containers.conf` 後不需要 restart podman；新 container 立即生效，既有 long-running
      container 要 recreate（或走 compose `up -d <svc>`）。
+
+## L011｜移除 normalize/compat shim 前，先確認「誰共用該欄位」與「消費端讀哪個欄位」
+
+- **情境**：2026-06-09 做 M8 移除 deprecated github-via-`repo_url` alias。看似刪 3 個檔的小事，
+  實際踩到兩個 spec 內部張力 + 一個差點上線的 prod bug。
+- **兩個刪除前必查的點（都靠提問 user / 讀 code 才浮現，不是憑印象）**：
+  1. **欄位共用**：`repo_url` 同時承載「github URL（deprecated）」與「dev `file://`（ADR-0012,
+     spec § 2.2 明文保留）」。照字面全刪會打爛 dev `file://` 與 `dev-create-example`/`e2e-create-app`。
+     → 規則：刪一個「語意」前，grep 該欄位/flag 的**所有** scheme 分支，逐一確認哪些是要保留的。
+  2. **介面缺口**：MCP `create_app_preview` 當時只收 `repo_url`、無 `source` 欄位，移除 server
+     normalize shim 會讓 MCP github 建立無替代路徑。→ 規則：移除「對外只剩 X」的 shim 前，確認
+     **所有** client 介面（API/CLI/MCP）都已支援 X。
+- **差點上線的 bug（code review 才抓到）**：normalize shim 原本把 github `repo_url` 正規化成
+  `Source`，但 confirm/gitops/dispatch pipeline 一直只讀 **top-level `payload.RepoURL/Ref`**，
+  不讀 `Source.GitHub`。刪 shim 後，Source-only github 請求會以**空 repo URL/ref 部署**。
+  （其實 `--source github` 在 M8 前就已壞，只是當時 github 真正能動的是 repo_url 路徑而被掩蓋。）
+  → 規則：移除一個「正規化/橋接」步驟時，必查**下游消費端讀的是哪個欄位**；若消費端讀的是被
+  正規化「出來」的欄位，刪掉橋接 = 消費端拿到空值。測試要斷言值有流到消費端（dispatch payload /
+  stored row），不能只斷言 `SourceKind` 之類的分類欄位——本案舊測試正是只測 kind 才漏掉。
+- **流程價值**：本案 brainstorming 階段兩次 STOP 提問釐清範圍（避免 1、2），requesting-code-review
+  抓到第 3 點。三道關卡缺一都會出事。驗證測試務必覆蓋「值的端到端流動」，非僅型別/分類。
