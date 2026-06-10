@@ -12,7 +12,7 @@
 - Webhook payload（GitHub + 內部 callback）的 fixture 集存 `internal/server/auth/testdata/`
 
 ### 整合
-- 真連 GitHub App + Cloudflare API（staging zone `*.staging.winshare.tw`）
+- 真連 GitHub App + Cloudflare API（staging zone `*.staging.jesontech.com`）
 - 真 sample repo（FastAPI/Express/Go HTTP server 各一）跑全流程
 - `testing` + `testcontainers-go` Postgres
 - 把 MCP server 註冊到本機 claude code，跑 5 條代表性自然語言指令，驗證 LLM 是否遵守 preview-then-confirm 約定（錄成 deterministic transcript fixture，CI 重放）

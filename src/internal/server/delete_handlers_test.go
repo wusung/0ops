@@ -111,7 +111,7 @@ func TestDeleteAppFullFlowConfirmEnqueuesResidue(t *testing.T) {
 	store, token := deleteAppCapableStore(t)
 	store.apps[0].Status = strPtr("live")
 	store.domainBindings = []db.DomainBinding{
-		{ID: "db-primary", TeamID: store.team.ID, AppID: "1", AppSlug: "alpha", Hostname: "alpha.winshare.tw", Kind: strPtr("primary")},
+		{ID: "db-primary", TeamID: store.team.ID, AppID: "1", AppSlug: "alpha", Hostname: "alpha.jesontech.com", Kind: strPtr("primary")},
 	}
 	srv := httptest.NewServer(NewRouter(store))
 	t.Cleanup(srv.Close)

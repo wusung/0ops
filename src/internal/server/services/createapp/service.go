@@ -17,6 +17,7 @@ import (
 	gitopssvc "github.com/winshare/zeroops/internal/server/services/gitops"
 	workflowdispatch "github.com/winshare/zeroops/internal/server/services/workflowdispatch"
 	"github.com/winshare/zeroops/internal/shared/dto"
+	opsruntime "github.com/winshare/zeroops/internal/shared/runtime"
 )
 
 const previewAction = "create_app"
@@ -238,7 +239,7 @@ func (s *Service) Confirm(ctx context.Context, teamID, actorUserID, teamSlug, pr
 
 	commitSHA := ref
 	imageRef := fmt.Sprintf("ghcr.io/winshare/0ops-apps/%s/%s:%s", teamSlug, result.AppSlug, result.DeployRunID)
-	subdomain := fmt.Sprintf("%s.winshare.tw", result.AppSlug)
+	subdomain := opsruntime.AppHostname(result.AppSlug)
 
 	rollback := func(opErr error) error {
 		if deleteErr := s.store.DeleteAppByID(ctx, result.AppID); deleteErr != nil {

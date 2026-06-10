@@ -70,7 +70,7 @@ func TestAppsDeleteYesStillRequiresTypedSlug(t *testing.T) {
 
 func TestAppsDeleteHappyPath(t *testing.T) {
 	store, token := newDeleteCapableStore(t)
-	store.domains = []db.DomainBinding{{ID: "d1", TeamID: store.team.ID, AppID: "1", AppSlug: "alpha", Hostname: "alpha.winshare.tw", Kind: strPtr("primary")}}
+	store.domains = []db.DomainBinding{{ID: "d1", TeamID: store.team.ID, AppID: "1", AppSlug: "alpha", Hostname: "alpha.jesontech.com", Kind: strPtr("primary")}}
 	srv := httptest.NewServer(serverpkg.NewRouter(store))
 	t.Cleanup(srv.Close)
 

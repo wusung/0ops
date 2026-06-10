@@ -39,6 +39,27 @@ func IsProduction() bool {
 	return CurrentEnv() == EnvProduction
 }
 
+// defaultDomainBase is the platform base domain used when OPS_DOMAIN_BASE is
+// unset. Deploy layers (helm config.domainBase → OPS_DOMAIN_BASE, bootstrap
+// PROD_BASE_DOMAIN) override it; switching domains requires no code change.
+const defaultDomainBase = "jesontech.com"
+
+// DomainBase returns the platform base domain that app subdomains, the
+// Cloudflare wildcard route, and the domain-verify reserved suffix derive
+// from. Reads OPS_DOMAIN_BASE; empty falls back to defaultDomainBase.
+func DomainBase() string {
+	if v := strings.TrimSpace(os.Getenv("OPS_DOMAIN_BASE")); v != "" {
+		return v
+	}
+	return defaultDomainBase
+}
+
+// AppHostname returns the public hostname for an app slug, e.g.
+// "nextdemo.jesontech.com".
+func AppHostname(slug string) string {
+	return slug + "." + DomainBase()
+}
+
 // AssertProductionSafe panics when:
 //   - ADR-0012: LOCAL_FILE_REPO_ENABLED, LOCAL_BUILD_ENABLED, LOCAL_REGISTRY are set in production
 //   - ADR-0013: APP_SOURCE_INGEST_ROOT or OPS_BUILD_TOKEN_SECRET is unset in production

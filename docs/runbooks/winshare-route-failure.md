@@ -3,13 +3,13 @@
 > 對應 spec：`docs/features/winshare-subdomain-and-tunnel/spec.md`
 > 對應 spec：`docs/features/production-deployment/spec.md`
 > 對應 ADR：ADR-0007（customer-domain TLS）
-> 適用範圍：`<slug>.winshare.tw` 與 `api.winshare.tw` 外部 HTTP 不可達 / 回 4xx 5xx
+> 適用範圍：`<slug>.jesontech.com` 與 `api.jesontech.com` 外部 HTTP 不可達 / 回 4xx 5xx
 
 ## 1. 觸發條件
 
 任一條件成立時進本 runbook：
 
-1. 外部 curl `https://<slug>.winshare.tw` 回 `Connection refused` / `522` / `530`（tunnel 斷）
+1. 外部 curl `https://<slug>.jesontech.com` 回 `Connection refused` / `522` / `530`（tunnel 斷）
 2. 外部 curl 回 `404`（DNS / ingress 沒對到 app）
 3. 外部 curl 回 `5xx`（後端有但 health 不過）
 4. `TunnelDown` 或 `TunnelConnectorsLow` Prometheus alert fire（rules `zeroops_cloudflare_tunnel_connectors_ready`）
@@ -24,21 +24,21 @@
 
 ```bash
 # wildcard CNAME 是否指向 tunnel hostname
-dig +short '*.winshare.tw' CNAME
+dig +short '*.jesontech.com' CNAME
 # 應回 <tunnel-uuid>.cfargotunnel.com 或自設 tunnel hostname
 
 # 該 hostname 公開 TLS handshake 是否正常
-openssl s_client -connect "${HOST:-nextdemo.winshare.tw}:443" \
-  -servername "${HOST:-nextdemo.winshare.tw}" </dev/null 2>&1 | head -20
+openssl s_client -connect "${HOST:-nextdemo.jesontech.com}:443" \
+  -servername "${HOST:-nextdemo.jesontech.com}" </dev/null 2>&1 | head -20
 
 # Cloudflare proxy 是否 enabled（橘雲）
-dig +short '@1.1.1.1' "${HOST:-nextdemo.winshare.tw}" A
+dig +short '@1.1.1.1' "${HOST:-nextdemo.jesontech.com}" A
 # 應回 Cloudflare anycast IP (104.x / 172.67.x)
 ```
 
 故障：
 
-- DNS 沒回 CNAME → 進 Cloudflare dashboard → DNS → 補 `*.winshare.tw` CNAME → tunnel hostname → proxy=on。
+- DNS 沒回 CNAME → 進 Cloudflare dashboard → DNS → 補 `*.jesontech.com` CNAME → tunnel hostname → proxy=on。
 - 回 origin IP（不是 Cloudflare）→ proxy 關了，dashboard 把橘雲開回來。
 - WAF / firewall rule 阻擋 → Cloudflare dashboard → Security → WAF → 看 events 找 block 規則。
 - 觀察 dashboard `Analytics → Traffic` 該 hostname 是否有 hit；無 hit 表示流量沒到 Cloudflare。
@@ -78,7 +78,7 @@ kubectl -n cloudflare-tunnel get secret cloudflared-tunnel-token -o jsonpath='{.
 ### 2.3 K3s ingress (traefik)
 
 ```bash
-# api.winshare.tw 由 ops-server chart ingress 提供
+# api.jesontech.com 由 ops-server chart ingress 提供
 kubectl -n system-0ops get ingress ops-server -o yaml | head -40
 
 # 該 app 對應 ingress（app-* namespace 由 backend 動態建立）
@@ -158,7 +158,7 @@ kubectl -n "${NS:-system-0ops}" patch ingress ops-server --type=json -p='[
 
 v1 無 fallback hostname（spec § Open Questions Q3）。
 緊急狀態建議：
-1. Cloudflare dashboard → page rule 將 `winshare.tw` 全站導向 status page。
+1. Cloudflare dashboard → page rule 將 `jesontech.com` 全站導向 status page。
 2. 公告維運。
 3. 修正後撤 page rule。
 

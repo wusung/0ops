@@ -16,11 +16,11 @@ spec:
       releaseName: ops-server
       parameters:
         - name: ingress.host
-          value: api.winshare.tw
+          value: api.jesontech.com
         - name: config.publicURL
-          value: https://api.winshare.tw
+          value: https://api.jesontech.com
         - name: config.domainBase
-          value: winshare.tw
+          value: jesontech.com
         - name: image.repository
           value: ghcr.io/wusung/0ops-server
         - name: image.tag

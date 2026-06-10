@@ -99,7 +99,7 @@ func (f failingK3s) EnsureTeamIsolation(context.Context, string, string, string)
 type noopCF struct{}
 
 func (noopCF) RouteAppToDomain(context.Context, string, string, string) (string, error) {
-	return "nextdemo.winshare.tw", nil
+	return "nextdemo.jesontech.com", nil
 }
 
 func (noopCF) CreateTunnelRoute(context.Context, string, string, string) error {
@@ -131,7 +131,7 @@ func (r *routeTrackingCF) RouteAppToDomain(_ context.Context, teamID, _ string, 
 	r.calls = append(r.calls, "route")
 	r.teamID = teamID
 	r.appSlug = appSlug
-	return "nextdemo.winshare.tw", nil
+	return "nextdemo.jesontech.com", nil
 }
 
 func (r *routeTrackingCF) CreateTunnelRoute(_ context.Context, teamID, appSlug, backendURL string) error {
@@ -150,7 +150,7 @@ func TestConfirmReplayReturnsStoredResult(t *testing.T) {
 		AppSlug:       "nextdemo",
 		DeployRunID:   "deploy-1",
 		TraceID:       "trace-1",
-		SubdomainURL:  "https://nextdemo.winshare.tw",
+		SubdomainURL:  "https://nextdemo.jesontech.com",
 		InitialDeploy: true,
 	}
 	storedJSON, err := json.Marshal(stored)
@@ -180,8 +180,8 @@ func TestConfirmReplayReturnsStoredResult(t *testing.T) {
 	if result.Response.AppSlug != stored.AppSlug {
 		t.Fatalf("AppSlug = %q, want %q", result.Response.AppSlug, stored.AppSlug)
 	}
-	if result.Response.SubdomainURL != "https://nextdemo.winshare.tw" {
-		t.Fatalf("SubdomainURL = %q, want https://nextdemo.winshare.tw", result.Response.SubdomainURL)
+	if result.Response.SubdomainURL != "https://nextdemo.jesontech.com" {
+		t.Fatalf("SubdomainURL = %q, want https://nextdemo.jesontech.com", result.Response.SubdomainURL)
 	}
 }
 

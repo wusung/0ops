@@ -1,9 +1,9 @@
 # Feature Spec：production-deployment
 
 > **狀態**：draft
-> **來源**：`tasks/todo.md` v1 收尾 #1「`nextdemo.winshare.tw` 真實外部 HTTP 200」
+> **來源**：`tasks/todo.md` v1 收尾 #1「`nextdemo.jesontech.com` 真實外部 HTTP 200」
 > **適用範圍**：把 0ops backend / Postgres / cloudflared / observability 從現有 chart
-> 一鍵部署到單台 K3s host，使 `api.winshare.tw` 與 `*.winshare.tw` 對外可達。
+> 一鍵部署到單台 K3s host，使 `api.jesontech.com` 與 `*.jesontech.com` 對外可達。
 > **對應 Milestone**：M2 驗收基準收尾 + M6 follow-up Q1
 
 ## 1. 結論
@@ -14,7 +14,7 @@
   2. ArgoCD + sealed-secrets controller 安裝
   3. Cloudflare Tunnel token、GitHub OAuth Client、DB password 以 SealedSecret 注入
   4. ArgoCD root app 拉起 postgres → server → cloudflare-tunnel → observability
-  5. smoke 驗 `curl https://api.winshare.tw/health` 與 `curl https://nextdemo.winshare.tw`
+  5. smoke 驗 `curl https://api.jesontech.com/health` 與 `curl https://nextdemo.jesontech.com`
      皆回 200
 - 外部資源（Cloudflare zone、tunnel token、GitHub OAuth App、host）由 user 手動準備；
   其餘 100% 由 repo 內 script + chart 收斂，無 ad-hoc kubectl。
@@ -50,7 +50,7 @@
 ```mermaid
 flowchart TB
   subgraph CF["Cloudflare（user 帳號）"]
-    Zone["winshare.tw zone<br/>*.winshare.tw → tunnel"]
+    Zone["jesontech.com zone<br/>*.jesontech.com → tunnel"]
     Tun["Cloudflare Tunnel<br/>token: cloudflared-tunnel-token"]
   end
 
@@ -63,7 +63,7 @@ flowchart TB
       ArgoCD
       SS["sealed-secrets ctrl"]
       OpsSrv["ops-server × 2<br/>Service :8080"]
-      OpsIng["Ingress<br/>api.winshare.tw → ops-server:8080"]
+      OpsIng["Ingress<br/>api.jesontech.com → ops-server:8080"]
     end
     subgraph PG["ns: postgres"]
       PGMain["pg-main"]
@@ -73,7 +73,7 @@ flowchart TB
       Prom["prometheus + grafana<br/>(gitops/observability)"]
     end
     subgraph Apps["ns: app-*（user apps）"]
-      App["nextdemo<br/>Ingress nextdemo.winshare.tw"]
+      App["nextdemo<br/>Ingress nextdemo.jesontech.com"]
     end
   end
 
@@ -95,7 +95,7 @@ flowchart TB
   commit 到 repo / 直接 kubectl apply；明文 secret 不落 disk、不入 git。
 - Image 來源：`ghcr.io/wusung/0ops-server:{tag}` 由 release workflow 產出，
   prod values 指定 tag；image pull 不走私有 registry credentials。
-- DNS：user 在 Cloudflare zone 設定 `*.winshare.tw` CNAME 到 tunnel hostname，
+- DNS：user 在 Cloudflare zone 設定 `*.jesontech.com` CNAME 到 tunnel hostname，
   bootstrap script 不接 Cloudflare API。
 
 ## 4. 一鍵 bootstrap 流程
@@ -119,7 +119,7 @@ sequenceDiagram
   L->>H: kubectl apply gitops/argocd/root-app.yaml
   H->>H: ArgoCD sync postgres → server → cloudflare-tunnel → observability
   L->>L: prod-verify（等 reconcile）
-  L->>L: prod-smoke<br/>curl https://api.winshare.tw/health<br/>curl https://nextdemo.winshare.tw
+  L->>L: prod-smoke<br/>curl https://api.jesontech.com/health<br/>curl https://nextdemo.jesontech.com
   L-->>U: 全部 200 → done
 ```
 
@@ -142,9 +142,9 @@ PROD_SSH_KEY=~/.ssh/id_ed25519
 PROD_KUBECONFIG_LOCAL=~/.kube/0ops-prod
 
 # === domain ===
-PROD_BASE_DOMAIN=winshare.tw          # base zone
-PROD_API_HOST=api.winshare.tw         # backend
-PROD_DEMO_HOST=nextdemo.winshare.tw   # smoke target
+PROD_BASE_DOMAIN=jesontech.com          # base zone
+PROD_API_HOST=api.jesontech.com         # backend
+PROD_DEMO_HOST=nextdemo.jesontech.com   # smoke target
 
 # === Cloudflare Tunnel（從 Cloudflare zerotrust dashboard 拿）===
 CF_TUNNEL_TOKEN=<base64-token>
@@ -152,7 +152,7 @@ CF_TUNNEL_TOKEN=<base64-token>
 # === GitHub OAuth App（production，從 https://github.com/settings/developers 註冊）===
 GITHUB_OAUTH_CLIENT_ID=<client-id>
 GITHUB_OAUTH_CLIENT_SECRET=<client-secret>
-GITHUB_OAUTH_REDIRECT_URI=https://api.winshare.tw/v1/auth/oauth2/callback
+GITHUB_OAUTH_REDIRECT_URI=https://api.jesontech.com/v1/auth/oauth2/callback
 
 # === image ===
 OPS_IMAGE_TAG=v0.1.1                  # GitHub Release tag
@@ -215,7 +215,7 @@ ingress:
   pathType: Prefix
 config:
   publicURL: ""                # 同上
-  domainBase: "winshare.tw"
+  domainBase: "jesontech.com"
   gitopsRepo: "git@github.com:wusung/0ops-gitops.git"
 secretRef:
   name: ops-server-env        # SealedSecret 對應名
@@ -252,7 +252,7 @@ apps/
 2. 殺 K3s host 之 backend pod，1 分鐘內 ArgoCD 自癒，外部 `curl` 不中斷 ≥ 1 個 sample。
 3. `./manage.sh prod-down` 後重跑 `prod-up`，仍 PASS（冪等性）。
 4. `tasks/e2e-create-app.sh` 走 `E2E_MODE=production`：create_app → callback →
-   ArgoCD sync → ingress → curl `<slug>.winshare.tw` HTTP 200。
+   ArgoCD sync → ingress → curl `<slug>.jesontech.com` HTTP 200。
 5. runbook `winshare-route-failure.md` § 2-5 指令在故障注入情境下可被機械式跟。
 
 ## 9. 測試要求

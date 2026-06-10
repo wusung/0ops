@@ -8,6 +8,7 @@ import (
 
 	"github.com/winshare/zeroops/internal/server/db"
 	workflowdispatch "github.com/winshare/zeroops/internal/server/services/workflowdispatch"
+	opsruntime "github.com/winshare/zeroops/internal/shared/runtime"
 )
 
 // Source identifies who caused the deploy_run row to exist. Mirrors the
@@ -130,7 +131,7 @@ func (t *Trigger) Trigger(ctx context.Context, args TriggerArgs) (TriggerResult,
 	}
 
 	imageRef := fmt.Sprintf("ghcr.io/winshare/0ops-apps/%s/%s:%s", args.TeamSlug, args.AppSlug, row.DeployRunID)
-	subdomain := fmt.Sprintf("https://%s.winshare.tw", args.AppSlug)
+	subdomain := "https://" + opsruntime.AppHostname(args.AppSlug)
 
 	if t.dispatcher != nil {
 		if t.tokenSigner == nil {

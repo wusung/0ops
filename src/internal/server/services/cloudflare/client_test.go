@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	opsruntime "github.com/winshare/zeroops/internal/shared/runtime"
 )
 
 func TestRouteAppToDomainValidatesWildcardRoute(t *testing.T) {
@@ -22,8 +24,8 @@ func TestRouteAppToDomainValidatesWildcardRoute(t *testing.T) {
 		if got := values.Get("type"); got != "CNAME" {
 			t.Fatalf("type = %q, want CNAME", got)
 		}
-		if got := values.Get("name"); got != "*.winshare.tw" {
-			t.Fatalf("name = %q, want *.winshare.tw", got)
+		if got, want := values.Get("name"), "*."+opsruntime.DomainBase(); got != want {
+			t.Fatalf("name = %q, want %s", got, want)
 		}
 
 		_ = json.NewEncoder(w).Encode(apiEnvelope{
@@ -31,7 +33,7 @@ func TestRouteAppToDomainValidatesWildcardRoute(t *testing.T) {
 			Result: []dnsRecord{
 				{
 					ID:      "dns-1",
-					Name:    "*.winshare.tw",
+					Name:    "*." + opsruntime.DomainBase(),
 					Type:    "CNAME",
 					Content: "abcd.cfargotunnel.com",
 					Proxied: true,
@@ -56,8 +58,8 @@ func TestRouteAppToDomainValidatesWildcardRoute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RouteAppToDomain() error = %v", err)
 	}
-	if domain != "nextdemo.winshare.tw" {
-		t.Fatalf("domain = %q, want nextdemo.winshare.tw", domain)
+	if want := opsruntime.AppHostname("nextdemo"); domain != want {
+		t.Fatalf("domain = %q, want %s", domain, want)
 	}
 	if atomic.LoadInt32(&seen) != 1 {
 		t.Fatalf("request count = %d, want 1", seen)
@@ -113,7 +115,7 @@ func TestClientRecordsOperationMetrics(t *testing.T) {
 	if err := client.CreateTunnelRoute(context.Background(), "team-1", "nextdemo", "http://backend:8080"); err != nil {
 		t.Fatalf("CreateTunnelRoute() error = %v", err)
 	}
-	if err := client.DeleteTunnelRoute(context.Background(), "nextdemo.acme.winshare.tw"); err != nil {
+	if err := client.DeleteTunnelRoute(context.Background(), "nextdemo.acme.jesontech.com"); err != nil {
 		t.Fatalf("DeleteTunnelRoute() error = %v", err)
 	}
 

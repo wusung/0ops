@@ -33,7 +33,7 @@ plan 為 `free / starter / pro`，不同 plan 對應不同 quota；plan 升降�
 **ImagePullSecret**：team namespace 內預埋 `ghcr-pull` secret，由 backend 用 GitHub App installation token 簽發 short-lived（1h）GHCR token，背景 goroutine 每 30 min refresh。
 
 **Ingress / TLS**：
-- `*.winshare.tw`：wildcard cert by Cloudflare（origin 用 cloudflared tunnel），Ingress 不持 TLS
+- `*.jesontech.com`：wildcard cert by Cloudflare（origin 用 cloudflared tunnel），Ingress 不持 TLS
 - 客戶自有域名：Cloudflare for SaaS Custom Hostname（**待 ADR-007**），origin 走同一條 tunnel
 
 ### Backend 自身部署 topology

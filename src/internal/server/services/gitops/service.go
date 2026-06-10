@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	opsruntime "github.com/winshare/zeroops/internal/shared/runtime"
 )
 
 var (
@@ -31,7 +33,7 @@ func NewService(repoURL, worktreeRoot string) Service {
 		branch:       "main",
 		worktreeRoot: strings.TrimSpace(worktreeRoot),
 		authorName:   "ops-bot",
-		authorEmail:  "ops-bot@winshare.tw",
+		authorEmail:  "ops-bot@" + opsruntime.DomainBase(),
 		runGit:       runGitCommand,
 	}
 }

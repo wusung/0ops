@@ -37,7 +37,7 @@ superseded-by: []
 
 ## 1. Context and Problem Statement
 
-0ops backend 與 managed apps 都需要 container orchestration。v1 為單 region（winshare.tw 台灣）、小團隊運維；M5 之前不需 multi-region 或 multi-AZ。需在第一行 chart 寫下之前釘住四件事：
+0ops backend 與 managed apps 都需要 container orchestration。v1 為單 region（jesontech.com 台灣）、小團隊運維；M5 之前不需 multi-region 或 multi-AZ。需在第一行 chart 寫下之前釘住四件事：
 
 1. v1 編排器選哪個——managed K8s 控本控低但成本高；K3s 自管低成本但運維風險全攬；其他選項（Nomad、Docker swarm）生態與 ArgoCD / Helm 對接落差。
 2. K3s 預設 datastore 為 SQLite，plan 已標示「namespace + workload 100 量級退化」；M2 進入 production 前必須選定 backing store。

@@ -1,7 +1,7 @@
 # 0ops
 
 Internal PaaS control plane driven by **CLI + MCP**. Give your AI CLI one prompt — 0ops takes a repo
-to a running app on `*.winshare.tw` or your own domain.
+to a running app on `*.jesontech.com` or your own domain.
 
 ## TL;DR
 

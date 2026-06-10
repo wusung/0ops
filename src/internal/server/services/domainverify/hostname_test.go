@@ -3,6 +3,8 @@ package domainverify
 import (
 	"strings"
 	"testing"
+
+	opsruntime "github.com/winshare/zeroops/internal/shared/runtime"
 )
 
 func TestValidateHostnameAccepts(t *testing.T) {
@@ -33,8 +35,8 @@ func TestValidateHostnameRejects(t *testing.T) {
 		"leading_hyphen":       "-foo.example.com",
 		"trailing_hyphen":      "foo-.example.com",
 		"underscore":           "foo_bar.example.com",
-		"reserved_suffix":      "demo.winshare.tw",
-		"reserved_suffix_apex": "winshare.tw",
+		"reserved_suffix":      "demo." + opsruntime.DomainBase(),
+		"reserved_suffix_apex": opsruntime.DomainBase(),
 		"trailing_dot":         "example.com.",
 		"space":                "ex ample.com",
 		"single_label":         "localhost",
@@ -50,7 +52,7 @@ func TestValidateHostnameRejects(t *testing.T) {
 
 func TestValidateHostnameReservedSuffixError(t *testing.T) {
 	t.Parallel()
-	err := ValidateHostname("demo.winshare.tw")
+	err := ValidateHostname("demo." + opsruntime.DomainBase())
 	if err == nil || !isReservedSuffixErr(err) {
 		t.Fatalf("expected ReservedSuffix error, got %v", err)
 	}

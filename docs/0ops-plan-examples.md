@@ -26,7 +26,7 @@ $ 0ops apps create nextdemo \
 即將執行：在 team `acme-prod` 建立 app `nextdemo`
 副作用：
   - 在 0ops-gitops 建 apps/acme-prod/nextdemo/
-  - 在 Cloudflare 註冊 hostname nextdemo.winshare.tw
+  - 在 Cloudflare 註冊 hostname nextdemo.jesontech.com
   - 觸發初次 build (GitHub Actions)
 preview 將於 10 分鐘後過期。
 
@@ -49,7 +49,7 @@ preview 將於 10 分鐘後過期。
 >
 > **Claude**：偵測到 paketo Node.js, port 3000。我準備在 team `personal-mingxianliu` 建立 app `nextdemo`：
 > - 在 0ops-gitops 建 apps/personal-mingxianliu/nextdemo/
-> - 在 Cloudflare 註冊 hostname nextdemo.winshare.tw
+> - 在 Cloudflare 註冊 hostname nextdemo.jesontech.com
 > - 觸發初次 build
 >
 > preview_id `7f3e2a...` 將於 10 分鐘後過期。確認執行嗎？

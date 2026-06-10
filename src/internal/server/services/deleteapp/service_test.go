@@ -346,7 +346,7 @@ func TestSideEffectsContains5ItemsWithArgoCDIrreversible(t *testing.T) {
 
 func TestSideEffectsCountsExtraDomains(t *testing.T) {
 	bindings := []db.AppDomainBinding{
-		{Kind: "primary", Hostname: "a.winshare.tw"},
+		{Kind: "primary", Hostname: "a.jesontech.com"},
 		{Kind: "extra", Hostname: "x.example.com"},
 		{Kind: "extra", Hostname: "y.example.com"},
 	}
@@ -424,7 +424,7 @@ func TestConfirmExecutesReversibleAndEnqueuesResidue(t *testing.T) {
 	seedApp(store, "team-1", "app-1", "nextdemo", "live")
 	extraID := "cf-1"
 	store.bindings["app-1"] = []db.AppDomainBinding{
-		{Kind: "primary", Hostname: "nextdemo.winshare.tw"},
+		{Kind: "primary", Hostname: "nextdemo.jesontech.com"},
 		{Kind: "extra", Hostname: "x.example.com", CFHostnameID: &extraID},
 	}
 	wf := &fakeWorkflow{}

@@ -2,16 +2,16 @@
 
 > **狀態**：draft
 > **來源**：`docs/0ops-plan.md`「Runtime topology / Ingress / TLS」段；ADR-0007（客戶域名雖在另一 spec，但 Cloudflare 入口設計共用）；ADR-0004（K3s 同 cluster co-location）
-> **適用範圍**：Cloudflare zone `winshare.tw` 之 wildcard cert、Cloudflare Tunnel connector pool、`*.winshare.tw` 子網域之 hostname 註冊與 binding 順序；不含客戶自有域名（屬 `custom-domain-and-verify` spec）
+> **適用範圍**：Cloudflare zone `jesontech.com` 之 wildcard cert、Cloudflare Tunnel connector pool、`*.jesontech.com` 子網域之 hostname 註冊與 binding 順序；不含客戶自有域名（屬 `custom-domain-and-verify` spec）
 > **對應 Milestone**：M2（與 create_app 同步上線；deploy_run 之 reversible 副作用「Cloudflare DNS draft」即指本 spec 之 hostname 註冊）
 
 ## 1. 結論（先讀本段）
 
-- 0ops 入口為**單一 Cloudflare account / 單一 zone `winshare.tw`**；所有 `*.winshare.tw` 流量、所有客戶自有域名（透過 Cloudflare for SaaS）均經此 zone
+- 0ops 入口為**單一 Cloudflare account / 單一 zone `jesontech.com`**；所有 `*.jesontech.com` 流量、所有客戶自有域名（透過 Cloudflare for SaaS）均經此 zone
 - TLS 在 Cloudflare edge 終止；origin 只跑 HTTP；K3s ingress (`traefik`) 不持 TLS
 - Cloudflare Tunnel **connector pool**：3 個 cloudflared replica 跑於 `cloudflare-tunnel` namespace（Deployment + 3 replica + anti-affinity）；單 tunnel 多 connector 達到 HA
 - Tunnel ID 為固定值（v1 不 rotation）；DNS hostname 形如 `<id>.cfargotunnel.com` 為客戶 CNAME target source
-- `*.winshare.tw` wildcard cert 由 Cloudflare 自動簽（zone 自管，不走 Custom Hostname 路徑）
+- `*.jesontech.com` wildcard cert 由 Cloudflare 自動簽（zone 自管，不走 Custom Hostname 路徑）
 - 子網域 binding 順序：先 Cloudflare DNS record（reversible draft）→ 再 K3s ingress hostname 寫入；確保 cert 已就緒才開放公開
 - Cloudflare API client 集中於 `internal/server/services/cloudflare/`；retry + backoff（429）；rate limit 共享於同 zone 操作
 - Backend 與 Cloudflare 之間以 API token 認證；token 存於 `cloudflare-api-token` Secret；rotation 屬 `secrets-management` spec
@@ -21,7 +21,7 @@
 
 ### 2.1 包含
 - `internal/server/services/cloudflare/` package：DNS API、Tunnel API、Custom Hostname API（後者由 `custom-domain-and-verify` spec 引用）
-- `*.winshare.tw` 子網域註冊流程（create_app 之 reversible side_effect）
+- `*.jesontech.com` 子網域註冊流程（create_app 之 reversible side_effect）
 - Cloudflare Tunnel connector pool 部署 manifest（`cloudflare-tunnel` namespace）
 - Tunnel 與 K3s ingress 介接（hostname 路由 → Service）
 - 子網域刪除（delete_app）之撤銷流程
@@ -68,8 +68,8 @@
 
 ### 4.1 Zone 設定
 
-- Zone `winshare.tw` 由 0ops 帳號擁有
-- Universal SSL 啟用；wildcard cert 自動簽發（涵蓋 `*.winshare.tw` 與 `winshare.tw`）
+- Zone `jesontech.com` 由 0ops 帳號擁有
+- Universal SSL 啟用；wildcard cert 自動簽發（涵蓋 `*.jesontech.com` 與 `jesontech.com`）
 - DNSSEC 啟用（v1.1 評估；v1 暫不開避免 onboarding 複雜化）
 - Always Use HTTPS 啟用；Min TLS Version = 1.2
 
@@ -77,11 +77,11 @@
 
 | Record | 用途 |
 |---|---|
-| `winshare.tw` A → tunnel IP | 主站 landing（v2 web UI） |
-| `*.winshare.tw` CNAME → `<tunnel_id>.cfargotunnel.com` | 通配，供所有 managed app 子網域 |
-| `tunnel.winshare.tw` CNAME → `<tunnel_id>.cfargotunnel.com` | 顯式 tunnel 端點，供 debug |
+| `jesontech.com` A → tunnel IP | 主站 landing（v2 web UI） |
+| `*.jesontech.com` CNAME → `<tunnel_id>.cfargotunnel.com` | 通配，供所有 managed app 子網域 |
+| `tunnel.jesontech.com` CNAME → `<tunnel_id>.cfargotunnel.com` | 顯式 tunnel 端點，供 debug |
 
-> wildcard CNAME 至 tunnel：所有 `<app_slug>.winshare.tw` 自動解析；不需個別子網域 record
+> wildcard CNAME 至 tunnel：所有 `<app_slug>.jesontech.com` 自動解析；不需個別子網域 record
 
 ## 5. Cloudflare Tunnel connector pool
 
@@ -154,9 +154,9 @@ cloudflared 之 ingress 規則（透過 Cloudflare Dashboard 或 API 設定，�
 
 ```yaml
 ingress:
-  - hostname: "*.winshare.tw"
+  - hostname: "*.jesontech.com"
     service: http://traefik.kube-system.svc.cluster.local:80
-  - hostname: "winshare.tw"
+  - hostname: "jesontech.com"
     service: http://traefik.kube-system.svc.cluster.local:80
   # 客戶自有域名透過 Custom Hostname 自動註冊；不需此處列出
   - service: http_status:404           # catch-all
@@ -176,9 +176,9 @@ ingress:
 ### 6.1 流程位置
 
 `create_app` 之 reversible side_effects：
-1. INSERT app row + INSERT domain_binding(`hostname=<app>.winshare.tw`, `kind=primary`, `verified=true`, `is_apex=false`)
-2. **Cloudflare DNS check**（reversible）：因 `*.winshare.tw` 為 wildcard CNAME，**不需要**對個別子網域寫 DNS record；本步驟僅驗 wildcard 仍存在
-3. Render & push gitops 之 Ingress（含 hostname `<app>.winshare.tw`）
+1. INSERT app row + INSERT domain_binding(`hostname=<app>.jesontech.com`, `kind=primary`, `verified=true`, `is_apex=false`)
+2. **Cloudflare DNS check**（reversible）：因 `*.jesontech.com` 為 wildcard CNAME，**不需要**對個別子網域寫 DNS record；本步驟僅驗 wildcard 仍存在
+3. Render & push gitops 之 Ingress（含 hostname `<app>.jesontech.com`）
 4. ArgoCD sync → traefik 偵測新 Ingress → 該 hostname 立即可路由
 
 > 因 wildcard，wins 子網域**幾乎瞬時上線**；不需等 Cloudflare API；唯一風險為 wildcard cert 失效，但屬 zone 層級，0ops 不主動處理
@@ -196,7 +196,7 @@ ingress:
 ### 7.1 流程
 
 1. 刪除 0ops-gitops 內 `apps/<team>/<app>/` 目錄 → ArgoCD prune Ingress → traefik 不再路由該 hostname
-2. 刪除 domain_binding row（hostname = `<app>.winshare.tw` + 任何客戶域名 binding）
+2. 刪除 domain_binding row（hostname = `<app>.jesontech.com` + 任何客戶域名 binding）
 3. 對客戶域名（若有）呼 Cloudflare API `DELETE /custom_hostnames/{id}`（屬 `custom-domain-and-verify` spec）
 4. wildcard cert 不變
 
@@ -210,7 +210,7 @@ ingress:
 ### 8.1 認證
 
 - 採 API token（非 Global API Key）；最小化 scope：
-  - `Zone:DNS:Edit`（zone = winshare.tw）
+  - `Zone:DNS:Edit`（zone = jesontech.com）
   - `Custom Hostname:Edit`（zone 同上）
   - `Tunnel:Edit`
 - token 存於 K8s Secret `cloudflare-api-token`（key = `token`）
@@ -275,13 +275,13 @@ spec:
 ### 10.2 Cloudflare API 中斷
 
 - backend 對 Cloudflare API 之呼叫 (Custom Hostname add/remove) 失敗 → caller 端 retry 5 次後 saga compensating
-- 對 `*.winshare.tw` 子網域 onboarding：因不呼 Cloudflare API，**不受 API 中斷影響**；wildcard 已就緒
+- 對 `*.jesontech.com` 子網域 onboarding：因不呼 Cloudflare API，**不受 API 中斷影響**；wildcard 已就緒
 - alert：`0ops_cloudflare_api_calls_total{outcome=error}` rate > 1% / 5min → ticket
 
 ### 10.3 Wildcard cert 失效
 
 - 屬 Cloudflare 責任；通常不會發生
-- backend 偵測：`/healthz` 對自家 `<healthz>.winshare.tw` 之 SSL 驗證；連續 3 次失敗 → page
+- backend 偵測：`/healthz` 對自家 `<healthz>.jesontech.com` 之 SSL 驗證；連續 3 次失敗 → page
 - 處置：人工聯繫 Cloudflare support；無法自動修復
 
 ## 11. 與其他 spec 接合點
@@ -302,13 +302,13 @@ spec:
 | 驗證項 | 方式 | 通過條件 |
 |---|---|---|
 | Cloudflare API token 認證成功 | mock + 真連 staging zone | API call 200 |
-| 子網域立即可訪問 | create_app 後 < 60s 從外部 curl | `https://<app>.winshare.tw` 回 200（健康 app） |
-| Wildcard cert 有效 | `openssl s_client -connect <app>.winshare.tw:443` | 證書 SAN 含 `*.winshare.tw`；valid |
+| 子網域立即可訪問 | create_app 後 < 60s 從外部 curl | `https://<app>.jesontech.com` 回 200（健康 app） |
+| Wildcard cert 有效 | `openssl s_client -connect <app>.jesontech.com:443` | 證書 SAN 含 `*.jesontech.com`；valid |
 | Tunnel 3 connector ready | `kubectl get deploy -n cloudflare-tunnel` | replicas=3, ready=3 |
 | 單 connector 掛 | `kubectl delete pod -n cloudflare-tunnel cloudflared-xxx` | 流量持續可訪問；K8s 自動拉起 |
 | Cloudflare API rate limit retry | mock 429 三次後成功 | client 端 retry 計數 = 3，最終 200 |
 | Rate limit 5 次仍失敗 | mock 持續 429 | error envelope `cloudflare_rate_limited`；caller 進 compensating |
-| Tunnel ingress 路由 | 對 `<app>.winshare.tw` 之 request | 經 cloudflared → traefik → team namespace pod |
+| Tunnel ingress 路由 | 對 `<app>.jesontech.com` 之 request | 經 cloudflared → traefik → team namespace pod |
 | `delete_app` 後 hostname 不可訪問 | delete 後 < 90s 從外部 curl | 連線失敗或 404 |
 | `delete_app` 不刪 wildcard | wildcard CNAME 仍存在 | DNS 查詢通過 |
 | API token 範圍最小 | 嘗試用此 token 對其他 zone 操作 | Cloudflare API 拒（403） |
@@ -321,15 +321,15 @@ spec:
 | Tunnel uptime | 99.95% / 28d（plan SLO） | Cloudflare 端 probe + `cloudflare_tunnel_connectors_ready >= 1` |
 | Cloudflare API success rate | > 99% | `0ops_cloudflare_api_calls_total{outcome=success} / total` |
 | Cloudflare API throttle rate | < 0.5% | `outcome=throttled / total` |
-| Subdomain onboarding latency | p95 < 60s | create_app 完成至 `https://<app>.winshare.tw` HTTP 200 |
+| Subdomain onboarding latency | p95 < 60s | create_app 完成至 `https://<app>.jesontech.com` HTTP 200 |
 | Connector ready replicas | >= 2 / 3（隨時） | `connectors_ready` gauge |
 
 ## 14. 對 `docs/0ops-plan.md` 的修改清單
 
-1. 「Runtime topology / Ingress / TLS」段：交叉引用本 spec 為 `*.winshare.tw` 入口 source
+1. 「Runtime topology / Ingress / TLS」段：交叉引用本 spec 為 `*.jesontech.com` 入口 source
 2. 「Risks & open #8（Cloudflare Tunnel 單點）」：補入「3 connector 部署 + anti-affinity；單點為 tunnel ID 本身（v1 不 rotate）」
 3. 補一段「`cloudflare-tunnel` namespace 為標準 namespace（與 system-0ops 平行），由 chart 部署」
-4. Ingress / TLS 表：明確「`*.winshare.tw` wildcard cert 由 Cloudflare zone 自動」「客戶域名走 Custom Hostname API」之分流
+4. Ingress / TLS 表：明確「`*.jesontech.com` wildcard cert 由 Cloudflare zone 自動」「客戶域名走 Custom Hostname API」之分流
 
 ## 15. Open issues
 
@@ -346,13 +346,13 @@ spec:
 
 > 違反以下任一項，PR 不可合入。
 
-1. 所有 0ops 流量入口必經 Cloudflare（zone winshare.tw）；不得開放 K3s NodePort / LB 直接對外
+1. 所有 0ops 流量入口必經 Cloudflare（zone jesontech.com）；不得開放 K3s NodePort / LB 直接對外
 2. K3s ingress（traefik）不持任何 TLS cert；僅接 HTTP
 3. cloudflared connector 至少 3 replica；單 replica 部署為違反
-4. Cloudflare API token 為最小 scope（DNS:Edit + Custom Hostname:Edit + Tunnel:Edit on winshare.tw zone）；不得用 Global API Key
+4. Cloudflare API token 為最小 scope（DNS:Edit + Custom Hostname:Edit + Tunnel:Edit on jesontech.com zone）；不得用 Global API Key
 5. Cloudflare API token 必存於 K8s Secret；不得放入 env var、不得進 log
 6. Cloudflare API client 必走 retry + backoff；不得 fire-and-forget
-7. wildcard CNAME `*.winshare.tw → <tunnel_id>.cfargotunnel.com` 為 zone 必設 record；不得刪除（會中斷所有子網域）
+7. wildcard CNAME `*.jesontech.com → <tunnel_id>.cfargotunnel.com` 為 zone 必設 record；不得刪除（會中斷所有子網域）
 8. tunnel ID v1 不 rotate；rotation 屬 v2 事件需 ADR + 客戶通知 runbook
 9. cloudflared `--no-autoupdate`；版本鎖於 manifest，升級走 PR
 10. Cloudflare for SaaS Custom Hostname 之操作必透過本 spec 之 client（不得 Cloudflare Dashboard 手動設）；確保 audit + GitOps trail

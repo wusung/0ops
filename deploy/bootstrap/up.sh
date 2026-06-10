@@ -38,6 +38,18 @@ if [ ${#missing[@]} -gt 0 ]; then
   exit 1
 fi
 
+# ArgoCD 不做 env substitution：runtime domain 來自 argocd/apps/server.yaml 的
+# config.domainBase，不是 PROD_BASE_DOMAIN。兩者不一致時 server 會以另一個
+# domain 服務（subdomain / wildcard / reserved suffix 全錯 zone），smoke 探測
+# 失敗且難歸因 — 在這裡 fail-fast。
+ARGOCD_SERVER_APP="deploy/gitops/argocd/apps/server.yaml"
+argocd_domain=$(awk '/name: config.domainBase/{getline; sub(/.*value: */, ""); print; exit}' "$ARGOCD_SERVER_APP")
+if [ -n "$argocd_domain" ] && [ "$argocd_domain" != "$PROD_BASE_DOMAIN" ]; then
+  echo "ERROR: PROD_BASE_DOMAIN ($PROD_BASE_DOMAIN) != config.domainBase ($argocd_domain) in $ARGOCD_SERVER_APP" >&2
+  echo "       ArgoCD does not substitute env vars — edit $ARGOCD_SERVER_APP (domainBase, ingress.host, publicURL) to match." >&2
+  exit 1
+fi
+
 log() { printf '\033[1;36m[prod-up]\033[0m %s\n' "$*" >&2; }
 
 # Preflight：驗 ghcr image 存在且可匿名拉。在動 host 之前 fail-fast —

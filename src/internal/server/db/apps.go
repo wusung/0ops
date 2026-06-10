@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	sqlcgen "github.com/winshare/zeroops/internal/server/db/sqlc"
+	opsruntime "github.com/winshare/zeroops/internal/shared/runtime"
 	sharedtoken "github.com/winshare/zeroops/internal/shared/token"
 )
 
@@ -324,7 +325,7 @@ RETURNING id
 	if _, err := tx.Exec(ctx, `
 INSERT INTO domain_binding (app_id, team_id, hostname, kind, verified, verified_at)
 VALUES ($1, $2, $3, 'primary', true, now())
-`, appID, parsedTeamID, fmt.Sprintf("%s.winshare.tw", params.Slug)); err != nil {
+`, appID, parsedTeamID, opsruntime.AppHostname(params.Slug)); err != nil {
 		return AppCreateResult{}, err
 	}
 

@@ -44,7 +44,7 @@ type mockCloudflareClient struct {
 
 func (m *mockCloudflareClient) RouteAppToDomain(_ context.Context, _, _, _ string) (string, error) {
 	m.routeAppToDomainCalled = true
-	return "test.team.winshare.tw", nil
+	return "test.team.jesontech.com", nil
 }
 
 func (m *mockCloudflareClient) CreateTunnelRoute(_ context.Context, _, _, _ string) error {

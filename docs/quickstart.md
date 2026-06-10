@@ -84,7 +84,7 @@ DRY_RUN=1 curl ... | sh                                       # 只印會做什�
 > 「幫我把這個 repo deploy 到 0ops，叫 nextdemo」
 
 AI 應呼叫 `create_app_preview` → 你 confirm → 呼叫 `create_app` → backend 派 GHA →
-build → deploy → 對外 URL 可用。預設用 `<slug>.winshare.tw`；
+build → deploy → 對外 URL 可用。預設用 `<slug>.jesontech.com`；
 要自有網域走 `0ops apps add-domain`（CLI 或自然語言指令皆可）。
 
 驗：

@@ -10,12 +10,17 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	opsruntime "github.com/winshare/zeroops/internal/shared/runtime"
 )
 
-const (
-	defaultAPIBaseURL = "https://api.cloudflare.com/client/v4"
-	wildcardHostName  = "*.winshare.tw"
-)
+const defaultAPIBaseURL = "https://api.cloudflare.com/client/v4"
+
+// wildcardHostName returns the shared wildcard DNS route for the platform
+// base domain, e.g. "*.jesontech.com".
+func wildcardHostName() string {
+	return "*." + opsruntime.DomainBase()
+}
 
 var (
 	// ErrConfigMissing reports missing Cloudflare API configuration.
@@ -37,7 +42,7 @@ type Config struct {
 	// AccountID is the Cloudflare Account ID.
 	AccountID string
 
-	// ZoneID is the Cloudflare Zone ID for the domain (e.g., winshare.tw).
+	// ZoneID is the Cloudflare Zone ID for the domain (e.g., jesontech.com).
 	ZoneID string
 
 	// DisableTunnelIsolation disables all Cloudflare operations.
@@ -120,7 +125,7 @@ func newClient(cfg *Config, baseURL string, httpClient *http.Client, sleep func(
 
 // RouteAppToDomain validates the shared wildcard route and returns the public hostname.
 func (c *Client) RouteAppToDomain(ctx context.Context, _, _, appSlug string) (string, error) {
-	subdomain := fmt.Sprintf("%s.winshare.tw", strings.TrimSpace(appSlug))
+	subdomain := opsruntime.AppHostname(strings.TrimSpace(appSlug))
 	if c == nil || c.config == nil || c.config.DisableTunnelIsolation {
 		recordCloudflareMetric("dns_create", "success")
 		return subdomain, nil
@@ -185,7 +190,7 @@ func (c *Client) GetDomainStatus(ctx context.Context, hostname string) (map[stri
 	}
 	target := strings.TrimSpace(hostname)
 	if target == "" {
-		target = wildcardHostName
+		target = wildcardHostName()
 	}
 	records, err := c.listDNSRecords(ctx, target)
 	if err != nil {
@@ -215,7 +220,7 @@ func (c *Client) ensureConfigured() error {
 }
 
 func (c *Client) ensureWildcardRoute(ctx context.Context) error {
-	records, err := c.listDNSRecords(ctx, wildcardHostName)
+	records, err := c.listDNSRecords(ctx, wildcardHostName())
 	if err != nil {
 		return err
 	}

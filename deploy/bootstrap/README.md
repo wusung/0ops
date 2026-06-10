@@ -42,8 +42,8 @@ E2E_MODE=production OPS_HOST=https://api.<domain> ./manage.sh e2e-create-app
 | 項目 | 取得方式 |
 |---|---|
 | K3s host | VPS / homelab，Linux + ssh key 設好 |
-| Cloudflare zone `winshare.tw` | 已在 Cloudflare 帳號內 |
-| `*.winshare.tw` CNAME | Cloudflare zone → DNS → wildcard CNAME → tunnel hostname |
+| Cloudflare zone `jesontech.com` | 已在 Cloudflare 帳號內 |
+| `*.jesontech.com` CNAME | Cloudflare zone → DNS → wildcard CNAME → tunnel hostname |
 | Cloudflare Tunnel | one.dash.cloudflare.com → Networks → Tunnels → Create → 拿 token |
 | GitHub OAuth App | `./manage.sh prod-setup-oauth` 互動式建立（runbook `docs/runbooks/production-oauth-setup.md`）；或手動 `github.com/settings/developers` |
 | `kubeseal` CLI | `brew install kubeseal` / `pacman -S kubeseal` |
@@ -94,7 +94,7 @@ up.sh
 ## 非預設域名 / 非預設 image
 
 `deploy/gitops/argocd/apps/*.yaml` 是 ArgoCD 從 git 直接讀取的 Application 物件；
-ArgoCD 不做 env substitution。若你的域名 / image 不是 `api.winshare.tw` / `ghcr.io/winshare/ops-server`，
+ArgoCD 不做 env substitution。若你的域名 / image 不是 `api.jesontech.com` / `ghcr.io/winshare/ops-server`，
 請 fork 本 repo，修：
 
 - `deploy/gitops/argocd/apps/server.yaml` 的 `helm.parameters`（`ingress.host` / `config.publicURL` / `image.tag` 等）

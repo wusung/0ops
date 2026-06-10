@@ -32,7 +32,7 @@ gh api /repos/wusung/0ops/actions/runners         # 0ops-prod-1 status=online
 |---|---|---|
 | K3s host | VPS / homelab，Linux + sshd + ssh key 設好 | `ssh $PROD_HOST true` |
 | Cloudflare zone | 已在 Cloudflare 帳號 | `dig +short ${PROD_BASE_DOMAIN} NS` |
-| `*.winshare.tw` CNAME | Cloudflare → DNS → wildcard CNAME → tunnel hostname | `dig +short '*.winshare.tw' CNAME` |
+| `*.jesontech.com` CNAME | Cloudflare → DNS → wildcard CNAME → tunnel hostname | `dig +short '*.jesontech.com' CNAME` |
 | Cloudflare Tunnel token | one.dash.cloudflare.com → Networks → Tunnels → Create | 寫入 `.env.prod` 之 `CF_TUNNEL_TOKEN` |
 | GitHub OAuth App | `./manage.sh prod-setup-oauth` 互動式 | `./manage.sh prod-verify-oauth` |
 | 本機工具 | `kubeseal` + `gh`（已 `gh auth login`） | `kubeseal --version` / `gh auth status` |

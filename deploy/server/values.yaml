@@ -85,13 +85,13 @@ env: []
 ingress:
   enabled: true
   className: traefik
-  host: ""              # render-time guard：production 必填，如 api.winshare.tw
+  host: ""              # render-time guard：production 必填，如 api.jesontech.com
   path: /
   pathType: Prefix
 
 config:
-  publicURL: ""         # render-time guard：production 必填，如 https://api.winshare.tw
-  domainBase: "winshare.tw"
+  publicURL: ""         # render-time guard：production 必填，如 https://api.jesontech.com
+  domainBase: "jesontech.com"
   gitopsRepo: "git@github.com:wusung/0ops-gitops.git"
 
 # Backend 從這個 Secret envFrom 取 GITHUB_OAUTH_CLIENT_ID/SECRET、DATABASE_URL 等。
