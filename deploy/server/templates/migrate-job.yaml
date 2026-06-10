@@ -1,0 +1,56 @@
+{{- /* production-deployment 補遺：K8s 部署路徑的 migrations 機制。
+dev compose 由 `migrate` service 跑 goose up；production chart 先前完全沒有
+對應物 — server 會對空 schema 啟動。本 Job 以 Helm hook 在每次 install/upgrade
+前跑 goose up（ArgoCD 將 pre-install/pre-upgrade 映射為 PreSync hook，
+sync 時先跑完 migration 才滾 Deployment）。goose 冪等，重跑安全。 */ -}}
+{{- if .Values.migrations.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ops-server-migrate
+  namespace: {{ .Values.namespace | quote }}
+  labels:
+    app: ops-server
+    app.0ops.io/managed-by: 0ops
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    helm.sh/hook-weight: "0"
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        app: ops-server-migrate
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: "{{ .Values.migrations.image.repository }}:{{ .Values.migrations.image.tag }}"
+          imagePullPolicy: {{ .Values.migrations.image.pullPolicy }}
+          # entrypoint: goose -dir /migrations postgres <DATABASE_URL> <subcommand>
+          args:
+            - "$(DATABASE_URL)"
+            - "up"
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretRef.name | quote }}
+                  key: DATABASE_URL
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+{{- end }}

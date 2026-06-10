@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  packages: write    # images job pushes ghcr.io/wusung/0ops-{server,migrations}
 
 jobs:
   goreleaser:
@@ -32,3 +33,40 @@ jobs:
           workdir: src
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Production container images for the K8s deploy path
+  # (deploy/server chart + deploy/gitops/argocd/apps/server.yaml).
+  # goreleaser above only ships CLI/MCP/server *binaries*; the chart pulls
+  # ghcr images, so a release without this job leaves prod ImagePullBackOff.
+  #
+  # One-time after the FIRST release that publishes these packages: flip
+  # both ghcr packages to public (deploy/bootstrap/README.md § ghcr) so the
+  # cluster can pull anonymously — first push defaults to private.
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Login GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push server image
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          IMG="ghcr.io/${{ github.repository_owner }}/0ops-server"
+          docker build --target runtime \
+            --build-arg VERSION="${TAG#v}" \
+            -f src/cmd/server/Dockerfile \
+            -t "$IMG:$TAG" -t "$IMG:latest" src
+          docker push "$IMG:$TAG"
+          docker push "$IMG:latest"
+
+      - name: Build and push migrations image
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          IMG="ghcr.io/${{ github.repository_owner }}/0ops-migrations"
+          docker build \
+            -f src/migrations/Dockerfile \
+            -t "$IMG:$TAG" -t "$IMG:latest" src
+          docker push "$IMG:$TAG"
+          docker push "$IMG:latest"

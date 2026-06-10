@@ -40,6 +40,35 @@ fi
 
 log() { printf '\033[1;36m[prod-up]\033[0m %s\n' "$*" >&2; }
 
+# Preflight：驗 ghcr image 存在且可匿名拉。在動 host 之前 fail-fast —
+# 沒 image 的 deploy 只會在 30 分鐘後以 ImagePullBackOff 告終。
+# 失敗常因：(a) 該 tag 的 release 還沒 cut；(b) package 仍是 private
+# （首次發佈預設 private；README § ghcr 一次性步驟設 public）。
+check_image() {
+  local ref="$1"                 # ghcr.io/<owner>/<name>:<tag>
+  local path="${ref#ghcr.io/}"   # <owner>/<name>:<tag>
+  local repo="${path%%:*}" tag="${path##*:}"
+  local token
+  token=$(curl -fsSL "https://ghcr.io/token?scope=repository:${repo}:pull" 2>/dev/null \
+    | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+  [ -n "$token" ] || { echo "ERROR: cannot get anonymous pull token for $repo" >&2; return 1; }
+  curl -fsS -o /dev/null \
+    -H "Authorization: Bearer $token" \
+    -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json" \
+    "https://ghcr.io/v2/${repo}/manifests/${tag}" || {
+    echo "ERROR: image not anonymously pullable: $ref" >&2
+    echo "       - release workflow images job 已對該 tag 跑過？" >&2
+    echo "       - ghcr package 已設 public？（首次發佈預設 private）" >&2
+    return 1
+  }
+}
+
+log "step 0/7 preflight: ghcr images pullable"
+MIGRATIONS_IMAGE_REF="${OPS_MIGRATIONS_IMAGE_REPO:-${OPS_IMAGE_REPO%-server}-migrations}:${OPS_IMAGE_TAG}"
+check_image "${OPS_IMAGE_REPO}:${OPS_IMAGE_TAG}"
+check_image "$MIGRATIONS_IMAGE_REF"
+log "preflight OK: ${OPS_IMAGE_REPO}:${OPS_IMAGE_TAG} + ${MIGRATIONS_IMAGE_REF}"
+
 log "step 1/7 install k3s on $PROD_HOST"
 bash deploy/bootstrap/install-k3s.sh
 

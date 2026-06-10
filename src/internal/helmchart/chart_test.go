@@ -85,6 +85,67 @@ var requiredSubstrings = map[string][]string{
 		"kind: ServiceAccount",
 		"kind: Role",
 	},
+	// production-deployment spec § 6（PR #107 曾落在 module 外的死測試檔，
+	// 本檔為唯一活測試 — manage.sh test 只跑 src/ module）
+	"templates/ingress.yaml": {
+		"if not .Values.ingress.host",
+		"ops-server chart requires ingress.host to be set",
+		`ne .Values.ingress.className "traefik"`,
+		"kind: Ingress",
+	},
+	"templates/configmap.yaml": {
+		"if not .Values.config.publicURL",
+		"ops-server chart requires config.publicURL",
+		"OPS_API_PUBLIC_URL:",
+		"OPS_DOMAIN_BASE:",
+		"OPS_GITOPS_REPO:",
+	},
+	// K8s 部署路徑的 migrations：pre-install/pre-upgrade hook（ArgoCD 映射
+	// PreSync），goose up 冪等。沒有這個 Job，server 對空 schema 啟動。
+	"templates/migrate-job.yaml": {
+		"helm.sh/hook: pre-install,pre-upgrade",
+		"kind: Job",
+		".Values.migrations.image.repository",
+		// DATABASE_URL 一律取自 sealed secret，不渲明文
+		"secretKeyRef:",
+		"key: DATABASE_URL",
+		"runAsNonRoot: true",
+	},
+}
+
+// TestChartHasNoPlaintextSecretTemplate — production-deployment spec § 10：
+// 本 chart 不可渲明文 Secret；cluster 內 Secret 一律由 sealed-secrets unseal。
+func TestChartHasNoPlaintextSecretTemplate(t *testing.T) {
+	matches, err := filepath.Glob(filepath.Join(chartDir, "templates", "secret*.yaml"))
+	if err != nil {
+		t.Fatalf("glob secret templates: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Errorf("ops-server chart must not ship Secret templates (spec § 10): %v", matches)
+	}
+}
+
+// TestImageDefaultsPointAtPublishedRegistry 守 release workflow images job
+// 與 chart 預設的對齊：ghcr.io/wusung/0ops-{server,migrations}（winshare
+// namespace 從未發佈過，會 ImagePullBackOff）。
+func TestImageDefaultsPointAtPublishedRegistry(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(chartDir, "values.yaml"))
+	if err != nil {
+		t.Fatalf("read values.yaml: %v", err)
+	}
+	content := string(data)
+	for _, want := range []string{
+		"repository: ghcr.io/wusung/0ops-server",
+		"migrations:",
+		"repository: ghcr.io/wusung/0ops-migrations",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("values.yaml missing %q", want)
+		}
+	}
+	if strings.Contains(content, "ghcr.io/winshare/") {
+		t.Errorf("values.yaml still references unpublished ghcr.io/winshare/ namespace")
+	}
 }
 
 func TestChartFilesEnforceSpec(t *testing.T) {

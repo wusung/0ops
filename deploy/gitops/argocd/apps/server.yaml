@@ -22,9 +22,13 @@ spec:
         - name: config.domainBase
           value: winshare.tw
         - name: image.repository
-          value: ghcr.io/winshare/ops-server
+          value: ghcr.io/wusung/0ops-server
         - name: image.tag
-          value: v0.1.1
+          value: v0.1.3
+        - name: migrations.image.repository
+          value: ghcr.io/wusung/0ops-migrations
+        - name: migrations.image.tag
+          value: v0.1.3
   destination:
     server: https://kubernetes.default.svc
     namespace: system-0ops
