@@ -42,8 +42,8 @@ log() { printf '\033[1;36m[prod-up]\033[0m %s\n' "$*" >&2; }
 
 # Preflight：驗 ghcr image 存在且可匿名拉。在動 host 之前 fail-fast —
 # 沒 image 的 deploy 只會在 30 分鐘後以 ImagePullBackOff 告終。
-# 失敗常因：(a) 該 tag 的 release 還沒 cut；(b) package 仍是 private
-# （首次發佈預設 private；README § ghcr 一次性步驟設 public）。
+# 失敗常因：(a) 該 tag 的 release 還沒 cut；(b) private repo / fork 的
+# package 是 private（visibility 只能走 GitHub UI 改；README § ghcr）。
 check_image() {
   local ref="$1"                 # ghcr.io/<owner>/<name>:<tag>
   local path="${ref#ghcr.io/}"   # <owner>/<name>:<tag>
