@@ -47,11 +47,28 @@ E2E_MODE=production OPS_HOST=https://api.<domain> ./manage.sh e2e-create-app
 | Cloudflare Tunnel | one.dash.cloudflare.com → Networks → Tunnels → Create → 拿 token |
 | GitHub OAuth App | `./manage.sh prod-setup-oauth` 互動式建立（runbook `docs/runbooks/production-oauth-setup.md`）；或手動 `github.com/settings/developers` |
 | `kubeseal` CLI | `brew install kubeseal` / `pacman -S kubeseal` |
+| ghcr images public（一次性） | 見下節 § ghcr |
+
+## ghcr（一次性，首次 release 後）
+
+release workflow 的 `images` job 對每個 tag 發佈
+`ghcr.io/wusung/0ops-server` 與 `ghcr.io/wusung/0ops-migrations`。
+**首次發佈的 package 預設 private**，cluster 匿名拉會 401。設 public：
+
+```bash
+gh api -X PATCH /user/packages/container/0ops-server     -f visibility=public
+gh api -X PATCH /user/packages/container/0ops-migrations -f visibility=public
+# 或 GitHub UI：Profile → Packages → <package> → Package settings → Change visibility
+```
+
+`prod-up` 的 step 0 preflight 會驗兩個 image 可匿名拉，沒過會在動 host 之前
+fail-fast 並印上面修法。
 
 ## 流程
 
 ```
 up.sh
+  ├─ preflight                驗 ghcr images 存在且可匿名拉（fail-fast）
   ├─ install-k3s.sh           ssh 到 PROD_HOST，curl get.k3s.io 安裝 K3s
   ├─ scp kubeconfig 回 local
   ├─ install-argocd.sh        kubectl apply 官方 manifest
