@@ -47,22 +47,22 @@ E2E_MODE=production OPS_HOST=https://api.<domain> ./manage.sh e2e-create-app
 | Cloudflare Tunnel | one.dash.cloudflare.com → Networks → Tunnels → Create → 拿 token |
 | GitHub OAuth App | `./manage.sh prod-setup-oauth` 互動式建立（runbook `docs/runbooks/production-oauth-setup.md`）；或手動 `github.com/settings/developers` |
 | `kubeseal` CLI | `brew install kubeseal` / `pacman -S kubeseal` |
-| ghcr images public（一次性） | 見下節 § ghcr |
+| ghcr images 匿名可拉 | public repo 自動成立；private/fork 見下節 § ghcr |
 
-## ghcr（一次性，首次 release 後）
+## ghcr（visibility 說明）
 
 release workflow 的 `images` job 對每個 tag 發佈
 `ghcr.io/wusung/0ops-server` 與 `ghcr.io/wusung/0ops-migrations`。
-**首次發佈的 package 預設 private**，cluster 匿名拉會 401。設 public：
 
-```bash
-gh api -X PATCH /user/packages/container/0ops-server     -f visibility=public
-gh api -X PATCH /user/packages/container/0ops-migrations -f visibility=public
-# 或 GitHub UI：Profile → Packages → <package> → Package settings → Change visibility
-```
+- **public repo**（本 repo 現狀）：Actions 以 `GITHUB_TOKEN` 推的 package
+  自動關聯 repo 並繼承 public —— 無需手動操作。v0.1.3 實測匿名可拉。
+- **private repo / fork**：package 會是 private，cluster 匿名拉 401。
+  GitHub **不提供 REST API 改 package visibility**（PATCH 實測 404）；
+  只能走 UI：Profile → Packages → <package> → Package settings →
+  Danger Zone → Change visibility → Public。
 
 `prod-up` 的 step 0 preflight 會驗兩個 image 可匿名拉，沒過會在動 host 之前
-fail-fast 並印上面修法。
+fail-fast 並指向本節。
 
 ## 流程
 
