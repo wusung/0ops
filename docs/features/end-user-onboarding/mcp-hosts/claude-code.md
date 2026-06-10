@@ -30,7 +30,7 @@
     "0ops": {
       "command": "/home/<you>/.local/bin/0ops-mcp",
       "env": {
-        "OPS_HOST": "https://api.winshare.tw"
+        "OPS_HOST": "https://api.jesontech.com"
       }
     }
   }

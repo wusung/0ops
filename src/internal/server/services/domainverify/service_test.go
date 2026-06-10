@@ -311,7 +311,7 @@ func TestServiceAddRejectsReservedSuffix(t *testing.T) {
 	now := time.Date(2026, 5, 16, 12, 0, 0, 0, time.UTC)
 	svc := newServiceForTest(newFakeStore(), &fakeCloudflare{}, &fakeResolver{}, &fakeAuditor{}, fakePlanGate{allow: true}, now)
 	_, err := svc.PlanAdd(context.Background(), AddArgs{
-		TeamID: "t1", ActorUserID: "u1", AppID: "app1", Hostname: "demo.winshare.tw", PlanTier: "pro",
+		TeamID: "t1", ActorUserID: "u1", AppID: "app1", Hostname: "demo.jesontech.com", PlanTier: "pro",
 	})
 	if !errors.Is(err, ErrReservedHostname) {
 		t.Fatalf("got %v, want ErrReservedHostname", err)

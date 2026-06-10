@@ -293,7 +293,7 @@ data:
     "auths": {
       "ghcr.io": {
         "auth": "<base64(username:installation_token)>",
-        "email": "ops-bot@winshare.tw"
+        "email": "ops-bot@jesontech.com"
       }
     }
   })>

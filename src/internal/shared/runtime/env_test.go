@@ -31,6 +31,36 @@ func TestEnvKind(t *testing.T) {
 	}
 }
 
+func TestDomainBase(t *testing.T) {
+	for _, tc := range []struct {
+		raw  string
+		want string
+	}{
+		{"", "jesontech.com"},
+		{"   ", "jesontech.com"},
+		{"example.org", "example.org"},
+		{"  custom.dev  ", "custom.dev"},
+	} {
+		t.Run("raw="+tc.raw, func(t *testing.T) {
+			t.Setenv("OPS_DOMAIN_BASE", tc.raw)
+			if got := DomainBase(); got != tc.want {
+				t.Fatalf("DomainBase()=%q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAppHostname(t *testing.T) {
+	t.Setenv("OPS_DOMAIN_BASE", "")
+	if got := AppHostname("nextdemo"); got != "nextdemo.jesontech.com" {
+		t.Fatalf("AppHostname()=%q want nextdemo.jesontech.com", got)
+	}
+	t.Setenv("OPS_DOMAIN_BASE", "example.org")
+	if got := AppHostname("hello"); got != "hello.example.org" {
+		t.Fatalf("AppHostname()=%q want hello.example.org", got)
+	}
+}
+
 func TestAssertProductionSafePanicsWhenLocalFlagsOn(t *testing.T) {
 	t.Setenv("OPS_ENV", "production")
 	t.Setenv("LOCAL_FILE_REPO_ENABLED", "true")

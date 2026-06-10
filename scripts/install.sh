@@ -184,13 +184,13 @@ else
 DONE — 0ops $tag installed.
 
 Next:
-  0ops auth login --host=<your-0ops-backend>     # eg. https://api.winshare.tw
+  0ops auth login --host=<your-0ops-backend>     # eg. https://api.jesontech.com
   0ops mcp setup claude-code                      # 接 Claude Code
   # 或：
   0ops mcp setup codex                            # 接 Codex CLI
 
 Hint: set OPS_HOST before piping to skip these steps:
-  OPS_HOST=https://api.winshare.tw curl -fsSL https://raw.githubusercontent.com/${OPS_REPO}/main/scripts/install.sh | sh
+  OPS_HOST=https://api.jesontech.com curl -fsSL https://raw.githubusercontent.com/${OPS_REPO}/main/scripts/install.sh | sh
 
 Quickstart: https://github.com/${OPS_REPO}/blob/main/docs/quickstart.md
 EOF

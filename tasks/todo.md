@@ -43,7 +43,7 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
 
 ### v1 收尾殘留（不阻擋 ship）
 
-- [ ] **`nextdemo.winshare.tw` 真實外部 HTTP 200**（waiting on user-side resources）
+- [ ] **`nextdemo.jesontech.com` 真實外部 HTTP 200**（waiting on user-side resources）
   - 來源：M2 驗收基準（`tasks/todo-archive.md` § 驗收基準）
   - 工程封裝**全部完成**（2026-06-06，PR #107 / #108 / #109 / #110 + 本次）：
     - 部署層：`docs/features/production-deployment/spec.md` + `deploy/bootstrap/` + `deploy/gitops/argocd/` + server ingress/config

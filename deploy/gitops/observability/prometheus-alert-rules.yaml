@@ -69,7 +69,7 @@ data:
               slo: tunnel_uptime
             annotations:
               summary: Cloudflare tunnel has zero ready connectors
-              description: "All cloudflared connectors are unready; traffic to *.winshare.tw is broken."
+              description: "All cloudflared connectors are unready; traffic to *.jesontech.com is broken."
               runbook_url: https://0ops.tw/runbooks/tunnel-down
           - alert: UnknownFailureClassificationHigh
             expr: cluster:zeroops_unknown_failure_ratio:7d > 0.05

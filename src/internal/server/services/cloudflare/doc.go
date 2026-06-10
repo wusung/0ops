@@ -16,7 +16,7 @@
 //
 // # Runtime behavior
 //
-// The client validates the shared `*.winshare.tw` DNS route through Cloudflare's
+// The client validates the shared the platform wildcard (`*.<OPS_DOMAIN_BASE>`, default `*.jesontech.com`) DNS route through Cloudflare's
 // REST API and returns the public hostname used by create_app.
 //
 // DisableTunnelIsolation keeps the client in no-op mode for local development

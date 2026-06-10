@@ -6,6 +6,8 @@ import (
 	"embed"
 	"fmt"
 	"text/template"
+
+	opsruntime "github.com/winshare/zeroops/internal/shared/runtime"
 )
 
 //go:embed templates/*.tmpl
@@ -16,6 +18,7 @@ type renderTemplateData struct {
 	AppSlug     string
 	ImageRef    string
 	PrimaryPort int
+	DomainBase  string
 }
 
 // Render renders the create_app manifest set.
@@ -27,6 +30,7 @@ func (s *service) Render(ctx context.Context, input RenderInput) (RenderResult, 
 		AppSlug:     input.AppSlug,
 		ImageRef:    input.ImageRef,
 		PrimaryPort: input.PrimaryPort,
+		DomainBase:  opsruntime.DomainBase(),
 	}
 
 	for _, item := range []struct {

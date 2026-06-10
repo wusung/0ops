@@ -14,7 +14,7 @@ set -euo pipefail
 #   staging     需先 export OPS_HOST、OPS_BEARER_TOKEN、OPS_TEAM_SLUG、E2E_REPO_URL；
 #               對 staging backend 跑完整 preview/confirm（含 GitHub App 路徑），
 #               但 public-url-probe 仍可關閉。
-#   production  staging + 強制執行 public-url-probe（curl https://nextdemo.winshare.tw
+#   production  staging + 強制執行 public-url-probe（curl https://nextdemo.jesontech.com
 #               必須 200）；用於正式 rollout 後的單次驗收。
 #
 # 使用方式：
@@ -34,7 +34,7 @@ set -euo pipefail
 #   E2E_REPO_URL              create_app 用的 repo URL；預設 https://github.com/example/nextdemo
 #   E2E_REPO_REF              git ref；預設 main
 #   E2E_APP_SLUG_PREFIX       app slug 前綴；預設 nextdemo
-#   E2E_PUBLIC_URL            public URL 探測目標；預設 https://nextdemo.winshare.tw
+#   E2E_PUBLIC_URL            public URL 探測目標；預設 https://nextdemo.jesontech.com
 #   E2E_CLI_IMAGE             CLI runtime image；預設 localhost/0ops-cli:runtime
 #   E2E_MCP_IMAGE             MCP runtime image；預設 localhost/0ops-mcp:runtime
 #   E2E_NETWORK               compose 網路名；預設 0ops_default；OPS_HOST 指外部 host 時自動 bypass
@@ -101,7 +101,7 @@ OPS_CALLBACK_SECRET="${OPS_CALLBACK_SECRET:-dev-callback-secret-change-me}"
 E2E_REPO_URL="${E2E_REPO_URL:-https://github.com/example/nextdemo}"
 E2E_REPO_REF="${E2E_REPO_REF:-main}"
 E2E_APP_SLUG_PREFIX="${E2E_APP_SLUG_PREFIX:-nextdemo}"
-E2E_PUBLIC_URL="${E2E_PUBLIC_URL:-https://nextdemo.winshare.tw}"
+E2E_PUBLIC_URL="${E2E_PUBLIC_URL:-https://nextdemo.jesontech.com}"
 E2E_CLI_IMAGE="${E2E_CLI_IMAGE:-localhost/0ops-cli:runtime}"
 E2E_MCP_IMAGE="${E2E_MCP_IMAGE:-localhost/0ops-mcp:runtime}"
 E2E_NETWORK="${E2E_NETWORK:-0ops_default}"

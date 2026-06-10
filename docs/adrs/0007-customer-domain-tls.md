@@ -17,7 +17,7 @@ superseded-by: []
 
 * Status：Accepted
 * Date：2026-05-09
-* 適用範圍：M3+；客戶自有域名（非 `*.winshare.tw`）的 TLS 終止與 cert lifecycle
+* 適用範圍：M3+；客戶自有域名（非 `*.jesontech.com`）的 TLS 終止與 cert lifecycle
 * 來源：`docs/0ops-plan.md`「Runtime topology / Ingress / TLS」「Domain verify」「Risks #2」段；plan 將實際決策延後至本 ADR
 * 上游依賴：[ADR-0004](0004-k3s-role-and-orchestrator.md)（單 Cloudflare Tunnel 為唯一 origin 入口）；[ADR-0001](0001-multi-tenancy-and-rbac.md)（domain_binding team 隔離）；[ADR-0002](0002-idempotency-and-compensation.md)（domain verify 為 reversible 副作用，補償順序在前）
 
@@ -33,13 +33,13 @@ superseded-by: []
 4. **驗證方法**：DNS-based（CNAME + TXT 雙條件）；30s 輪詢；TTL 24h 可 extend × 2（接續 plan）。
 5. **Cert renewal**：完全交給 Cloudflare 自動；backend 不持有任何 customer cert material。
 6. **撤銷流程**：客戶移除 CNAME 即觸發 reconciler 偵測 → 7 天 grace（hostname 進 `unverified` 狀態，不立即 503）→ 仍未恢復則 unbind Custom Hostname、release cert。
-7. **計費邊界**：Cloudflare for SaaS 為 **0ops 成本**（不轉嫁客戶）；plan tier `pro` 才開放客戶域名功能（free / starter 限 `*.winshare.tw`）。
+7. **計費邊界**：Cloudflare for SaaS 為 **0ops 成本**（不轉嫁客戶）；plan tier `pro` 才開放客戶域名功能（free / starter 限 `*.jesontech.com`）。
 
 行為與 domain verify 流程細節以 `docs/0ops-plan.md`「Domain verify」段為準，本 ADR 不重述。
 
 ## 1. Context and Problem Statement
 
-`*.winshare.tw` 子網域使用 0ops 自管 Cloudflare zone，wildcard cert 由 Cloudflare 自動簽發，TLS 在 Cloudflare edge 終止後經 Cloudflare Tunnel 進 K3s——這條路徑無 ADR 待決議。
+`*.jesontech.com` 子網域使用 0ops 自管 Cloudflare zone，wildcard cert 由 Cloudflare 自動簽發，TLS 在 Cloudflare edge 終止後經 Cloudflare Tunnel 進 K3s——這條路徑無 ADR 待決議。
 
 但**客戶自有域名**（如 `app.example.com`）面對三個結構性問題：
 
@@ -56,7 +56,7 @@ ADR-0001 已將 `domain_binding` 設為 team-scoped，ADR-0002 已將 domain ver
 * **DD1 客戶自助上線**：客戶從「填網域」到「網域上線」應為純自助流程；不需 0ops 客服介入。
 * **DD2 Cert renewal 自動化**：客戶域名規模可能 > 1000；renewal 不可人工。
 * **DD3 客戶 zone 控制權保留**：客戶不應為了用 0ops 而把 NS delegation 交出。
-* **DD4 單一 origin 入口**：所有客戶域名與 `*.winshare.tw` 流量都經 Cloudflare Tunnel 進 K3s（接續 ADR-0004）；不分流。
+* **DD4 單一 origin 入口**：所有客戶域名與 `*.jesontech.com` 流量都經 Cloudflare Tunnel 進 K3s（接續 ADR-0004）；不分流。
 * **DD5 v1 規模成本控制**：Cloudflare for SaaS 有訂閱費；需與商業 plan tier 對齊。
 * **DD6 多租戶 blast radius 隔離**：A team 的客戶域名 cert / TLS 配置不應影響 B team。
 * **DD7 撤銷可追溯**：客戶停用後 cert 與 hostname 必須在合理時間內被釋放，避免殘留 hostname 招致 typosquatting / 計費膨脹。
@@ -129,7 +129,7 @@ ADR-0001 已將 `domain_binding` 設為 team-scoped，ADR-0002 已將 domain ver
    * 7 天後若 CNAME 仍未恢復 → backend 呼 Cloudflare API `DELETE /custom_hostnames/{id}`、`UPDATE domain_binding SET status='released'`、cert 釋放。
    * 客戶主動跑 `0ops domains remove <slug> <host>` → preview/confirm 後立即 unbind（無 grace）。
 6. **Plan tier 邊界**：
-   * `free` / `starter`：限 `*.winshare.tw` 子網域；客戶域名功能不開放。
+   * `free` / `starter`：限 `*.jesontech.com` 子網域；客戶域名功能不開放。
    * `pro`：開放客戶域名；計費含 Cloudflare for SaaS 訂閱攤提。
    * Backend handler 在 `add_domain_preview` 端點檢查 `team.plan` + `kind=extra` 組合；不符回 `403 plan_required`。
 7. **多租戶 blast radius 隔離**：
@@ -145,7 +145,7 @@ ADR-0001 已將 `domain_binding` 設為 team-scoped，ADR-0002 已將 domain ver
 
 * Good：cert 完全 Cloudflare 自管；renewal 為 Cloudflare 責任；0ops 不持 customer private key。
 * Good：DDoS 防護、WAF、CDN 為 Cloudflare edge 自帶能力。
-* Good：與 plan 既定 `*.winshare.tw` 走同一條路徑；客戶域名與系統域名 TLS 模型一致。
+* Good：與 plan 既定 `*.jesontech.com` 走同一條路徑；客戶域名與系統域名 TLS 模型一致。
 * Good：cert 洩漏 blast radius 在 Cloudflare 內，0ops 不需做 cert revocation。
 * Bad：完全依賴 Cloudflare；Cloudflare 服務中斷直接影響所有客戶域名。
 * Bad：cert lifecycle 完全黑盒；無法控制簽發 CA（Cloudflare 自選 LetsEncrypt 或 Google）。
@@ -213,7 +213,7 @@ ADR-0001 已將 `domain_binding` 設為 team-scoped，ADR-0002 已將 domain ver
 * Cert lifecycle 完全 Cloudflare 自動；0ops 不持 customer cert material。
 * 客戶 onboarding 為純自助；CNAME + TXT 雙條件即可上線。
 * 客戶 zone 完全保留控制權；NS delegation 不需要。
-* 與 `*.winshare.tw` 共用 Cloudflare Tunnel；運維面與成本面合一。
+* 與 `*.jesontech.com` 共用 Cloudflare Tunnel；運維面與成本面合一。
 * DDoS / WAF / CDN 由 Cloudflare edge 自帶；無需自管。
 * Plan tier 邊界（`pro` 才開）讓客戶域名功能成為商業槓桿，不是免費送出。
 
@@ -231,7 +231,7 @@ ADR-0001 已將 `domain_binding` 設為 team-scoped，ADR-0002 已將 domain ver
 * Cloudflare for SaaS 具體 SKU（Cloudflare for SaaS / Cloudflare for Platforms）由商業合約決議；不在本 ADR 範圍。
 * Hostname 健康檢查（domain_binding.status='unhealthy' 觸發條件）細節屬 reconciler 範圍；本 ADR 僅約束「30s 雙條件偵測」。
 * Plan tier `pro` 的具體 hostname 配額（每 team 上限）為 plan spec 範圍；不在本 ADR。
-* Origin 端是否需要 hostname-based routing（K3s ingress 區分 winshare.tw vs 客戶域名）為實作細節。
+* Origin 端是否需要 hostname-based routing（K3s ingress 區分 jesontech.com vs 客戶域名）為實作細節。
 
 ## 7. Revisit Triggers
 
@@ -263,4 +263,4 @@ ADR-0001 已將 `domain_binding` 設為 team-scoped，ADR-0002 已將 domain ver
 4. **撤銷 grace 期是否與 plan 對齊**：plan tier 升降級時 hostname 配額調整 grace 是否與本 ADR 7 天一致？
 5. **Apex 不相容 DNS 供應商清單**：哪些常見 DNS 供應商不支援 CNAME flattening / ALIAS / ANAME（如部分企業 DNS、Microsoft Azure DNS classic、舊版 GoDaddy）？需於 onboarding 文件落地相容性矩陣，並讓 backend `add_domain_preview` 在 apex case 時主動印出該清單，避免客戶設了「ALIAS-named 但實際不會 flatten 至 IP」的失敗模式。
 6. **`tunnel-<id>.cfargotunnel.com` 命名穩定性**：tunnel ID rotation 時所有客戶 CNAME 失效；rotation 政策與通知機制需明確（v1 不 rotate；rotation 為 v2 事件）。
-7. **`*.winshare.tw` wildcard 與 custom hostname 衝突**：客戶若把網域 CNAME 至 `nextdemo.winshare.tw` 而非 tunnel hostname，TLS 行為待 spike。
+7. **`*.jesontech.com` wildcard 與 custom hostname 衝突**：客戶若把網域 CNAME 至 `nextdemo.jesontech.com` 而非 tunnel hostname，TLS 行為待 spike。

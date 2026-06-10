@@ -46,7 +46,7 @@
     - 編譯時間預期 < 60s，CI 用 `actions/cache` 對 `~/go/pkg/mod` 與 `~/.cache/go-build`
 
 11. **多 region / multi-AZ**（v1 不做）
-    - winshare.tw 為台灣 region；latency / failover 在 v1 Non-goals
+    - jesontech.com 為台灣 region；latency / failover 在 v1 Non-goals
     - v2 視業務需求評估；先確保 stateless backend + DB 主從可水平擴展
 
 > 已從 risks 升級為「設計章節已解」的項目（不再列為 open）：

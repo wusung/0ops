@@ -20,7 +20,7 @@ Backend 不跑 LLM agent；agent 邏輯在使用者端的 AI CLI 內。
 | 主要介面 | **CLI + MCP**（給 claude code / codex / copilot） |
 | Agent 位置 | **使用者端 AI CLI**（backend 純 API、不跑 Anthropic） |
 | Stack 偵測 | Cloud Native Buildpacks（多語言、無 Dockerfile 也能跑） |
-| 域名範圍 | `*.winshare.tw` 子網域 + 客戶自有網域 |
+| 域名範圍 | `*.jesontech.com` 子網域 + 客戶自有網域 |
 | Build 職責 | 系統負責（buildkit + CNB） |
 | Re-deploy | Webhook 自動 + CLI/API 手動 雙觸發 |
 | 寫入安全模型 | **兩階段 API**：preview 必先呼，confirm 後才執行（CLI 互動式 y/N、AI CLI 由 LLM 呈現給 user 確認） |
@@ -38,7 +38,7 @@ Backend 不跑 LLM agent；agent 邏輯在使用者端的 AI CLI 內。
 ## Goals & Non-goals
 
 ### Goals (v1)
-- `0ops apps create nextdemo --repo=...` 或 claude code 內一句「幫我把 X 接進來叫 nextdemo」→ 5 分鐘內 `nextdemo.winshare.tw` 可用
+- `0ops apps create nextdemo --repo=...` 或 claude code 內一句「幫我把 X 接進來叫 nextdemo」→ 5 分鐘內 `nextdemo.jesontech.com` 可用
 - 寫入/刪除類操作必走 preview → confirm 兩階段，無沉默副作用
 - 客戶自有域名透過 CNAME → Cloudflare Tunnel + CLI 即時驗證
 - Push 到預設分支自動 redeploy
@@ -204,7 +204,7 @@ PlanPreview 物件結構（所有 `*:preview` 回傳一致）：
   "action_summary": "建立 app nextdemo（next.js-helloworld @ main）",
   "side_effects": [
     "在 0ops-gitops 建立 apps/nextdemo/",
-    "在 Cloudflare 註冊 hostname nextdemo.winshare.tw",
+    "在 Cloudflare 註冊 hostname nextdemo.jesontech.com",
     "觸發初次 build via GitHub Actions"
   ],
   "expires_at": "2026-05-08T12:34:56Z"

@@ -358,7 +358,7 @@ func (f *fakeStore) CreateApp(_ context.Context, params db.AppCreateParams) (db.
 		TeamID:   params.TeamID,
 		AppID:    appID,
 		AppSlug:  params.Slug,
-		Hostname: params.Slug + ".winshare.tw",
+		Hostname: params.Slug + ".jesontech.com",
 		Kind:     strPtr("primary"),
 		Verified: true,
 	})

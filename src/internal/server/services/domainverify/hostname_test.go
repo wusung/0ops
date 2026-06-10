@@ -33,8 +33,8 @@ func TestValidateHostnameRejects(t *testing.T) {
 		"leading_hyphen":       "-foo.example.com",
 		"trailing_hyphen":      "foo-.example.com",
 		"underscore":           "foo_bar.example.com",
-		"reserved_suffix":      "demo.winshare.tw",
-		"reserved_suffix_apex": "winshare.tw",
+		"reserved_suffix":      "demo.jesontech.com",
+		"reserved_suffix_apex": "jesontech.com",
 		"trailing_dot":         "example.com.",
 		"space":                "ex ample.com",
 		"single_label":         "localhost",
@@ -50,7 +50,7 @@ func TestValidateHostnameRejects(t *testing.T) {
 
 func TestValidateHostnameReservedSuffixError(t *testing.T) {
 	t.Parallel()
-	err := ValidateHostname("demo.winshare.tw")
+	err := ValidateHostname("demo.jesontech.com")
 	if err == nil || !isReservedSuffixErr(err) {
 		t.Fatalf("expected ReservedSuffix error, got %v", err)
 	}

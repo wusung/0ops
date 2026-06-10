@@ -215,7 +215,7 @@ roleRef:
 ```
 1. K3s cluster 已就緒（含 system-0ops namespace）
 2. 產生：
-   - cloudflare-api-token：Cloudflare Dashboard 建 API token（限 winshare.tw zone）
+   - cloudflare-api-token：Cloudflare Dashboard 建 API token（限 jesontech.com zone）
    - github-app-private-key：GitHub UI 為 0ops App 下載 .pem
    - ops-token-signing-secret：openssl rand -base64 64
    - ops-callback-secret：openssl rand -base64 64

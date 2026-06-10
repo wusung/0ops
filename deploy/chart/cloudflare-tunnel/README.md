@@ -1,6 +1,6 @@
 # cloudflare-tunnel Helm chart
 
-Cloudflare Tunnel connector pool for the `winshare.tw` zone. Implements the
+Cloudflare Tunnel connector pool for the `jesontech.com` zone. Implements the
 manifests defined in `docs/features/winshare-subdomain-and-tunnel/spec.md`
 § 5.1 and § 9.1.
 

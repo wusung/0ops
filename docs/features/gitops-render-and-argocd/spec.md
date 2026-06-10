@@ -13,7 +13,7 @@
 - Render → commit → push 為 `create_app` / `redeploy` / `add_domain` 等 action 之 reversible side_effect（屬 `preview-confirm-gate` § 7.2 之 reversible 階段）
 - Push 衝突（多 team 並發）：retry + rebase 最多 5 次；超過進 `compensating`（接續 ADR-0005 第 7 點）
 - Commit message 為 machine-parseable contract：`<action>: <team_slug>/<app_slug> @ <deploy_run_id>`；含 trailer `Trace-Id` 與 `Preview-Id`
-- Git author 為 backend 服務帳號 `ops-bot <ops-bot@winshare.tw>`；commit signing 用 Ed25519 SSH key（GitHub allowed signers）
+- Git author 為 backend 服務帳號 `ops-bot <ops-bot@jesontech.com>`；commit signing 用 Ed25519 SSH key（GitHub allowed signers）
 - ArgoCD 同步策略：`automated.prune=true / selfHeal=true`；變更從 git push 至 K3s 應用 < 90 秒（ApplicationSet 預設 3 分鐘 reconciliation 間隔以 webhook 縮短）
 - 所有 manifest 不含 K3s-specific 資源（接續 ADR-0004 § 4.5）；走 upstream K8s API 確保 v2 遷移可用
 
@@ -122,7 +122,7 @@
 ### 4.5 Ingress 模板必含
 
 - `kind: Ingress`、`ingressClassName: traefik`（K3s 預設；接續 ADR-0004 § 4.3）
-- `rules:` 一條 winshare 子網域（`<app_slug>.winshare.tw`）+ N 條已 verified 客戶域名（從 `domain_binding WHERE verified=true` 取）
+- `rules:` 一條 winshare 子網域（`<app_slug>.jesontech.com`）+ N 條已 verified 客戶域名（從 `domain_binding WHERE verified=true` 取）
 - 不持 TLS 段（TLS 在 Cloudflare edge 終止；接續 ADR-0007）
 
 ### 4.6 Kustomization 模板
@@ -186,7 +186,7 @@ Trace-Id: 0af7651916cd43dd8448eb211c80319c
 
 ### 5.3 Git author 與簽章
 
-- `user.name = ops-bot`、`user.email = ops-bot@winshare.tw`
+- `user.name = ops-bot`、`user.email = ops-bot@jesontech.com`
 - 使用 SSH commit signing：Ed25519 key 對 GitHub allowed signers 已註冊
 - key material 存於 K8s Secret `gitops-signing-key`，由 `secrets-management` spec 規範 rotation
 - GitHub repo `0ops-gitops` 設 branch protection：required signature、required reviews=0（backend 自簽自合）、no force push

@@ -60,7 +60,7 @@ func TestRequestRecordsCallDuration(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(apiEnvelope{
 			Success: true,
 			Result: []dnsRecord{{
-				ID: "dns-1", Name: "*.winshare.tw", Type: "CNAME", Content: "abcd.cfargotunnel.com",
+				ID: "dns-1", Name: "*.jesontech.com", Type: "CNAME", Content: "abcd.cfargotunnel.com",
 			}},
 		})
 	}))

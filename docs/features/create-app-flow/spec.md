@@ -77,7 +77,7 @@ type AppCreateLastResult struct {
     AppSlug       string `json:"app_slug"`
     DeployRunID   string `json:"deploy_run_id"`
     TraceID       string `json:"trace_id"`
-    SubdomainURL  string `json:"subdomain_url"`     // https://<slug>.winshare.tw
+    SubdomainURL  string `json:"subdomain_url"`     // https://<slug>.jesontech.com
     InitialDeploy bool   `json:"initial_deploy"`    // create_app 為 true；redeploy / update 為 false
 }
 ```
@@ -122,7 +122,7 @@ type AppCreateLastResult struct {
 |---|---|---|---|
 | 1. 在 0ops-gitops 建 `apps/<team>/<slug>/` 並 push | true | `Render and push manifest to 0ops-gitops` | `gitops:apps/<team>/<slug>` |
 | 2. 在 K3s 確保 `team-<slug>` namespace 與 `ghcr-pull` 就緒（首次 create_app 時） | true | `Provision K8s namespace and image pull secret` | `k8s:team-<slug>` |
-| 3. INSERT app row + domain_binding(`<slug>.winshare.tw`, primary) | true | `Persist app record and primary subdomain binding` | `db:app/<slug>` |
+| 3. INSERT app row + domain_binding(`<slug>.jesontech.com`, primary) | true | `Persist app record and primary subdomain binding` | `db:app/<slug>` |
 | 4. 觸發 GitHub Actions workflow_dispatch（含簽 ops_token） | **false** | `Trigger GitHub Actions build (image push to GHCR is irreversible)` | `gha:workflow-run` |
 | 5. ArgoCD 同步至 K3s 上線 | true（manifest revert）/ false（pod 啟動已副作用） | `ArgoCD syncs manifest to K3s` | `argocd:application` |
 
@@ -135,7 +135,7 @@ type AppCreateLastResult struct {
 建立 app `<slug>`（@ team `<team_slug>`）
   Repo: <repo_url> @ <ref> (commit <commit_sha[:7]>)
   Stack: <builder> (port <primary_port>)
-  Subdomain: <slug>.winshare.tw
+  Subdomain: <slug>.jesontech.com
 ```
 
 ## 6. Confirm 階段：`Precheck` + `Execute`
@@ -250,7 +250,7 @@ result := AppCreateLastResult{
     AppSlug:      args.Slug,
     DeployRunID:  deployRunID,
     TraceID:      traceID,
-    SubdomainURL: fmt.Sprintf("https://%s.winshare.tw", args.Slug),
+    SubdomainURL: fmt.Sprintf("https://%s.jesontech.com", args.Slug),
     InitialDeploy: true,
 }
 return result, nil
@@ -336,7 +336,7 @@ $ 0ops apps create nextdemo \
 即將執行：建立 app `nextdemo`（@ team `acme-prod`）
   Repo: https://github.com/vercel/next.js-helloworld @ main (commit abc1234)
   Stack: paketobuildpacks/builder-jammy-base (port 3000)
-  Subdomain: nextdemo.winshare.tw
+  Subdomain: nextdemo.jesontech.com
 副作用：
   1. Render and push manifest to 0ops-gitops（reversible）
   2. Provision K8s namespace and image pull secret（reversible）
@@ -350,7 +350,7 @@ preview 將於 10 分鐘後過期。
 
 ✓ deploy-run #abc123 已觸發（預計 4–6 分鐘）
   trace_id: 0af7651916cd43dd8448eb211c80319c
-  subdomain: https://nextdemo.winshare.tw
+  subdomain: https://nextdemo.jesontech.com
 
 觀察進度：
   0ops deploys status nextdemo
@@ -370,7 +370,7 @@ preview 將於 10 分鐘後過期。
     "app_slug": "nextdemo",
     "deploy_run_id": "...",
     "trace_id": "...",
-    "subdomain_url": "https://nextdemo.winshare.tw",
+    "subdomain_url": "https://nextdemo.jesontech.com",
     "initial_deploy": true
   }
 }
@@ -443,7 +443,7 @@ LLM 自行呈現給 user 並提示「可以追蹤 deploy_run_id」。
 | GitOps push 失敗 | mock 5 次衝突 | compensate；undo R1+R2；rolled_back |
 | GHA dispatch 失敗 | mock 503 | failed；`gha_dispatch_failed` |
 | Callback success | mock GHA HMAC OK | deploy_run 進 pushing → rendering → syncing → live |
-| End-to-end happy path | `tasks/e2e-create-app.sh`（`E2E_MODE=production`，含 CLI 互動式 / CLI `--yes` / MCP `create_app_preview`→`create_app` / public URL 探測四 phase） | < 10 分鐘 nextdemo.winshare.tw 回 200 |
+| End-to-end happy path | `tasks/e2e-create-app.sh`（`E2E_MODE=production`，含 CLI 互動式 / CLI `--yes` / MCP `create_app_preview`→`create_app` / public URL 探測四 phase） | < 10 分鐘 nextdemo.jesontech.com 回 200 |
 | Preview replay | 同 preview_id confirm 兩次 | 第二次 idempotent_replay=true，副作用未重做 |
 | MCP create_app description lint | `0ops-mcp` 啟動 | description 含 ALWAYS / NEVER clause |
 | trace_id 端到端 | 從 CLI 一個 create_app | audit_log 5 條都同一 trace_id；GHA log 含同 trace_id；callback payload trace_id 一致 |
@@ -480,4 +480,4 @@ LLM 自行呈現給 user 並提示「可以追蹤 deploy_run_id」。
 7. team 無 GitHub App install 時 `create_app` 必於 preview 即 fail（不得進 confirm 才 fail）
 8. compensate 必反向順序執行；不得平行
 9. failure_classification 必填於任何 `failed` / `rolled_back` 之 deploy_run；`unknown` 視為 bug
-10. `<slug>.winshare.tw` 為 reserved primary domain_binding；不得個別實作改為其他子網域
+10. `<slug>.jesontech.com` 為 reserved primary domain_binding；不得個別實作改為其他子網域

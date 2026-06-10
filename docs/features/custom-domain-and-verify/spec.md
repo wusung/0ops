@@ -106,7 +106,7 @@
 | `app_id` | 對應 app |
 | `team_id` | 租戶 |
 | `hostname` | citext unique 全域；同 team 下兩 app 不可共用 hostname |
-| `kind` | `primary` / `extra`；primary 為 `<app>.winshare.tw`，本 spec 只處理 extra |
+| `kind` | `primary` / `extra`；primary 為 `<app>.jesontech.com`，本 spec 只處理 extra |
 | `verified` | bool |
 | `verification_token` | 32-byte hex；produced at preview |
 | `cf_hostname_id` | Cloudflare 端 Custom Hostname ID |
@@ -137,7 +137,7 @@ type DomainAddArgs struct {
 1. validate hostname：
    - lowercase ASCII
    - 長度 < 254；label < 64；符合 RFC 1035
-   - 不得結尾 .winshare.tw（保留給 primary）
+   - 不得結尾 .jesontech.com（保留給 primary）
 2. 檢查 plan tier：
    - team.plan ∈ {free, starter} → 403 plan_required
 3. 偵測 apex：
@@ -409,7 +409,7 @@ func verifyDNS(ctx context.Context, hostname, expectedToken, tunnelTarget string
 | Plan tier `free` add custom domain | preview | 403 plan_required |
 | Plan tier `pro` add custom domain | preview / confirm | 通過 |
 | 重複 hostname | 同 hostname 跨 team | 422 domain_taken |
-| Reserved suffix | hostname 結尾 .winshare.tw | 422 reserved_hostname |
+| Reserved suffix | hostname 結尾 .jesontech.com | 422 reserved_hostname |
 | 雙條件驗證通過 | mock DNS 兩條 record | UPDATE verified=true；ingress 加入；audit 記錄 |
 | 雙條件僅 CNAME 通過 | mock 缺 TXT | continue pending；不改 verified |
 | 24h TTL 過 | 25h 後 polling | UPDATE status='expired' |
@@ -463,7 +463,7 @@ func verifyDNS(ctx context.Context, hostname, expectedToken, tunnelTarget string
 
 1. add / remove 必經 preview-confirm-gate
 2. extra hostname add 必檢查 plan tier；未達標即 403 plan_required
-3. hostname 結尾 `.winshare.tw` 為 reserved；不得允許
+3. hostname 結尾 `.jesontech.com` 為 reserved；不得允許
 4. Apex 偵測必走 `publicsuffix`；不得自寫 regex
 5. Verification token 必為 32-byte hex（crypto/rand）；不得含可猜模式
 6. 雙條件驗證為硬性（CNAME + TXT）；不得只查一條即放行

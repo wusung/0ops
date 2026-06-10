@@ -72,7 +72,7 @@ ADR-0001 已將 team 設為計費邊界；本 ADR 在此邊界上釘 capability 
 | **Apps 上限** | 1 | 3 | 20 | 200（軟上限） |
 | **Members 上限** | 1（自己） | 3 | 10 | 50 |
 | **Custom hostname** | ✗ | ✗ | ✓ 5 個 | ✓ 20 個 |
-| **`*.winshare.tw` 子網域** | ✓ | ✓ | ✓ | ✓ |
+| **`*.jesontech.com` 子網域** | ✓ | ✓ | ✓ | ✓ |
 | **ResourceQuota cpu requests** | 1 | 4 | 16 | 64 |
 | **ResourceQuota memory requests** | 2Gi | 8Gi | 32Gi | 128Gi |
 | **Pods 上限** | 5 | 30 | 120 | 300 |

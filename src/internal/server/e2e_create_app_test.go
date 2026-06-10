@@ -60,8 +60,8 @@ func TestCreateAppEndToEndPreviewConfirmCallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateApp() first call error = %v", err)
 	}
-	if !strings.HasSuffix(first.SubdomainURL, ".winshare.tw") {
-		t.Fatalf("subdomain_url = %q, want suffix .winshare.tw (spec § 6.3 + hard rule #10)", first.SubdomainURL)
+	if !strings.HasSuffix(first.SubdomainURL, ".jesontech.com") {
+		t.Fatalf("subdomain_url = %q, want suffix .jesontech.com (spec § 6.3 + hard rule #10)", first.SubdomainURL)
 	}
 	if first.DeployRunID == "" {
 		t.Fatal("first.DeployRunID is empty; spec § 6.3 requires deploy_run_id in last_result")
@@ -212,7 +212,7 @@ func TestCreateAppAcceptanceScriptShape(t *testing.T) {
 		t.Errorf("%s missing callback endpoint path /internal/deploy-runs/", scriptPath)
 	}
 
-	if !strings.Contains(body, "nextdemo.winshare.tw") {
-		t.Errorf("%s missing default public URL nextdemo.winshare.tw (spec § 12 hard rule)", scriptPath)
+	if !strings.Contains(body, "nextdemo.jesontech.com") {
+		t.Errorf("%s missing default public URL nextdemo.jesontech.com (spec § 12 hard rule)", scriptPath)
 	}
 }

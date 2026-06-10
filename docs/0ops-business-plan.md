@@ -101,7 +101,7 @@
             ↓
   Cloudflare Tunnel 註冊 hostname
             ↓
-  nextdemo.winshare.tw 上線（5 分鐘內）
+  nextdemo.jesontech.com 上線（5 分鐘內）
 ```
 
 ### 為何此設計能贏
@@ -198,7 +198,7 @@
 ### 收入結構
 **Phase 1（內部 + Alpha）：無外部收入**
 **Phase 2（Beta 付費）**：
-- **Starter**：USD 19 / 月 / team（最多 3 apps、winshare.tw 子網域、社群支援）
+- **Starter**：USD 19 / 月 / team（最多 3 apps、jesontech.com 子網域、社群支援）
 - **Pro**：USD 99 / 月 / team（最多 20 apps、自有域名、email 支援）
 - **Team**：USD 299 / 月 / team（unlimited apps、SSO、SLA、優先支援）
 
@@ -396,7 +396,7 @@
 1. repo 已具備 `cmd/server`、`cmd/cli`、`cmd/mcp` 三個可建置入口。
 2. 第一條 vertical slice 已跑通：`GET /v1/apps` → CLI → MCP。
 3. `create_app_preview` / `create_app` contract 已定稿並完成最小驗證。
-4. 至少 1 個內部 demo repo 可成功部署到 `*.winshare.tw`。
+4. 至少 1 個內部 demo repo 可成功部署到 `*.jesontech.com`。
 5. 同一部署流程可重跑且結果冪等。
 6. 基本 audit log 與 failure trace 可回看。
 

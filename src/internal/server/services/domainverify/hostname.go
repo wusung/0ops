@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	opsruntime "github.com/winshare/zeroops/internal/shared/runtime"
 )
 
 // ErrInvalidHostname is returned when a hostname fails RFC 1035 / length checks.
@@ -12,7 +14,11 @@ var ErrInvalidHostname = errors.New("invalid hostname")
 // ErrReservedHostname is returned when a hostname uses a reserved suffix.
 var ErrReservedHostname = errors.New("reserved hostname")
 
-const reservedSuffix = ".winshare.tw"
+// reservedSuffix returns the platform-domain suffix custom domains may not
+// use, e.g. ".jesontech.com" (hard rule § 15 #3).
+func reservedSuffix() string {
+	return "." + opsruntime.DomainBase()
+}
 
 // ValidateHostname enforces hard rule § 15 #3: reject reserved suffix;
 // applies RFC 1035 + length limits required by spec § 5.2.
@@ -29,9 +35,9 @@ func ValidateHostname(host string) error {
 	if len(host) > 253 {
 		return fmt.Errorf("%w: length > 253", ErrInvalidHostname)
 	}
-	reservedApex := strings.TrimPrefix(reservedSuffix, ".")
-	if strings.HasSuffix(host, reservedSuffix) || host == reservedApex {
-		return fmt.Errorf("%w: %s suffix is reserved", ErrReservedHostname, reservedSuffix)
+	suffix := reservedSuffix()
+	if strings.HasSuffix(host, suffix) || host == opsruntime.DomainBase() {
+		return fmt.Errorf("%w: %s suffix is reserved", ErrReservedHostname, suffix)
 	}
 
 	labels := strings.Split(host, ".")

@@ -63,7 +63,7 @@ App install 掛 `team.github_install_id`；user 離開 team 不影響授權。
 2. CLI/MCP 拿到 backend 簽發的 `state` token（10 分鐘 TTL，HMAC 綁 team_id + actor_user_id）
 3. CLI 開瀏覽器到 `https://github.com/apps/0ops/installations/new?state=<state>`
 4. 使用者在 GitHub 選擇 install target（personal account 或 GitHub org）+ 選擇 repo 範圍
-5. GitHub 重導 callback `https://0ops.winshare.tw/v1/auth/github/install-callback?installation_id=...&state=...`
+5. GitHub 重導 callback `https://0ops.jesontech.com/v1/auth/github/install-callback?installation_id=...&state=...`
 6. Backend 驗 `state` HMAC + 未過期 + actor 仍是該 team owner → `UPDATE team SET github_install_id = $1 WHERE id = $2`
 7. 已綁 team 又重 install：覆寫 install_id，舊 install 標 deprecated（user 可選 GitHub UI 端 uninstall）
 8. install 後 webhook 進來時用 `X-GitHub-Hook-Installation-Target-ID` 反查 `team`，找不到的 install 直接 200 ignore（避免回 4xx 觸發 GitHub 重試）
