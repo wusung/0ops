@@ -17,6 +17,11 @@ const (
 	// ScopeAuditRead grants read access to audit_log entries
 	// (audit-log spec § 6.2).
 	ScopeAuditRead Scope = "audit:read"
+	// ScopeAuditExport grants bulk export of audit_log for forensics /
+	// compliance. Deliberately separate from audit:read so bulk extraction can
+	// be granted / revoked independently (audit-export-and-integrity spec § 6.2,
+	// hard rule #6).
+	ScopeAuditExport Scope = "audit:export"
 	// ScopeIncidentsRead grants read access to incident rows
 	// (reconciler-and-incident spec § 9.3).
 	ScopeIncidentsRead Scope = "incidents:read"

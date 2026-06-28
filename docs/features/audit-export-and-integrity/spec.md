@@ -145,7 +145,7 @@ COMMIT
 | `0ops_migrate` | goose migration（deploy 期，DDL） | 全權（建 partition、backfill、加欄位） | 全權 |
 | `0ops_archive` | ops audit-rollover / archive job（特權批次，非 runtime） | `SELECT, INSERT, DELETE` + partition `DROP`（經 `0ops_migrate` 委派 owner 或 `SECURITY DEFINER` 函式） | `SELECT, UPDATE` |
 
-> **切片落點**：migration `00013`（M9.1 slice a）只建 schema（hash 欄位 + `audit_chain_head` + archive 補欄）。下方 role 分離與 `revoke` **落在後續 migration（role-split slice）**，與 runtime 連線切換為 `0ops_app` 同批上線；hard rule #1/#2 在該 slice 合入前不視為滿足。
+> **切片落點**：migration `00013`（M9.1 slice a）只建 schema（hash 欄位 + `audit_chain_head` + archive 補欄）。role 分離與 `revoke` 已落於 migration `00014`（M9.1 slice b2）：三角色建為 **NOLOGIN** 權限角色（migration 不含任何密碼），登入身分由各環境掛上（dev 經 compose `provision-app-role`；production 見 `docs/runbooks/audit-append-only-role.md`）。runtime 連線經 `APP_DATABASE_URL` 切換為 `"0ops_app"`（`db.ConfigFromEnv` 優先讀之）。hard rule #1/#2 由整合測試 `TestAuditLogAppendOnlyRoleDeniesMutation` + 新 partition 之 `CreateMonthlyPartition` revoke 驗證。
 
 ```sql
 -- role-split migration（後續 slice）：撤 app role 對 audit_log 的改/刪權（parent + 既有 partitions + 未來 partitions）

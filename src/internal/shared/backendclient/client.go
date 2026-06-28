@@ -578,6 +578,57 @@ type AuditListParams struct {
 	Cursor   string
 }
 
+// AuditExportParams selects a slice of the audit_log for export
+// (audit-export-and-integrity spec § 6.1). Since is mandatory server-side.
+type AuditExportParams struct {
+	Since  string
+	Until  string
+	Cursor string
+}
+
+// ExportAudit fetches one JSON export page (manifest + entries + next cursor)
+// for a team. The JSON envelope is the offline-verifiable artifact the verify
+// command recomputes (audit-export-and-integrity spec § 6.4).
+func (c *Client) ExportAudit(ctx context.Context, teamSlug string, params AuditExportParams) (dto.AuditExportEnvelope, error) {
+	endpoint, err := url.Parse(c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/audit/export")
+	if err != nil {
+		return dto.AuditExportEnvelope{}, err
+	}
+	q := endpoint.Query()
+	q.Set("format", "json")
+	if params.Since != "" {
+		q.Set("since", params.Since)
+	}
+	if params.Until != "" {
+		q.Set("until", params.Until)
+	}
+	if params.Cursor != "" {
+		q.Set("cursor", params.Cursor)
+	}
+	endpoint.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return dto.AuditExportEnvelope{}, err
+	}
+	if c.BearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.BearerToken)
+	}
+	res, err := c.do(req)
+	if err != nil {
+		return dto.AuditExportEnvelope{}, err
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		return dto.AuditExportEnvelope{}, decodeError(res)
+	}
+	var out dto.AuditExportEnvelope
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		return dto.AuditExportEnvelope{}, err
+	}
+	return out, nil
+}
+
 // ListAudit fetches a page of audit_log entries for a team
 // (audit-log spec § 6.1).
 //

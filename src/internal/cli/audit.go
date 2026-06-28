@@ -36,6 +36,8 @@ func newAuditCommand() *cobra.Command {
 
 	cmd.AddCommand(newAuditListCommand(&teamSlug, &baseURL, &token, &outputFmt))
 	cmd.AddCommand(newAuditGetCommand(&teamSlug, &baseURL, &token, &outputFmt))
+	cmd.AddCommand(newAuditExportCommand(&teamSlug, &baseURL, &token, &outputFmt))
+	cmd.AddCommand(newAuditVerifyCommand(&teamSlug, &baseURL, &token, &outputFmt))
 	return cmd
 }
 
@@ -240,4 +242,3 @@ func parseAuditDuration(raw string) (time.Duration, error) {
 	}
 	return time.ParseDuration(raw)
 }
-

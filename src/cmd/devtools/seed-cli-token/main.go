@@ -18,7 +18,7 @@
 //	--database-url   $DATABASE_URL, then postgres://ops:ops_dev_pw@127.0.0.1:5432/ops?sslmode=disable
 //	--name           dev-seed
 //	--ttl            720h (30 day)
-//	--scopes         apps:read,apps:write,apps:delete,teams:read,members:manage,audit:read,incidents:read,incidents:write
+//	--scopes         apps:read,apps:write,apps:delete,teams:read,members:manage,audit:read,audit:export,incidents:read,incidents:write
 package main
 
 import (
@@ -53,7 +53,7 @@ func run() error {
 	login := flag.String("github-login", "", "github_login of the owner user (required)")
 	name := flag.String("name", "dev-seed", "token name (free text)")
 	ttl := flag.Duration("ttl", 720*time.Hour, "token TTL")
-	scopesCSV := flag.String("scopes", "apps:read,apps:write,apps:delete,teams:read,members:manage,audit:read,incidents:read,incidents:write", "comma-separated scopes")
+	scopesCSV := flag.String("scopes", "apps:read,apps:write,apps:delete,teams:read,members:manage,audit:read,audit:export,incidents:read,incidents:write", "comma-separated scopes")
 	flag.Parse()
 
 	if strings.TrimSpace(*teamSlug) == "" || strings.TrimSpace(*login) == "" {
