@@ -10,18 +10,20 @@
 ## 一、執行摘要（Executive Summary）
 
 ### 一句話定位
-**0ops 是 AI CLI 原生（MCP-first）的內部 PaaS 控制台**，把「給定 GitHub repo 與域名 → 5 分鐘部署完成」的工作流，同時開放給人類 CLI 與 AI agent（claude code / codex / Copilot CLI）以同一組安全 API 操作。
+**0ops 是 AI coding agent 原生用來「出貨」的工具** —— Claude Code、Codex 等 agent 把程式寫完後，原生呼叫 0ops，把「給定 GitHub repo 與域名 → 5 分鐘部署上 production」這一步，以同一組安全 API 同時開放給人類 CLI 與 AI agent 操作。agent 工具帶裡有 read / edit / run，0ops 補上缺的那一格：`ship`。
+
+> MCP 是 agent 接上 0ops 的**機制（how）**，不是 0ops 的**身份（who）**。我們的識別綁在「agent 出貨時呼叫的那隻手」這個角色上，而非任一協定 —— 即使 MCP 被在位者商品化，這個角色不變。「原生」指 agent 把 0ops 當一級工具呼叫（與 Read / Bash 同等地位、走 preview→confirm），不指 0ops 被 Anthropic / OpenAI 內建。
 
 ### 為何此刻啟動
 1. AI Coding CLI（claude code、codex、Copilot CLI）正取代 Web Console 成為新的主要操作介面，但市面上幾乎無 PaaS 為其原生設計
 2. 既有 PaaS（Vercel / Railway / Render / Heroku / Zeabur）皆以 Web UI 為核心，AI agent 操作仰賴 web scraping 或非官方 API，安全與可審計性差
-3. MCP（Model Context Protocol）已成為跨家 AI CLI 的事實標準，先行者可建立工具與 SKILL 約定的網路效應
+3. AI agent 缺一個原生、可稽核、能碰 production 的「出貨」工具——現有 PaaS 只有 Web UI，agent 得靠 web scraping 或裸 API key；先成為 agent 部署時預設呼叫的工具，即建立工作流習慣黏性（MCP 是當前跨家接入的機制，是先發鑰匙，非護城河本身）
 4. Cloud Native Buildpacks 與 GitOps（ArgoCD）成熟，無 Dockerfile 自動化部署的技術門檻顯著降低
 
 ### 核心差異化
 | 維度 | 0ops | Vercel / Railway / Render | 自建 K8s + GitOps |
 |---|---|---|---|
-| AI CLI 原生支援 | **是**（MCP 一級公民） | 否（僅 Web UI / REST） | 否 |
+| agent 原生出貨工具 | **是**（agent 工具帶裡的一級 `ship`，原生呼叫） | 否（僅 Web UI / REST） | 否 |
 | 寫入安全模型 | **兩階段 preview → confirm** | 單階段、即時生效 | 看實作 |
 | 客戶自有域名 | CNAME + Cloudflare Tunnel 即時驗證 | 支援、流程繁瑣 | 自行建構 |
 | 台灣本土運維 | **是**（繁中、台灣 zone、本地 SLA） | 海外為主 | N/A |
@@ -142,12 +144,12 @@
 ### 直接競品
 | 公司 | 核心優勢 | 我們的相對劣勢 | 我們的相對優勢 |
 |---|---|---|---|
-| **Vercel** | Next.js 生態、Edge network、品牌 | Edge / 全球 CDN 規模 | MCP-first、Self-host、台灣在地 |
-| **Railway** | 開發者體驗極佳、模板豐富 | UX 投入規模 | AI CLI 原生、兩階段安全模型 |
-| **Render** | 多語言通吃、價格友善 | 知名度、模板 | MCP、GitOps 透明 |
+| **Vercel** | Next.js 生態、Edge network、品牌 | Edge / 全球 CDN 規模 | agent 原生出貨工具、Self-host、台灣在地 |
+| **Railway** | 開發者體驗極佳、模板豐富 | UX 投入規模 | agent 原生出貨、兩階段安全模型 |
+| **Render** | 多語言通吃、價格友善 | 知名度、模板 | agent 原生出貨、GitOps 透明 |
 | **Heroku** | 老牌、企業客戶 | 企業基底 | 現代架構、AI 原生 |
 | **Fly.io** | 全球 anycast、Postgres 整合 | 基礎建設規模 | AI CLI、繁中 |
-| **Zeabur**（台灣） | 同樣繁中、本地團隊 | 既有客戶基礎 | MCP-first、Self-host 路徑、Buildpack |
+| **Zeabur**（台灣） | 同樣繁中、本地團隊 | 既有客戶基礎 | agent 原生出貨工具、Self-host 路徑、Buildpack |
 | **Sealos**（中國開源 PaaS） | 開源、k8s 原生 | 開源社群成熟度 | AI CLI、台灣合規、產品化 |
 
 ### 間接競品
@@ -156,7 +158,7 @@
 - **Cursor / Devin 等 AI agent**：他們做開發、我們做部署；屬互補而非競爭
 
 ### 護城河（Moat）建構順序
-1. **0–6 月**：MCP SKILL 設計成為事實標準（先發優勢）
+1. **0–6 月**：成為 agent 出貨時預設呼叫的工具，搶下工作流習慣（MCP 接入是先發鑰匙，非護城河本身；身份綁角色不綁協定）
 2. **6–12 月**：累積 buildpack adapter、客戶模板、failure mode 知識庫
 3. **12–24 月**：Self-host license 與 managed cloud 雙軌客戶綁定
 4. **24 月+**：開源社群與生態系、可替代的 backend implementation 由我們主導 reference
