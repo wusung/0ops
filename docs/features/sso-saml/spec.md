@@ -425,3 +425,52 @@ deprovisioned bob@acme.com: 1 membership deactivated, 3 tokens revoked
 9. 一個 `domain` **全域唯一**綁定，不可同時屬兩 team；未驗證 domain 不可開 enforce。
 10. v1 **不實作 SAML**；`idp_config.protocol` CHECK v1 僅允許 `'oidc'`；SAML 欄位保持 nullable 未使用，不得宣稱已支援（避免合規造假，承 `trust-and-compliance/plan.md` § 6 規則 1）。
 11. MCP server **不得寫** `auth.json`、**不得**提供 SSO 設定/deprovision write tool（沿用 `auth-and-rbac` 硬規則 10；防 agent 誤改權限）。
+
+## 19. 實作狀態（M9.5，2026-06-29）
+
+> 誠實切分已交付（可被 `./manage.sh test` 證明）與 deferred-validation（需真 IdP /
+> 既有功能尚未具備），承 `trust-and-compliance/plan.md` § 6 規則 1 與 lessons L013/L015。
+
+### 19.1 已落地且可測
+
+- **§11 schema**：migration `00017_idp_config_and_sso.sql`（三表 + `team_membership`/`cli_token` 補欄位；
+  `auth_source` 走 nullable→backfill→SET NOT NULL→SET DEFAULT 三步，符 migrationlint R2；index 走
+  `CONCURRENTLY` 符 R1）。DB 整合測覆蓋 CRUD、唯一性、JIT、deprovision、token 簽發。
+- **§7.2 集中撤權**：`DeprovisionSSOUser` 同 tx 停用 `idp_identity`+`team_membership` 並 `revoked_at`
+  該 user 該 team 全部 `cli_token`（device+pat，sso+native）；`CheckTeamMembership` 加 `deactivated_at
+  IS NULL`（手寫，因 sqlc schema snapshot 未含新欄），使單次 deprovision 全 team 生效（撤權後 token
+  經既有鏈：`AuthBearer` 撞 `revoked_at`→401、`CheckMembership` 撞 deactivated→404，分層各有測試覆蓋）。
+- **§6 JIT**：`JITProvision` upsert user+identity+membership（冪等）；`ResolveJITRole` group→role 封頂
+  `admin`（hard rule #3）。callback httptest 驗 JIT + audit。
+- **§3/§12 OIDC 驗證 + 端點**：自實作 OIDC 驗證器（discovery + JWKS RS256，可注入 httpClient，免新依賴）；
+  config CRUD（owner-only）/domain add+verify（resolver 可注入）/callback/backchannel/deprovision handler；
+  scope `sso:manage`（owner 寫、admin 讀）入 RBAC；httptest 驗 RBAC、跨 team 404、enforce 前置、domain 衝突、
+  domain mismatch 403、audit（含 source=system/actor NULL）。
+- **§7.3 TTL**：`SSOTokenExpiry = min(IdP, session_max_ttl_s, 24h)` 純函式；SSO token 不 rolling refresh
+  （專案本無 rolling refresh 機制，自然成立）。
+- **§7.4 PAT policy**：`createTokenHandler` 以 optional-capability 型別斷言檢查 enforce+`disallow`→
+  `403 sso_pat_disabled`；httptest 覆蓋。
+- **§13 CLI**：`0ops sso status` / `0ops sso deprovision`（含 backendclient + DTO contract + CLI 測）。
+
+### 19.2 Deferred-validation（需真 IdP / 既有功能缺口；非本 task `manage.sh test` 可驗）
+
+- **device-flow 瀏覽器 IdP 重導端到端**：未改寫既有 GitHub device flow（屬 `auth-login-flow` 範疇且
+  `DeviceStartRequest` 不帶 team_slug，全面接線過大）。building block（`BuildAuthorizeURL` 純函式 + 獨立
+  callback 端點）已交付且可測；enforce→device 授權頁改走 IdP 的端到端串接 deferred（需真 IdP + 瀏覽器）。
+- **真 OIDC code 交換（token endpoint）**：`HTTPCodeExchanger` 為預設實作但需 live IdP + client secret；
+  callback 測試以注入式 stub exchanger 驗證 JIT/簽發/audit 全鏈，真交換 deferred。
+- **client secret at-rest 加密 + state/secret 共享儲存（HA 前置）**：`SecretStore`/`StateStore` 介面 +
+  process-local `MemorySecretStore`/`MemoryStateStore` 預設（DB 僅存 `client_secret_ref`，符 hard rule #7）。
+  此 in-memory 預設為 **single-process**，在多 replica（ADR-0008 HA：2 replica + leader）下 secret/state
+  不跨 replica 可見 → 真 login/code-exchange 路徑須先以 durable 共享 store（DB / shared cache，依賴
+  `secrets-management`，repo 尚無本體）替換。因 §19.2 之真 code-exchange 與 device-flow 重導本即 deferred，
+  in-memory 預設只在測試與單機 dev 被完整行使；**啟用真 IdP login 前必先換 durable store**，此前置與
+  durable 加密一併 deferred。
+- **JWKS 快取**：v1 每次驗證即抓 JWKS（登入頻率低，≤ 每 session_max_ttl 一次）；快取 deferred。
+
+### 19.3 與 spec 之有意微調
+
+- **back-channel logout 路徑**：spec § 12 列於 `/v1/teams/{slug}/sso/backchannel-logout`，但該前綴由
+  Bearer middleware 保護而 back-channel 為 IdP 無 token 呼叫；實作改置於 `/v1/auth/sso/{slug}/backchannel-logout`
+  （與同屬無認證的 callback 並列，避開 chi mount 衝突）。語意不變（驗 IdP 簽章 + 撤該 sub），非 hard rule
+  約束之路徑。

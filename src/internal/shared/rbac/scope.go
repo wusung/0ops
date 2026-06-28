@@ -27,4 +27,9 @@ const (
 	ScopeIncidentsRead Scope = "incidents:read"
 	// ScopeIncidentsWrite grants close access to incidents (spec § 9.3).
 	ScopeIncidentsWrite Scope = "incidents:write"
+	// ScopeSSOManage grants management of a team's SSO / external-identity
+	// configuration. Deliberately distinct from members:manage so SSO control
+	// can be granted / revoked independently and stays owner-only for writes
+	// (sso-saml spec § 12, ADR-0016, hard rule #4).
+	ScopeSSOManage Scope = "sso:manage"
 )

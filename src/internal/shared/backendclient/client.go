@@ -473,6 +473,27 @@ func (c *Client) ListMembers(ctx context.Context, teamSlug string) (dto.ListMemb
 	return out, nil
 }
 
+// GetSSOStatus returns the team's secret-free SSO configuration (M9.5).
+func (c *Client) GetSSOStatus(ctx context.Context, teamSlug string) (dto.SSOStatus, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/sso"
+	var out dto.SSOStatus
+	if err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &out); err != nil {
+		return dto.SSOStatus{}, err
+	}
+	return out, nil
+}
+
+// DeprovisionSSOUser centrally revokes a user's access (membership + all tokens)
+// for an SSO team (M9.5 spec § 7.2).
+func (c *Client) DeprovisionSSOUser(ctx context.Context, teamSlug string, reqBody dto.SSODeprovisionRequest) (dto.SSODeprovisionResponse, error) {
+	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/sso/deprovision"
+	var out dto.SSODeprovisionResponse
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, reqBody, &out); err != nil {
+		return dto.SSODeprovisionResponse{}, err
+	}
+	return out, nil
+}
+
 //nolint:revive // exported for public API
 func (c *Client) PreviewInviteMember(ctx context.Context, teamSlug string, reqBody dto.InviteMemberRequest) (dto.PreviewResponse, error) {
 	endpoint := c.BaseURL + "/v1/teams/" + url.PathEscape(teamSlug) + "/members:preview-invite"
