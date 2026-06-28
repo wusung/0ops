@@ -56,3 +56,29 @@ jobs:
 
       - name: task-runner self-tests
         run: ./manage.sh task-runner-test
+
+  # supply-chain-security spec § 4.2 / hard rule #3 (ADR-0017 § 3.1):
+  # Go source dependency scan. govulncheck reports only *reachable*
+  # (call-graph) known vulnerabilities, so any finding is a real exposure
+  # and fails the gate — no severity / allowlist softening (per-case
+  # exemption must go through an ADR + note). Complementary to the OS/package
+  # layer Trivy scan in release.yml (which covers the final image, not Go
+  # source reachability). Runs on PR + push main so dependency CVEs are
+  # caught before tag release.
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: src/go.mod
+          cache: true
+          cache-dependency-path: src/go.sum
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck
+        run: govulncheck ./...
+        working-directory: src

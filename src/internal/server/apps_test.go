@@ -44,6 +44,9 @@ type fakeStore struct {
 	previews          map[string]db.Preview
 	deliveries        map[string]struct{}
 	lastCallbackEvent json.RawMessage
+	// lastCallbackParams captures the most recent ApplyDeployCallback call so
+	// supply-chain tests can assert image_digest wiring without a real DB.
+	lastCallbackParams db.DeployCallbackParams
 	// M4.1 webhook-and-redeploy bookkeeping (defaults zero-valued so old
 	// tests continue to work without extra setup).
 	auditEntries   []fakeAuditEntry
@@ -611,6 +614,7 @@ func (f *fakeStore) GetDeployRunTeamID(_ context.Context, runID string) (string,
 }
 
 func (f *fakeStore) ApplyDeployCallback(_ context.Context, params db.DeployCallbackParams) error {
+	f.lastCallbackParams = params
 	for idx := range f.deploys {
 		if f.deploys[idx].ID != params.RunID {
 			continue

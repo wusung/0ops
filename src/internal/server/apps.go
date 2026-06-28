@@ -320,6 +320,7 @@ type deployCallbackRequest struct {
 	FailureClassification *string  `json:"failure_classification,omitempty"`
 	OpsToken              *string  `json:"ops_token,omitempty"`
 	Image                 *string  `json:"image,omitempty"`
+	ImageDigest           *string  `json:"image_digest,omitempty"`
 	BuildMinutes          *float64 `json:"build_minutes,omitempty"`
 	ImageSizeBytes        *int64   `json:"image_size_bytes,omitempty"`
 	GitopsCommitSHA       *string  `json:"gitops_commit_sha,omitempty"`
@@ -617,6 +618,7 @@ func deployRunCallbackHandler(store appsStore, auditWriter auditWriteService) ht
 			TraceID:               traceID,
 			ErrorSummary:          trimStringPtr(req.ErrorSummary),
 			FailureClassification: failureClassification,
+			ImageDigest:           normalizeImageDigest(req.ImageDigest),
 			Event:                 buildDeployCallbackEvent(req, status),
 		})
 		if err != nil {
@@ -1785,6 +1787,9 @@ func buildDeployCallbackEvent(req deployCallbackRequest, status string) json.Raw
 	if req.Image != nil {
 		event["image"] = strings.TrimSpace(*req.Image)
 	}
+	if digest := normalizeImageDigest(req.ImageDigest); digest != nil {
+		event["image_digest"] = *digest
+	}
 	if req.BuildMinutes != nil {
 		event["build_minutes"] = *req.BuildMinutes
 	}
@@ -1805,6 +1810,32 @@ func buildDeployCallbackEvent(req deployCallbackRequest, status string) json.Raw
 		return nil
 	}
 	return data
+}
+
+// normalizeImageDigest validates and canonicalizes the callback image_digest
+// (supply-chain-security spec § 6). It accepts the digest with or without the
+// "sha256:" prefix and returns a canonical "sha256:<64-hex>" pointer, or nil
+// when absent/malformed so ApplyDeployCallback's COALESCE leaves the column
+// untouched rather than persisting garbage.
+func normalizeImageDigest(v *string) *string {
+	if v == nil {
+		return nil
+	}
+	d := strings.TrimSpace(*v)
+	d = strings.TrimPrefix(d, "sha256:")
+	if len(d) != 64 {
+		return nil
+	}
+	for _, c := range d {
+		switch {
+		case c >= '0' && c <= '9':
+		case c >= 'a' && c <= 'f':
+		default:
+			return nil
+		}
+	}
+	canonical := "sha256:" + d
+	return &canonical
 }
 
 func trimStringPtr(v *string) *string {

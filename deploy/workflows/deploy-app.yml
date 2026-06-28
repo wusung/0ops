@@ -71,6 +71,36 @@ jobs:
           echo "high=$HIGH" >> $GITHUB_OUTPUT
           echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
 
+      # 4b. supply-chain-security spec § 4.1 / § 4.3 / § 4.4 / § 6 (ADR-0017):
+      # resolve the immutable pushed digest (the SC3 trust anchor), generate a
+      # CycloneDX SBOM, cosign keyless sign, and attach SBOM + SLSA L2
+      # provenance attestations to the digest. App image is SLSA **L2** only:
+      # the self-hosted runner is not ephemeral, so L3 non-falsifiability is
+      # not claimed (spec § 4.3 / § 10 殘餘風險). Validation deferred (needs the
+      # production GHA runner + GHCR); not exercised by `manage.sh test`.
+      - uses: imjasonh/setup-crane@v0.4
+      - uses: anchore/sbom-action/download-syft@v0
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Resolve digest + sign + attest app image
+        id: digest
+        run: |
+          DIGEST="$(crane digest "${IMAGE_REF}")"
+          echo "image_digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          REPO="${IMAGE_REF%%:*}"
+          PINNED="${REPO}@${DIGEST}"
+          syft "${PINNED}" -o cyclonedx-json > app.sbom.json
+          cosign attest --yes --type cyclonedx --predicate app.sbom.json "${PINNED}"
+          jq -nc \
+            --arg builder "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/deploy-app.yml" \
+            --arg commit "${COMMIT_SHA}" \
+            --arg run_id "${RUN_ID}" \
+            --arg image "${PINNED}" \
+            '{builder:{id:$builder}, buildType:"0ops/deploy-app@v1",
+              invocation:{commit:$commit, run_id:$run_id, image:$image}}' > app.provenance.json
+          cosign attest --yes --type slsaprovenance --predicate app.provenance.json "${PINNED}"
+          cosign sign --yes "${PINNED}"
+
       # 5. Render & push gitops
       - name: Checkout 0ops repo (for scripts)
         uses: actions/checkout@v4
@@ -81,6 +111,7 @@ jobs:
         run: ./ops/deploy/workflows/scripts/render-and-push-gitops.sh
         env:
           GITOPS_DEPLOY_KEY: ${{ secrets.GITOPS_DEPLOY_KEY }}     # SSH private key
+          IMAGE_DIGEST: ${{ steps.digest.outputs.image_digest }}  # § 4.4 digest pin
 
       # 6. Callback backend (always 跑，不論成敗)
       - name: Callback backend
@@ -89,15 +120,20 @@ jobs:
           STATUS: ${{ job.status }}
           HIGH: ${{ steps.scan_summary.outputs.high }}
           CRITICAL: ${{ steps.scan_summary.outputs.critical }}
+          IMAGE_DIGEST: ${{ steps.digest.outputs.image_digest }}
         run: |
+          # § 6: send the immutable sha256 digest so the backend persists
+          # deploy_run.image_digest (the SC3 three-way invariant anchor).
           PAYLOAD=$(jq -nc \
             --arg run_id "$RUN_ID" \
             --arg status "$STATUS" \
             --arg trace_id "$TRACE_ID" \
             --arg image "$IMAGE_REF" \
+            --arg image_digest "${IMAGE_DIGEST:-}" \
             --argjson high "${HIGH:-0}" \
             --argjson critical "${CRITICAL:-0}" \
             '{run_id:$run_id, status:$status, trace_id:$trace_id, image:$image,
+              image_digest:$image_digest,
               scan_summary:{high:$high, critical:$critical}}')
           TS=$(date +%s)
           SIG=$(printf '%s' "${TS}.${PAYLOAD}" | openssl dgst -sha256 -hmac "$OPS_TOKEN" -hex | awk '{print $2}')

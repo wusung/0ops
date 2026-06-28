@@ -76,6 +76,31 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# supply-chain-security spec § 4.1 涵蓋對象 (c): CLI / MCP / server binary
+# SBOM (CycloneDX via goreleaser's built-in syft) attached to the GitHub
+# Release. Per-archive so each artifact carries its own dependency manifest.
+sboms:
+  - id: archive-sbom
+    artifacts: archive
+
+# supply-chain-security spec § 4.4 (ADR-0017 § 3.3): cosign keyless signature
+# of the checksums file (covers every released binary transitively). Requires
+# cosign on PATH (sigstore/cosign-installer in release.yml) and id-token:write
+# for the GitHub OIDC → Fulcio → Rekor flow. key-based fallback is the離線退路
+# whose private key is covered by docs/runbooks/signing-key-rotation.md.
+signs:
+  - cmd: cosign
+    signature: ${artifact}.sig
+    certificate: ${artifact}.pem
+    args:
+      - sign-blob
+      - --yes
+      - --output-signature=${signature}
+      - --output-certificate=${certificate}
+      - ${artifact}
+    artifacts: checksum
+    output: true
+
 release:
   github:
     owner: wusung

@@ -4,9 +4,16 @@ on:
   push:
     tags: ['v*']
 
+# supply-chain-security spec § 4 / ADR-0017: id-token + attestations are
+# required for cosign keyless (GitHub OIDC → Fulcio → Rekor) signing and for
+# SLSA build provenance (actions/attest-build-provenance, L3 on GitHub-hosted
+# runner). Validation is deferred to a real tag release (this workflow does
+# not run under `manage.sh test`).
 permissions:
   contents: write
-  packages: write    # images job pushes ghcr.io/wusung/0ops-{server,migrations}
+  packages: write       # images job pushes ghcr.io/wusung/0ops-{server,migrations}
+  id-token: write       # cosign keyless OIDC + provenance attestation
+  attestations: write   # actions/attest-build-provenance
 
 jobs:
   goreleaser:
@@ -21,6 +28,12 @@ jobs:
           go-version-file: src/go.mod
           cache: true
           cache-dependency-path: src/go.sum
+
+      # supply-chain-security spec § 4.1 涵蓋對象 (c): CLI / MCP / server binary
+      # SBOM (goreleaser built-in syft) + cosign keyless signature of the
+      # checksums file are configured in src/.goreleaser.yaml; cosign must be on
+      # PATH for the `signs` block.
+      - uses: sigstore/cosign-installer@v3
 
       - uses: goreleaser/goreleaser-action@v7
         with:
@@ -42,6 +55,14 @@ jobs:
   # One-time after the FIRST release that publishes these packages: flip
   # both ghcr packages to public (deploy/bootstrap/README.md § ghcr) so the
   # cluster can pull anonymously — first push defaults to private.
+  #
+  # supply-chain-security spec § 4.1 / § 4.2 / § 4.3 / § 4.4 (ADR-0017):
+  # for each 0ops self-image — SBOM (syft, CycloneDX), Trivy enforce
+  # (exit-code=1, HIGH/CRITICAL, ignore-unfixed — stricter than the app
+  # image observation window per § 4.2), SLSA L3 build provenance
+  # (actions/attest-build-provenance, GitHub-hosted OIDC), and cosign keyless
+  # sign + SBOM attest. All artifacts are bound to the image digest (OCI
+  # referrer), the trust anchor the K3s admission policy verifies.
   images:
     runs-on: ubuntu-latest
     steps:
@@ -50,23 +71,59 @@ jobs:
       - name: Login GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Build and push server image
+      - uses: anchore/sbom-action/download-syft@v0
+      - uses: aquasecurity/setup-trivy@v0.2.0
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Build, scan, sign, attest server image
+        env:
+          IMG: ghcr.io/${{ github.repository_owner }}/0ops-server
         run: |
           TAG="${GITHUB_REF_NAME}"
-          IMG="ghcr.io/${{ github.repository_owner }}/0ops-server"
           docker build --target runtime \
             --build-arg VERSION="${TAG#v}" \
             -f src/cmd/server/Dockerfile \
             -t "$IMG:$TAG" -t "$IMG:latest" src
+          # § 4.2: 0ops self-images are scanned with exit-code=1 (enforce),
+          # not the app image observation window.
+          trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$IMG:$TAG"
           docker push "$IMG:$TAG"
           docker push "$IMG:latest"
+          DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMG:$TAG" | cut -d@ -f2)"
+          echo "SERVER_DIGEST=$DIGEST" >> "$GITHUB_ENV"
+          # § 4.1: CycloneDX SBOM bound to the digest via cosign attestation.
+          syft "$IMG@$DIGEST" -o cyclonedx-json > server.sbom.json
+          cosign attest --yes --type cyclonedx --predicate server.sbom.json "$IMG@$DIGEST"
+          # § 4.4: cosign keyless signature.
+          cosign sign --yes "$IMG@$DIGEST"
 
-      - name: Build and push migrations image
+      - name: Provenance (SLSA L3) server image
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/0ops-server
+          subject-digest: ${{ env.SERVER_DIGEST }}
+          push-to-registry: true
+
+      - name: Build, scan, sign, attest migrations image
+        env:
+          IMG: ghcr.io/${{ github.repository_owner }}/0ops-migrations
         run: |
           TAG="${GITHUB_REF_NAME}"
-          IMG="ghcr.io/${{ github.repository_owner }}/0ops-migrations"
           docker build \
             -f src/migrations/Dockerfile \
             -t "$IMG:$TAG" -t "$IMG:latest" src
+          trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$IMG:$TAG"
           docker push "$IMG:$TAG"
           docker push "$IMG:latest"
+          DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMG:$TAG" | cut -d@ -f2)"
+          echo "MIGRATIONS_DIGEST=$DIGEST" >> "$GITHUB_ENV"
+          syft "$IMG@$DIGEST" -o cyclonedx-json > migrations.sbom.json
+          cosign attest --yes --type cyclonedx --predicate migrations.sbom.json "$IMG@$DIGEST"
+          cosign sign --yes "$IMG@$DIGEST"
+
+      - name: Provenance (SLSA L3) migrations image
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/0ops-migrations
+          subject-digest: ${{ env.MIGRATIONS_DIGEST }}
+          push-to-registry: true

@@ -1,0 +1,51 @@
+# supply-chain-security spec § 5 / § 4.4 (ADR-0017 § 3.3) — sigstore
+# policy-controller ClusterImagePolicy。對 team-* 與 system-0ops namespace 的
+# 0ops-controlled image 強制：
+#   (a) cosign keyless 簽章且 identity 匹配預期 workflow（GitHub OIDC）；
+#   (b) CycloneDX SBOM attestation 存在；
+#   (c) SLSA provenance attestation 存在。
+# 任一不符 → admission 拒絕（enforce 時）。
+#
+# 上線：先 `mode: warn`（放行 + 告警，避免首輪擋光既有未簽 image 致 cluster
+# 不可用，spec § 5 失效模式）；觀察一輪後一次性 PR 切 `mode: enforce`
+# （hard rule #5）。第三方 upstream image（ArgoCD / Traefik / postgres 等）由
+# namespace selector / 獨立 policy 排除，不在 0ops 自簽範圍（spec § 5 例外）。
+#
+# 占位 <OWNER>：fork 後替換為 GHCR owner（與 release.yml /
+# deploy-app.yml 的 ghcr.io/<owner>/... 對齊）。deferred-validation：需 live
+# cluster + policy-controller webhook，不由 `manage.sh test` 驗證。
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: zeroops-image-policy
+spec:
+  # 首輪觀察；切 enforce 為一次性 PR（spec hard rule #5）。
+  mode: warn
+  images:
+    - glob: "ghcr.io/<OWNER>/0ops-server*"
+    - glob: "ghcr.io/<OWNER>/0ops-migrations*"
+    - glob: "ghcr.io/<OWNER>/0ops-apps/**"
+  authorities:
+    - keyless:
+        url: https://fulcio.sigstore.dev
+        identities:
+          # 簽章身份綁 workflow identity（spec § 4.4 / § 5）。
+          - issuer: https://token.actions.githubusercontent.com
+            subjectRegExp: "https://github.com/wusung/0ops/.github/workflows/(release|deploy-app)\\.yml@.*"
+        ctlog:
+          url: https://rekor.sigstore.dev
+      attestations:
+        # CycloneDX SBOM（spec § 4.1）。
+        - name: must-have-sbom
+          predicateType: https://cyclonedx.org/schema
+          policy:
+            type: cue
+            data: |
+              predicateType: "https://cyclonedx.org/schema"
+        # SLSA provenance（spec § 4.3；自身 image L3、app image L2）。
+        - name: must-have-provenance
+          predicateType: https://slsa.dev/provenance/v1
+          policy:
+            type: cue
+            data: |
+              predicateType: "https://slsa.dev/provenance/v1"
