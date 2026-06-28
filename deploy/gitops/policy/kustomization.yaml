@@ -1,0 +1,7 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# supply-chain-security spec § 5 — admission 驗簽 policy 之 GitOps 載體。
+# 同步來源為 deploy/gitops/argocd/apps/policy-controller.yaml。
+resources:
+  - cluster-image-policy.yaml

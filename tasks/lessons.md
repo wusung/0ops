@@ -198,3 +198,37 @@ surface 隔壁 handler 同 bug 再補 fix 一次 — 都是延遲修正導致 pl
      implement→test→PR→CI→merge。
   3. runner verify 較弱（只查 status 翻 Done + 一條 expected-path + `manage.sh test`），不保證
      完整性；高風險 task（安全/合規）合入後仍值得人工複審一眼。
+
+## L014｜引入 govulncheck gate 前先在本機跑一次，可達漏洞會擋 runner merge（M9.4）
+
+- **情境**：M9.4 supply-chain 要把 `govulncheck ./...` 加進 `ci.yml`（spec hard rule #3：可達
+  known vulnerability 即 fail，不得 allowlist 放寬）。直接加 gate 前在本機跑，發現 `golang.org/x/net@v0.54.0`
+  有**可達**漏洞 GO-2026-5026（經 `githuboauth.Client.FetchUser`）。若不修就加 gate，runner push 後 CI
+  立刻 red → 無法 merge → task 被標 Failed。
+- **陷阱**：`govulncheck ./... | tail` 會被 `tail` 的 exit 0 掩蓋 govulncheck 的非零退出（同 L002
+  pipefail 坑）。要嘛 `set -o pipefail`，要嘛 `govulncheck ./... > out.txt; echo exit=$?`。
+- **解法**：bump `golang.org/x/net` v0.54→v0.55（fixed 版）+ `go mod tidy`，再跑 govulncheck 至 exit 0
+  才加 gate。bump 依賴是「加 gate 的必要前置」，屬本 task 範圍，非順手修正。
+- **規則**：
+  1. 任何「加 CI gate」的 task，動工前先在本機把該 gate 跑綠（govulncheck / lint / scan）；gate red
+     會卡 runner 的 push→CI→merge，比 test 失敗更隱蔽（`manage.sh test` 本機綠但 CI 仍擋）。
+  2. 跑 scan 工具判斷成敗一律 `> file; echo exit=$?`，不要 pipe 到 tail/grep 後讀退出碼。
+  3. 加 migration 的 task 要先把 standing 0ops-test-db(15432) `goose up` 到新版（本 task 到 `00016`），
+     否則 `manage.sh test` 的 schema 整合測（如 `deploy_run.image_digest` 寫入）會因缺欄整批 FAIL（承
+     `reference_manage_test_db_migration` memory）。
+
+## L015｜digest pin 在 build 前無 digest 可釘；端到端三方一致是 GHA 端職責（M9.4）
+
+- **情境**：spec hard rule #6 要「被驗證 digest == 被部署 digest == `deploy_run.image_digest` 三者一致」。
+  第一直覺是把 backend gitops `RenderInput` 由 commit_sha tag 改成 digest pin。但 backend 在 create_app
+  **confirm 階段**就 render gitops，此時 image **還沒 build**（build 在 dispatch 後的 GHA 跑），根本無 digest。
+- **解法（誠實切分）**：backend gitops service 取得 digest-pin 能力（`DigestPinnedImageRef` 純函式 +
+  `RenderInput.ImageDigest`），有 digest 才釘、無 digest 才退回 provisional commit_sha tag（pre-build）；
+  真正的端到端 digest pin 落在 **GHA `render-and-push-gitops.sh`**（build 後已知 digest，缺 digest fail-closed）
+  + callback 補帶 `image_digest` 寫 `deploy_run`。backend 能力用 render 測證明（可測），GHA 端標 deferred-validation。
+- **規則**：
+  1. 「pin 不可變 digest」類需求要先確認 **digest 在該 render 時點是否已存在**；build 前的 render 沒有 digest，
+     強行宣稱已 pin = 灌水。把能力（純函式 + 測試）與端到端落點（build 後 GHA / callback）誠實切開。
+  2. supply-chain 類 task 大量是 CI/cluster config（workflows / argocd policy / runbook），`manage.sh test`
+     驗不到；只有 backend Go（migration + callback 寫入 + 純函式）可測。交付時逐項標 deferred-validation，
+     不把 config 當「已驗證」。

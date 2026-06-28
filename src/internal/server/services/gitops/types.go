@@ -11,6 +11,7 @@ type RenderInput struct {
 	Ref         string
 	CommitSHA   string
 	ImageRef    string
+	ImageDigest string
 	PrimaryPort int
 	DeployRunID string
 	PreviewID   string
@@ -25,8 +26,8 @@ type RenderResult struct {
 // GitOpsResult describes the output of a render/push run.
 type GitOpsResult struct {
 	SourceCommitSHA string
-	GitOpsCommitSHA  string
-	ImageRef         string
+	GitOpsCommitSHA string
+	ImageRef        string
 }
 
 // CommitMessage is the machine-parseable commit contract.

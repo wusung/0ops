@@ -35,7 +35,7 @@
 | M9.1  | Audit append-only + tamper-evidence + export/verify | Done     | 2026-06-29     |
 | M9.2  | Compliance framework mapping (PDPA/SOC2 控制對應) | Done     | 2026-06-29     |
 | M9.3  | Security hardening                          | Done     | 2026-06-29     |
-| M9.4  | Supply-chain security                       | Pending  | -              |
+| M9.4  | Supply-chain security                       | Done     | 2026-06-29     |
 | M9.5  | SSO/OIDC + 集中撤權                         | Pending  | -              |
 | M9.6  | Audit event notification (outbox webhook)   | Pending  | -              |
 | M7    | Web UI (post-v1)                            | Pending  | -              |

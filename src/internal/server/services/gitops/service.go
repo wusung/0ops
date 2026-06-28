@@ -71,9 +71,20 @@ func (s *service) RenderAndPush(ctx context.Context, input RenderInput) (GitOpsR
 	if err != nil {
 		return GitOpsResult{}, err
 	}
+	// Image ref precedence (supply-chain-security spec § 4.4, hard rule #6):
+	//  1. an explicit caller-supplied ref (already pinned upstream);
+	//  2. an immutable `<repo>@sha256:<digest>` pin when the digest is known
+	//     (post-build path — closes the SC3 tag-substitution window);
+	//  3. a provisional `<repo>:<commit_sha>` tag only when no digest exists
+	//     yet (pre-build create_app render; the GHA post-build re-render and
+	//     callback supply the digest that pins the deployed manifest).
 	imageRef := input.ImageRef
 	if imageRef == "" {
-		imageRef = fmt.Sprintf("ghcr.io/winshare/0ops-apps/%s/%s:%s", input.TeamSlug, input.AppSlug, sourceCommitSHA)
+		if pinned, ok := DigestPinnedImageRef(input.TeamSlug, input.AppSlug, input.ImageDigest); ok {
+			imageRef = pinned
+		} else {
+			imageRef = fmt.Sprintf("ghcr.io/winshare/0ops-apps/%s/%s:%s", input.TeamSlug, input.AppSlug, sourceCommitSHA)
+		}
 	}
 	rendered, err := s.Render(ctx, RenderInput{
 		Action:      input.Action,
@@ -108,8 +119,8 @@ func (s *service) RenderAndPush(ctx context.Context, input RenderInput) (GitOpsR
 	}
 	return GitOpsResult{
 		SourceCommitSHA: sourceCommitSHA,
-		GitOpsCommitSHA:  gitopsCommitSHA,
-		ImageRef:         imageRef,
+		GitOpsCommitSHA: gitopsCommitSHA,
+		ImageRef:        imageRef,
 	}, nil
 }
 

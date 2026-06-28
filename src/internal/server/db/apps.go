@@ -54,7 +54,11 @@ type DeployCallbackParams struct {
 	TraceID               *string
 	ErrorSummary          *string
 	FailureClassification *string
-	Event                 json.RawMessage
+	// ImageDigest is the immutable sha256 digest of the pushed image
+	// (supply-chain-security spec § 6, ADR-0017 § 3.4). Nil leaves the
+	// existing value untouched (COALESCE) for callbacks that do not send it.
+	ImageDigest *string
+	Event       json.RawMessage
 }
 
 // CliToken describes an auth token record.
@@ -404,12 +408,13 @@ SET status = $2,
       WHEN $6::jsonb IS NULL THEN events
       ELSE events || $6::jsonb
     END,
+    image_digest = COALESCE($7, image_digest),
     finished_at = CASE
       WHEN $2 IN ('live', 'failed', 'canceled', 'rolled_back') THEN now()
       ELSE finished_at
     END
 WHERE id = $1
-`, parsedRunID, params.Status, textFromPtr(params.TraceID), textFromPtr(params.ErrorSummary), textFromPtr(params.FailureClassification), params.Event)
+`, parsedRunID, params.Status, textFromPtr(params.TraceID), textFromPtr(params.ErrorSummary), textFromPtr(params.FailureClassification), params.Event, textFromPtr(params.ImageDigest))
 	if err != nil {
 		return err
 	}

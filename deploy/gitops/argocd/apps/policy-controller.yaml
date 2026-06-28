@@ -1,0 +1,32 @@
+# supply-chain-security spec § 5 / ADR-0017 § 3.3 — K3s admission 驗簽 policy 的
+# ArgoCD child-app 入口（與其他 child app 一致，policy 本身亦走 GitOps 唯一真相）。
+#
+# 此 Application 同步 deploy/gitops/policy/ 下的 sigstore ClusterImagePolicy。
+# 上線策略（spec § 5 失效模式 / hard rule #5）：首輪 `mode: warn` 觀察一輪，
+# 確認既有 image 簽章狀態後，以一次性 PR 切 `mode: enforce`（拒絕未簽 / 缺
+# attestation 的 image）。
+#
+# 前置 add-on：sigstore policy-controller 本體（webhook + CRD）須先安裝於
+# cluster（helm chart sigstore/policy-controller）。本 task 釘介面與 policy
+# CR；policy-controller 安裝與 enforce 切換屬 deploy/ 範圍且需 live cluster，
+# 標 deferred-validation（不由 `manage.sh test` 驗證）。
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: policy-controller
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/wusung/0ops.git
+    targetRevision: main
+    path: deploy/gitops/policy
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cosign-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

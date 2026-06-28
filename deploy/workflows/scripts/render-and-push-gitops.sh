@@ -5,6 +5,8 @@ set -euo pipefail
 # Renders kustomization manifests and pushes to 0ops-gitops repo
 # Expects environment variables:
 #   - TEAM_SLUG, APP_SLUG, COMMIT_SHA, IMAGE_REF
+#   - IMAGE_DIGEST (sha256:...; the immutable pushed digest — required for the
+#     SC3 digest pin, supply-chain-security spec § 4.4 / § 12.1 / hard rule #6)
 #   - GITOPS_DEPLOY_KEY (SSH private key)
 #   - GITOPS_REPO (optional, defaults to 0ops-gitops)
 
@@ -12,6 +14,17 @@ GITOPS_REPO="${GITOPS_REPO:-0ops-gitops}"
 GITOPS_URL="${GITOPS_URL:-git@github.com:winshare/${GITOPS_REPO}.git}"
 RETRY_MAX=5
 RETRY_COUNT=0
+
+# SC3 hard prerequisite (spec hard rule #6): pin the immutable sha256 digest,
+# never a mutable tag. The repo (everything before the ':' tag) plus the digest
+# yields "<repo>@sha256:<hex>" so "verified digest == deployed digest ==
+# deploy_run.image_digest". Fail closed if the digest is missing rather than
+# silently emitting a re-pointable tag.
+if [ -z "${IMAGE_DIGEST:-}" ]; then
+echo "IMAGE_DIGEST is required for digest pinning (SC3 mitigation); refusing to pin a mutable tag" >&2
+exit 1
+fi
+IMAGE_REPO="${IMAGE_REF%%:*}"
 
 # Setup SSH key
 mkdir -p ~/.ssh
@@ -34,7 +47,8 @@ kind: Kustomization
 
 images:
   - name: app
-    newName: ${IMAGE_REF}
+    newName: ${IMAGE_REPO}
+    digest: ${IMAGE_DIGEST}
 
 namespace: team-${TEAM_SLUG}
 KUSTOMIZATION
