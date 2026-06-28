@@ -139,7 +139,7 @@
 |---|---|---|---|---|---|---|
 | SC1 | gitops repo 被惡意 commit（繞過 backend 改 desired state） | T,E | backend 為唯一 writer；commit 可回溯 | repo write 權限收斂與分支保護未文件化 | M | `supply-chain-security`；gitops-render-and-argocd |
 | SC2 | 依賴/build 環境污染植入後門 image | T | self-hosted runner 隔離 | 無 SBOM、無 image provenance 證明、無依賴掃描 | **H** | `supply-chain-security`（SBOM + SLSA provenance + scan） |
-| SC3 | image digest 在 GHCR↔ArgoCD 間被替換 | T | callback 帶 digest；GitOps pin digest | 無 image 簽章驗證（cosign/policy） | M | `supply-chain-security` |
+| SC3 | image 在 GHCR↔ArgoCD 間被替換（tag 重指向） | T | callback 帶 digest（但 gitops 實際 pin mutable `:<commit_sha>` tag、非不可變 `@sha256` digest，替換窗口仍開——見 `supply-chain-security` § 12.1）| 無 digest pin、無 image 簽章驗證（cosign/policy）| M | `supply-chain-security`（digest pin + cosign 驗簽）|
 | SC4 | buildpack 偵測誤判導致非預期 runtime | T | preview 顯示偵測結果 | — | L | app-source-ingestion |
 
 ### 5.5 租戶隔離（TB5）

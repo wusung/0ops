@@ -99,7 +99,8 @@ ADR 為不可違反的架構決策。讀取策略分三層：
 | **0006** | 可觀測性基線 | Prometheus pull；label `{route, method, status, team_bucket}` | 無 cardinality 爆炸；team_bucket = hash(team_id) mod 64 | Metric 爆炸、查詢效能惡化 |
 | **0007** | 客戶域名 TLS | Cloudflare 邊緣；Custom Hostname API | 無 origin TLS、無 DIY ACME | Cloudflare 停用、自帶 cert 需求 |
 | **0015** | Audit append-only & tamper-evidence | app role 撤 UPDATE/DELETE on audit_log；per-team hash chain；archive 走 audit_ops role | 帳本不可改/刪；hash 對 redact 後內容算；chain 跨 partition 連續 | enterprise 要求防 superuser、寫入吞吐瓶頸、跨 region 複寫 |
-| **0016** | SSO & 外部身分（OIDC-first） | v1 OIDC；team 級 IdP 綁定；JIT provisioning；enforced team 禁個人 PAT | SSO 不另造權限模型（沿用 0001 RBAC）；不破壞 device flow agent UX | design partner 要 SAML、即時 deprovision(SCIM)、service account 需求 |
+| **0016** | SSO & 外部身分（OIDC-first） | v1 OIDC；team 級 IdP 綁定；JIT provisioning；撤權靠 membership 停用 + token revoke | SSO 不另造權限模型（沿用 0001 RBAC）；不破壞 device flow agent UX；JIT 封頂 admin | design partner 要 SAML、即時 deprovision(SCIM)、service account 需求 |
+| **0017** | 供應鏈簽章 & provenance | CycloneDX SBOM + cosign keyless 簽章 + SLSA(app L2/自身 L3) + K3s admission 驗簽 + gitops digest pin | 部署端強制驗簽；digest pin（非 mutable tag）；誠實分級不宣稱 app L3 | runner 改 ephemeral、資料主權需自架 Sigstore、SOC2 要求 L3 全鏈 |
 
 ### 產品規劃層
 

@@ -174,7 +174,7 @@ P3（v3 / 國際擴張）
 | `audit-export-and-integrity` | `docs/features/audit-export-and-integrity/spec.md` | P0/P1 | `audit-log` | 是（append-only + hash chain 為 schema/安全決策 → ADR-0015） |
 | `compliance-framework-mapping` | `docs/features/compliance-framework-mapping/spec.md` | P1 | `threat-model` | 否（對應文件） |
 | `security-hardening` | `docs/features/security-hardening/spec.md` | P1 | `threat-model` | 視盤點結果 |
-| `supply-chain-security` | `docs/features/supply-chain-security/spec.md` | P1 | CI release pipeline | 視是否改 release 流程 |
+| `supply-chain-security` | `docs/features/supply-chain-security/spec.md` | P1 | CI release pipeline | 是（簽章/provenance 改 release 流程 → ADR-0017） |
 | `sso-saml` | `docs/features/sso-saml/spec.md` | P2 | `auth-and-rbac` | 是（新 auth path → ADR-0016） |
 | `audit-event-notification` | `docs/features/audit-event-notification/spec.md` | P2 | `audit-log` | 否 |
 

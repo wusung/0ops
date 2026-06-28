@@ -26,8 +26,8 @@ superseded-by: []
 
 1. **DB-level append-only**：application DB role 撤 `UPDATE` / `DELETE` on `audit_log`（與其所有 partition）；只保留 `INSERT` / `SELECT`。任何竄改/刪除企圖在 DB 權限層被拒，而非靠程式自律。
 2. **Per-row hash chain（tamper-evidence）**：每 row 加 `prev_hash` / `row_hash`；`row_hash = H(canonical(row 內容含 prev_hash))`，對 **redact 後**內容計算，使 export 與 verify 結果一致。chain 偵測「整段被刪」或「row 被改」。
-3. **Archive 走獨立 ops role**：`delete_app` 永久保留與 partition drop（audit-log § 9）所需的「搬移/刪 partition」由獨立 `audit_ops` role 執行，與 app role 隔離；app role 永遠無刪權。
-4. **Chain 範圍為 per-team 單鏈，跨 partition 連續**：hash chain 以 `(team_id)` 為鏈，跨月 partition 連續串接；partition drop 時保留被 drop partition 的最後一個 `row_hash` 作為 anchor 寫入 `audit_chain_anchor`，使 verify 不因 drop 而誤判斷裂。
+3. **Archive 走獨立 ops role**：`delete_app` 永久保留與 partition drop（audit-log § 9）所需的「搬移/刪 partition」由獨立 `0ops_archive` role 執行，與 app role 隔離；app role 永遠無刪權。
+4. **Chain 範圍為 per-(team, month-partition) 鏈**：每條 `(team_id, partition_month)` 為一條獨立 hash chain，以 anchor 表 `audit_chain_head`（含 `genesis_hash` / `tip_hash` / `row_count`）錨定每鏈的起點與鏈尾。理由：與既有月度 partition + 13mo drop 相容——drop 整個 partition 不留下 dangling `prev_hash`，`audit_chain_head` row 永不 drop，使 verify 在 row 消失後仍能出示鏈尾與筆數。全域單鏈（跨 partition 連續）因 drop 後無法續驗而**被否**（見 § 5 與 spec § 12）。
 
 行為與 schema/migration/API 細節以 spec [`docs/features/audit-export-and-integrity/spec.md`](../features/audit-export-and-integrity/spec.md) 為準；本 ADR 釘住決策邊界，不重述 spec。
 
@@ -57,11 +57,11 @@ superseded-by: []
 
 | Role | audit_log 權限 | 用途 |
 |---|---|---|
-| `app`（server 運行身分） | `INSERT`, `SELECT` | 正常寫入與查詢；**無 `UPDATE`/`DELETE`** |
-| `migrate`（goose 遷移身分） | DDL（建表、加欄、建 partition） | schema 演進；不跑業務寫入 |
-| `audit_ops`（背景 archive/rollover 身分） | `SELECT`, `INSERT`（archive 表）, partition `DETACH`/`DROP` | partition rollover、delete_app row 搬 archive |
+| `0ops_app`（server runtime 連線） | `INSERT`, `SELECT` | 正常寫入與查詢；**無 `UPDATE`/`DELETE`**（對 `audit_chain_head` 保有 `UPDATE` 以更新 tip） |
+| `0ops_migrate`（goose 遷移身分） | DDL（建表、加欄、建 partition、backfill） | schema 演進；不跑業務寫入 |
+| `0ops_archive`（背景 archive/rollover 身分） | `SELECT`, `INSERT`（archive 表）, partition `DROP` | partition rollover、delete_app row 搬 archive |
 
-`app` role 之 grant 由 migration 明確撤銷；未來新增 partition 時繼承父表權限（PostgreSQL partition 權限繼承），確保新月份 partition 同樣 app 無刪權。
+`0ops_app` 之 `UPDATE`/`DELETE` on audit_log 由 migration 明確撤銷（含既有與未來 partition；新 partition 由 rollover 建表後即套 `REVOKE` + default privileges）；runtime 連線字串須由 owner role 切換為 `0ops_app`，與 migration 上線同批，否則撤權對 owner 無效。
 
 ### 3.2 Hash chain schema 與計算
 
@@ -69,21 +69,22 @@ superseded-by: []
 
 ```sql
 ALTER TABLE audit_log
-  ADD COLUMN prev_hash bytea,   -- 同 team 前一筆之 row_hash；team 首筆為 NULL
-  ADD COLUMN row_hash  bytea;   -- 本筆之 hash
+  ADD COLUMN prev_hash bytea,   -- 同 (team, month) 鏈前一筆之 row_hash；genesis row 為 genesis_hash
+  ADD COLUMN row_hash  bytea;   -- 本筆之 SHA-256
 ```
 
 `row_hash = SHA-256( canonical_json({ team_id, actor_user_id, source, subject_type, subject_id, action, args, result, preview_id, trace_id, outcome, http_status, created_at, prev_hash }) )`
 
 * `args` / `result` 為**已 redact** 內容（DD3）。
-* `canonical_json`：欄位固定排序、無多餘空白、時間 RFC3339 UTC，確保決定性。
-* 寫入層在同一 transaction 內：取該 team 最新 `row_hash`（`SELECT ... ORDER BY id DESC LIMIT 1 FOR UPDATE` 或維護 per-team head 表）→ 算 `row_hash` → INSERT。
+* `canonical_json`：欄位固定排序、null 顯式輸出、時間 RFC3339 UTC、固定欄位分隔，確保決定性（spec § 4.3 釘死規則）。
+* genesis：每條 `(team, month)` 鏈首筆之 `prev_hash` = `genesis_hash`，後者由 partition 座標純導出（`H(domain_sep || team_id || partition_month)`），無需儲存秘密、任何驗證者可獨立重算。
+* 寫入層在同一 transaction 內：鎖該 `(team, month)` 之 `audit_chain_head` row（`FOR UPDATE`）→ `prev = COALESCE(tip_hash, genesis_hash)` → 算 `row_hash` → INSERT audit_log → UPDATE head `tip_hash`/`row_count`。序列化點為 per-`(team, month)`，非全域。
 
-### 3.3 Chain 範圍與 partition / archive anchor
+### 3.3 Chain 範圍與 anchor 表
 
-* Chain 以 `(team_id)` 為單位，跨月 partition 連續。
-* `audit_chain_anchor(team_id, anchored_partition, last_row_hash, anchored_at)`：partition drop 前，`audit_ops` 把該 partition 該 team 的最後 `row_hash` 寫入 anchor；verify 跨越被 drop 區間時以 anchor 接續，不誤判斷裂。
-* `delete_app` row 搬 `audit_log_archive` 時保留其 `prev_hash`/`row_hash`；archive 表獨立 verify。
+* Chain 以 `(team_id, partition_month)` 為單位；每月一條獨立鏈。
+* `audit_chain_head(team_id, partition_month, genesis_hash, tip_hash, row_count, first_row_id, last_row_id, updated_at)`：錨定每鏈 genesis 與 tip；INSERT 時更新 tip/row_count。**此表永不 drop**——即使對應 partition 於 13mo 後 drop，head row 保留作為「該月曾存在、共 N 筆、tip 為 H」之 durable attestation，使 verify 在 row 消失後仍能出示鏈尾與筆數（DD4 + AD2 completeness）。
+* `delete_app` row 搬 `audit_log_archive` 時保留其 `prev_hash`/`row_hash`；archive 表可做單 row 完整性驗，但鄰接 row 隨 partition drop 消失故無 linkage 驗（明示限制）。
 
 ### 3.4 Export 與 verify
 
@@ -98,7 +99,7 @@ verify 偵測到斷裂/不符時：發 `audit_integrity_violation` 事件（入 
 ## 4. 與既有 audit-log spec 之關係
 
 * audit-log § 5.3 `audit.Log()` 介面**不變**（DD5）；hash 計算為實作內部新增。
-* audit-log § 9 保留期（13mo drop、delete_app 永久 archive）**保留**，但執行身分由 app role 改為 `audit_ops` role（§ 3.1）。
+* audit-log § 9 保留期（13mo drop、delete_app 永久 archive）**保留**，但執行身分由 app role 改為 `0ops_archive` role（§ 3.1）。
 * audit-log § 10 「寫入失敗 → reconciliation_job 重寫」fallback **保留**；補充：重寫時 chain 順序以 `created_at` + 補寫標記維持（spec 定 tie-break）。
 * audit-log § 15 硬性規則新增一條（append-only），由本 ADR 授權 spec 落地。
 
@@ -129,7 +130,7 @@ verify 偵測到斷裂/不符時：發 `audit_integrity_violation` 事件（入 
 
 ### 6.2 負面
 * 寫入路徑新增 per-team head 讀取；高頻同 team 寫入需評估鎖競爭（DD6）；spec 須給 head 維護策略（專表 vs 索引查詢）與壓測門檻。
-* archive / rollover 須改用 `audit_ops` role；部署需多配一組受限憑證。
+* archive / rollover 須改用 `0ops_archive` role；部署需多配一組受限憑證。
 * 既有歷史 row 無 hash：migration 須定義 backfill 規則或以「chain 起點」標記，且起點之前不提供完整性保證（明示）。
 
 ### 6.3 中性
