@@ -39,3 +39,4 @@
 | M9.5  | SSO/OIDC + 集中撤權                         | Done     | 2026-06-29     |
 | M9.6  | Audit event notification (outbox webhook)   | Done     | 2026-06-29     |
 | M7    | Web UI (post-v1)                            | Pending  | -              |
+| MKT.0 | Build-in-public engine bootstrap            | Pending  | -              |
