@@ -394,3 +394,17 @@ loop（每 ~2s 或事件喚醒）：
 10. 簽章金鑰走 `secrets-management` at-rest 加密；明文僅建立 / rotate 回應一次（write-only reveal），任何 GET 不回金鑰。
 11. `webhook_delivery` partition by month、保留 90 天；不得當作合規帳本取代 `audit_log`（13 月）。
 12. dispatcher 為背景非同步投遞；retry 必指數退避 + 上限後 drop，連續失敗必熔斷（不得無限重試耗資源 / 不得對接收端構成 DoS）。
+
+## 18. 實作狀態（M9.6 v1，2026-06-29 shipped）
+
+> 程式碼為準；本段記錄 v1 與本 spec 文字的差異與 deferred 項，避免 spec↔code 漂移。詳見 `plan.md`「非平凡設計決策」。
+
+- **migration `00018`**（非 spec § 3 之 `00013`，repo 已到 00017）。`webhook_delivery` 月 partition seed 2026-06..2026-08 + `DEFAULT` 兜底；**月度 rollover + 90 天 retention drop（§ 9）deferred**（DEFAULT 確保 insert 不失敗）。
+- **partition 索引**：migrationlint R1 要求每句 `CREATE INDEX` 帶 `CONCURRENTLY`，而 PG 不允許在 partitioned **parent** 上 concurrent 建索引 → 索引**逐 partition** 建（child 為普通表，合法且 lint-clean）。
+- **enqueue 寄生在 `db.Repository.InsertAuditLog` 既有 tx**（非另開 `LogTx`）：零呼叫端改動，audit 成功⇒delivery 落地（hard rule #3）。dedup 唯一鍵為 `(subscription_id, audit_log_id, created_at)`；delivery `created_at` 釘在 audit 事件時間，使 enqueue 重放去重、手動 redeliver（`created_at=now()`）可成新列。冪等用 `INSERT ... ON CONFLICT DO NOTHING`（**非** catch-23505，因 23505 會污染共享 tx 連帶 rollback audit）。
+- **payload Summary**：v1 僅以白名單 metadata（event / actor / source）組裝，**不含** args/result 任何值（hard rule #2）；§ 5.1 範例中的 `<slug>`/`<name>` 等需 args 的富摘要列為 § 16 future（v1 一律不帶 args）。
+- **§ 8 簽章金鑰 at-rest 加密 deferred**：`SecretStore` 介面 + `secret_ref` 就緒，v1 將 base64 金鑰存於 `webhook_subscription.secret_material`（**明文**，未加密），swap 點待 secrets-management。write-only reveal 已落地（建立/rotate 回一次，GET 不回）。
+- **RBAC**：新增 scope `webhook:read` / `webhook:write`，action `read_webhook`（admin）/`manage_webhook`（admin，owner/admin 皆滿足）；member/viewer 由共用 `CheckTokenScope` middleware 擋下 `forbidden_role`（以 rbac 矩陣測試 + 路由宣告保證，未另寫 per-route httptest）。
+- **delivery-side SSRF（§ 6.4「解析後驗 IP」）**：除 config-time `ValidateWebhookURL` 外，dispatcher 用 IP-pinned client（dialer `Control` 於連線前以實際解析 IP 再驗一次，擋 DNS rebinding）且**拒絕 redirect**（webhook 接收端不得 302 導去內網）。
+- **dispatcher 可靠性**：claim 以 `make_interval` 租約（5 分鐘）標記 `delivering` 並把 `delivering` 納入 due 條件，使 worker 中途崩潰殘留的列於租約到期後可被重認領（at-least-once；接收端以 `X-0ops-Delivery` 去重）。
+- **MCP write tool（§ 16）/ 原生 SIEM（§ 11 v3）deferred**。

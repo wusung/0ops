@@ -18,14 +18,15 @@ import (
 	appserver "github.com/winshare/zeroops/internal/server"
 	"github.com/winshare/zeroops/internal/server/db"
 	"github.com/winshare/zeroops/internal/server/health"
-	"github.com/winshare/zeroops/internal/server/services/createapp/ingestion"
 	"github.com/winshare/zeroops/internal/server/leader"
 	ratelimit "github.com/winshare/zeroops/internal/server/middleware/ratelimit"
 	tracemw "github.com/winshare/zeroops/internal/server/middleware/trace"
 	"github.com/winshare/zeroops/internal/server/observability"
 	"github.com/winshare/zeroops/internal/server/observability/slogtrace"
 	"github.com/winshare/zeroops/internal/server/services/audit"
+	notify "github.com/winshare/zeroops/internal/server/services/audit/notify"
 	"github.com/winshare/zeroops/internal/server/services/cloudflare"
+	"github.com/winshare/zeroops/internal/server/services/createapp/ingestion"
 	"github.com/winshare/zeroops/internal/server/services/k3s"
 	"github.com/winshare/zeroops/internal/server/services/reconciler"
 	"github.com/winshare/zeroops/internal/shared"
@@ -112,6 +113,12 @@ func main() {
 	limiter := ratelimit.New(ratelimit.Config{Quotas: ratelimit.DefaultPlanQuotas()})
 	auditSvc := audit.NewService(repo, repo, audit.NopObserver())
 
+	// M9.6 audit-event-notification: install the transactional-outbox enqueuer
+	// so every audit_log write fans matching events out to webhook_delivery in
+	// the same transaction (spec § 7.1, hard rule #3). Nil-safe: until installed,
+	// audit writes behaved as before.
+	repo.SetAuditEnqueuer(notify.NewEnqueuer(nil))
+
 	reconObserver := newReconcilerObserver(metrics)
 	incidentSvc := reconciler.NewIncidentService(repo, auditAdapter{svc: auditSvc}, reconObserver)
 
@@ -169,6 +176,17 @@ func main() {
 	}
 
 	startReconciler(ctx, logger, repo, incidentSvc, reconObserver, k3sClient, ldr, ingestStore, auditSvc)
+
+	// M9.6: background webhook delivery dispatcher (leader-gated). It polls
+	// webhook_delivery (FOR UPDATE SKIP LOCKED), POSTs each with an HMAC
+	// signature, and drives retry / circuit-breaker (spec § 7.2-7.4).
+	webhookDispatcher := notify.NewDispatcher(notify.DispatcherConfig{
+		Pool:   pool,
+		Audit:  auditSvc,
+		Leader: ldr,
+	})
+	go webhookDispatcher.Run(ctx, 2*time.Second)
+	logger.Info("webhook dispatcher started")
 
 	go func() {
 		logger.Info("0ops-server listening", "addr", addr, "version", shared.Version)
