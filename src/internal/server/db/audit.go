@@ -14,8 +14,17 @@ import (
 	"github.com/winshare/zeroops/internal/server/services/audit"
 )
 
-// InsertAuditLog appends one row to the partitioned audit_log table.
-// Implements audit.Writer.
+// InsertAuditLog appends one row to the partitioned audit_log table, chained
+// into its (team_id, partition_month) hash chain (audit-export-and-integrity
+// spec § 4.4 / ADR-0015). Implements audit.Writer.
+//
+// The whole append runs in one transaction: lock-or-create the chain head,
+// allocate the id, hash the row over its *stored* projection, INSERT with an
+// explicit id / created_at / prev_hash / row_hash, then advance the head's
+// tip / row_count. The row is hashed over exactly what it stores — created_at
+// is generated here (UTC, truncated to microseconds, because Postgres rounds
+// timestamptz) and the textual columns are stored verbatim (no NULLIF), so a
+// later verify recomputes byte-identically.
 func (r *Repository) InsertAuditLog(ctx context.Context, row audit.InsertRow) error {
 	parsedTeamID, err := parseUUID(row.TeamID)
 	if err != nil {
@@ -46,22 +55,80 @@ func (r *Repository) InsertAuditLog(ctx context.Context, row audit.InsertRow) er
 		preview = parsed
 	}
 	traceID := strings.TrimSpace(row.TraceID)
-	var traceValue any
-	if traceID != "" {
-		traceValue = traceID
-	}
 	var httpStatus any
 	if row.HTTPStatus != nil {
 		httpStatus = *row.HTTPStatus
 	}
 
-	_, err = r.pool.Exec(ctx, `
+	createdAt := time.Now().UTC().Truncate(time.Microsecond)
+	partitionMonth := audit.PartitionMonth(createdAt)
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Lock the (team, month) chain head, creating it on first write. The lock
+	// serialises concurrent writers for this one chain so tip advances linearly.
+	var genesis, tip []byte
+	err = tx.QueryRow(ctx, `
+SELECT genesis_hash, tip_hash FROM audit_chain_head
+WHERE team_id = $1 AND partition_month = $2
+FOR UPDATE
+`, parsedTeamID, partitionMonth).Scan(&genesis, &tip)
+	if errors.Is(err, pgx.ErrNoRows) {
+		genesis = audit.GenesisHash(row.TeamID, partitionMonth)
+		if _, err = tx.Exec(ctx, `
+INSERT INTO audit_chain_head (team_id, partition_month, genesis_hash, tip_hash, row_count)
+VALUES ($1, $2, $3, $3, 0)
+`, parsedTeamID, partitionMonth, genesis); err != nil {
+			return fmt.Errorf("init chain head: %w", err)
+		}
+		tip = genesis
+	} else if err != nil {
+		return fmt.Errorf("lock chain head: %w", err)
+	}
+	prev := tip
+
+	// Allocate the id up front so it is covered by the hash.
+	var id int64
+	if err = tx.QueryRow(ctx,
+		`SELECT nextval(pg_get_serial_sequence('audit_log', 'id'))`).Scan(&id); err != nil {
+		return fmt.Errorf("allocate audit id: %w", err)
+	}
+
+	core := audit.Core{
+		ID:          id,
+		TeamID:      row.TeamID,
+		ActorUserID: row.ActorUserID,
+		Source:      row.Source,
+		SubjectType: row.SubjectType,
+		SubjectID:   row.SubjectID,
+		Action:      row.Action,
+		Args:        row.Args,
+		Result:      row.Result,
+		PreviewID:   row.PreviewID,
+		TraceID:     traceID,
+		Outcome:     row.Outcome,
+		HTTPStatus:  row.HTTPStatus,
+		CreatedAt:   createdAt,
+	}
+	canonical, err := audit.CanonicalCore(core)
+	if err != nil {
+		return fmt.Errorf("canonicalise audit core: %w", err)
+	}
+	rowHash := audit.RowHash(prev, canonical)
+
+	if _, err = tx.Exec(ctx, `
 INSERT INTO audit_log (
-    team_id, actor_user_id, subject_type, subject_id, action,
-    args, result, preview_id, trace_id, source, outcome, http_status
+    id, team_id, actor_user_id, subject_type, subject_id, action,
+    args, result, preview_id, trace_id, source, outcome, http_status,
+    created_at, prev_hash, row_hash
 )
-VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12)
+VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16)
 `,
+		id,
 		parsedTeamID,
 		actor,
 		row.SubjectType,
@@ -70,12 +137,30 @@ VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, 
 		[]byte(row.Args),
 		[]byte(row.Result),
 		preview,
-		traceValue,
+		traceID,
 		row.Source,
 		row.Outcome,
 		httpStatus,
-	)
-	return err
+		createdAt,
+		prev,
+		rowHash,
+	); err != nil {
+		return fmt.Errorf("insert audit_log: %w", err)
+	}
+
+	if _, err = tx.Exec(ctx, `
+UPDATE audit_chain_head
+SET tip_hash = $3,
+    row_count = row_count + 1,
+    last_row_id = $4,
+    first_row_id = COALESCE(first_row_id, $4),
+    updated_at = now()
+WHERE team_id = $1 AND partition_month = $2
+`, parsedTeamID, partitionMonth, rowHash, id); err != nil {
+		return fmt.Errorf("advance chain head: %w", err)
+	}
+
+	return tx.Commit(ctx)
 }
 
 // ListAuditLog implements audit.Reader.ListAuditLog with cursor-based
@@ -159,21 +244,21 @@ WHERE a.team_id = $1
 	items := make([]audit.Row, 0, filter.PageSize)
 	for rows.Next() {
 		var (
-			id            int64
-			teamID        pgtype.UUID
-			actorID       pgtype.UUID
-			actorLogin    pgtype.Text
-			source        string
-			subjectType   string
-			subjectID     pgtype.UUID
-			action        string
-			argsBytes     []byte
-			resultBytes   []byte
-			previewID     pgtype.UUID
-			traceID       string
-			outcome       string
-			httpStatus    pgtype.Int4
-			createdAt     pgtype.Timestamptz
+			id          int64
+			teamID      pgtype.UUID
+			actorID     pgtype.UUID
+			actorLogin  pgtype.Text
+			source      string
+			subjectType string
+			subjectID   pgtype.UUID
+			action      string
+			argsBytes   []byte
+			resultBytes []byte
+			previewID   pgtype.UUID
+			traceID     string
+			outcome     string
+			httpStatus  pgtype.Int4
+			createdAt   pgtype.Timestamptz
 		)
 		if err := rows.Scan(
 			&id, &teamID, &actorID, &actorLogin, &source,
