@@ -20,7 +20,7 @@
 
 ## 2. 專案目標邊界
 
-`0ops` v1 是一個 **CLI / MCP-first** 的內部 PaaS 控制台。
+`0ops` v1 是 **AI coding agent 原生用來「出貨」的工具**——agent（claude code / codex）把程式寫完後原生呼叫它部署。CLI 與 MCP 是接入**機制（how）**,非身份（who）。
 
 允許的主要介面：
 

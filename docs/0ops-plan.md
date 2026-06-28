@@ -1,9 +1,11 @@
-# Plan：CLI / MCP-first Infra Console（新專案）
+# Plan：AI agent 原生出貨工具（CLI + MCP Infra Console，新專案）
 
 ## Context
 
 ### 為何要做
 使用者要建一個內部 PaaS 控制台。給定 (GitHub repo URL, desired domain) 即自動完成 stack 偵測 → 構建 → FQDN 配發 → 部署。
+
+身份定位:0ops 是 **AI coding agent 原生用來「出貨」的工具**——agent（claude code / codex）把程式寫完後原生呼叫它,補上工具帶裡 `read / edit / run` 之外缺的那一格 `ship`。CLI 與 MCP 是兩條**接入機制（how）**,非身份（who）;即使 MCP 被在位者商品化,「agent 出貨時呼叫的那隻手」這個角色不變。
 
 操作介面分兩條：
 

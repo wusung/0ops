@@ -1,7 +1,9 @@
 # 0ops
 
-Internal PaaS control plane driven by **CLI + MCP**. Give your AI CLI one prompt — 0ops takes a repo
-to a running app on `*.jesontech.com` or your own domain.
+**The tool your AI agent natively calls to `ship`.** Claude Code / Codex write the code; 0ops is the
+missing verb in their toolbelt — one prompt takes a repo to a running app on `*.jesontech.com` or your
+own domain. CLI + MCP are *how* it connects, not *what* it is: even if MCP gets commoditized, the role —
+the hand an agent reaches for to ship — stays.
 
 ## TL;DR
 
