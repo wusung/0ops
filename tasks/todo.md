@@ -15,6 +15,28 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
 
 ## 活躍 backlog
 
+### M9 Trust（Compliance / Audit / Security）— 來源：`docs/trust-and-compliance/plan.md` § 5.1
+
+> 登記於 task-list/task-status：PR #128（M9.0–M9.6）。文件層全封板：plan + 7 feature spec
+> + ADR-0015/0016/0017 + business-plan 餵回（PR #126/#127）。實作層按依賴序逐切片跑 agent loop。
+
+- [x] **M9.0 threat-model（STRIDE 系統威脅模型）** — Done 2026-06-28，PR #126（純文件）
+- [ ] **M9.1 audit append-only + tamper-evidence + export/verify** — 進行中
+  （`docs/features/audit-export-and-integrity/spec.md` / ADR-0015；切片化）
+  - [x] **slice a**：hash-chain 核心（`chain.go`）+ migration `00013`(schema) + ADR-0015→Accepted
+    + spec §4.3 配方對齊 — Done 2026-06-29，**PR #130**；13 單元測試（golden-vector / 0x1F 注入 /
+    竄改偵測×8）、migration up/down/up 可逆驗證、CI `test` 綠
+  - [ ] **slice b**：寫入路徑交易（head-lock + INSERT 帶 hash + UPDATE head）+ **append-only DB
+    role 分離**（`0ops_app` 撤 UPDATE/DELETE，hard rule #1/#2）+ 連線切換 + 整合測試 — 進行中
+    （worktree `feat/m9.1-write-path-roles`）
+  - [ ] **slice c**：export API `GET .../audit/export` + 新 scope `audit:export` + integrity 摘要
+  - [ ] **slice d**：verify CLI `0ops audit verify`（chain 重算 / 斷裂偵測）
+- [ ] **M9.2 compliance-framework-mapping（PDPA/SOC2 控制對應）** — Pending（依 M9.0）
+- [ ] **M9.3 security-hardening** — Pending（依 M9.0）
+- [ ] **M9.4 supply-chain-security** — Pending（依 M2.2/M2.3；ADR-0017）
+- [ ] **M9.5 sso-saml（OIDC + 集中撤權）** — Pending（依 M1；ADR-0016）
+- [ ] **M9.6 audit-event-notification（outbox webhook）** — Pending（依 M9.1）
+
 ### M6 follow-up（來源：`docs/features/app-source-ingestion/spec.md` § 16-17）
 
 - [ ] **Q1 — production CI workflow 驗證**（waiting on user-side resources）
