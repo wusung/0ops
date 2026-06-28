@@ -1,6 +1,6 @@
 # Feature Spec：compliance-framework-mapping
 
-> **狀態**：draft
+> **狀態**：accepted
 > **來源**：`docs/trust-and-compliance/plan.md` § 3.1 / § 5.1（P1）/ § 1 框架優先序；消費 `docs/features/threat-model/spec.md` 之威脅清單做控制對應；`docs/0ops-business-plan.md` § 十一（合規/法務風險、資料落地敘事、line 344-347 PII 範圍）
 > **適用範圍**：0ops 之合規/資料治理「對外可出示文件」——資料分類、資料盤點與資料流、台灣個資法（PDPA）對應、資料落地控制、SOC2 Type II TSC 控制矩陣、統一保留期矩陣；本 spec 為文件/政策交付，部分項目對應到既有程式機制（標明來源 spec/ADR/migration）
 > **對應 Milestone**：Enterprise tier 前置（v2 / 2027 H1）；台灣段（PDPA + 資料落地）可在 design partner 階段先出
@@ -13,7 +13,8 @@
 - **框架優先序（採 plan § 1，釘死）**：台灣個資法（PDPA）/ 資料落地（P0，在地 moat，最低成本立即可主張）→ SOC2 Type II（P1，跨境企業/投資人門票）→ ISO 27001（P3 v3，國際擴張時，本 spec 不展開）。
 - **每一條控制狀態三值**：`已具備 / 規劃中 / 不適用`，每條必填、不得留空或模糊（承 plan § 6 規則 3）。狀態判定依 § 3 原則：`已具備` 必對應到實際 spec / ADR / migration / 已 ship 架構事實；**不得宣稱未實作能力為已具備**（承 plan § 6 規則 1，避免合規造假）。
 - **可主張的信任地基（plan § 1 四項已 ship 架構事實，本矩陣大量引用）**：① `preview → confirm` 後端強制；② GitOps 唯一真相（commit 可回溯）；③ backend 不跑 LLM（無 prompt injection 攻擊面）；④ `audit_log` 業務行為帳本（redact、13mo 保留、trace_id 串到底）。
-- **主要缺口（標 `規劃中`，對應已排程 spec）**：SOC2 A1（可用性，HA/PITR 為 M5 spec）、tamper-evidence / audit export、token anomaly 偵測、SSO/集中撤權、SBOM/image provenance、正式 privacy policy 與 DPA（法務 dependency，§ 13）。
+- **已補強之關鍵地基（M5 / M9.1 已交付，本矩陣升 `已具備`）**：SOC2 A1（可用性，backend HA + Postgres HA/WAL/PITR + SLO/burn-rate，M5.4/M5.5/M2.6 + ADR-0008）、audit tamper-evidence（per-row hash chain）+ append-only DB role + audit export/verify（M9.1，migration 00013/00014 + ADR-0015）。
+- **主要缺口（標 `規劃中`，對應已排程未交付 spec）**：token anomaly 偵測（M9.3）、SSO/集中撤權（M9.5，ADR-0016）、SBOM/image provenance/簽章（M9.4，ADR-0017）、audit-event-notification（M9.6）、正式 privacy policy 與 DPA（法務 dependency，§ 13）。
 - **DPA + privacy policy 為法務 dependency**：標為待補，不在本 spec 產出（§ 13）。
 
 ## 2. 範圍
@@ -40,7 +41,7 @@
 | 狀態 | 判定條件 | 反例（不得標此狀態） |
 |---|---|---|
 | `已具備` | 對應到 plan § 1 四項已 ship 架構事實，**或** plan § 3 各軸「現況」清單已列、**且**有實際 spec / ADR / migration / 程式機制可驗 | 僅有 spec 設計但屬未來 milestone；僅口頭承諾；僅 business-plan 敘事而無對應機制 |
-| `規劃中` | 已有對應 spec 設計或 plan 拆解清單登記，但屬未來 milestone（如 M5 HA/DR）或 plan 缺口清單尚未 ship | 無任何對應 spec / 拆解登記（→ 應入 Open issues 或先補 plan row） |
+| `規劃中` | 已有對應 spec 設計或 plan 拆解清單登記，但屬未來 milestone（如 SSO 集中身份 M9.5、ADR-0016；supply-chain 簽章/provenance M9.4、ADR-0017）或 plan 缺口清單尚未 ship | 無任何對應 spec / 拆解登記（→ 應入 Open issues 或先補 plan row） |
 | `不適用` | 該控制與 0ops 架構/範圍本質無關，附理由 | 用「不適用」迴避實作缺口 |
 
 **判定一致性規則**：
@@ -120,7 +121,7 @@
 | **當事人權利—查詢/閱覽**（§ 3 / § 10） | 本人可經 read API / `query_audit_log` 查自身 actor 紀錄；`get_app` / `list_*` 查自身資源 | 已具備（自助查詢）；正式 DSAR 流程 規劃中 | `audit-log` § 6.2（member 限 self）；`auth-and-rbac`；正式 DSAR 受理流程 → § 13 / `security-hardening` |
 | **當事人權利—刪除/停止利用**（§ 3 / § 11） | app/資源刪除走 `delete-app-flow`；audit 對 delete 永久 archive | 規劃中 | 帳號/PII 刪除（user_account + email/github_login 移除）流程未釘定 → Open issues；`delete-app-flow` 僅涵蓋 app 維度 |
 | **跨境傳輸**（§ 21） | self-host：客戶自有域名 + Tunnel，0ops 不存客戶資料（不出境）；managed：明確分區 | 已具備（self-host 不出境）；managed 分區 規劃中 | § 7；business-plan line 345；managed 多 region 拓樸 → Open issues |
-| **安全維護義務**（§ 27 / 施行細則 § 12） | 加密儲存 + argon2；RBAC + team 隔離；audit_log 取證；redactor；rate-limit/abuse | 已具備 | `secrets-management`、ADR-0001、`audit-log`、`error-model` § 9、`rate-limit-and-abuse`；強化項（anomaly/tamper-evidence）見 § 8 規劃中列 |
+| **安全維護義務**（§ 27 / 施行細則 § 12） | 加密儲存 + argon2；RBAC + team 隔離；audit_log 取證 + tamper-evidence（hash chain）+ append-only DB role + export/verify；redactor；rate-limit/abuse | 已具備 | `secrets-management`、ADR-0001、`audit-log`、`error-model` § 9、`rate-limit-and-abuse`；audit 防竄改（M9.1）：migration 00013（hash chain）/00014（append-only role）、ADR-0015、`src/internal/server/services/audit/{chain,export,verify}.go`；剩餘強化項（token anomaly 偵測，M9.3）見 § 8 規劃中列 |
 
 ## 7. 資料落地控制（self-host vs managed）
 
@@ -187,8 +188,9 @@
 | rate-limit + abuse 偵測（`abuse_detected` 入 audit） | 已具備 | `rate-limit-and-abuse` |
 | observability + trace_id 跨界落地 | 已具備 | `observability-skeleton`；`trace-id-end-to-end`；ADR-0006 |
 | reconciler 收斂偵測 + incident（`failed_permanently` 入 audit） | 已具備 | `reconciler-and-incident`（plan § 3.2 現況 fallback） |
-| audit tamper-evidence（per-row hash chain）+ append-only DB role | 規劃中 | `audit-export-and-integrity`（P0/P1 → ADR-0015）；承 `threat-model` AD1 |
-| audit export（CSV/JSON）/ SIEM 串接（審計交付） | 規劃中 | `audit-export-and-integrity`（P1）/ SIEM（P3）；承 `threat-model` AD3 |
+| audit tamper-evidence（per-row hash chain）+ append-only DB role | 已具備 | `audit-export-and-integrity`；ADR-0015；migration `00013_audit_log_hash_chain.sql`（hash chain）/ `00014_audit_append_only_roles.sql`（append-only role，revoke UPDATE/DELETE）；`src/internal/server/services/audit/chain.go`（M9.1） |
+| audit export（CSV/JSON）+ 離線 verify（審計交付） | 已具備 | `audit-export-and-integrity`；`src/internal/server/services/audit/{export,verify}.go`；`audit export` / `audit verify` CLI + scope `audit:export`（M9.1）。SIEM 自動串接（P3）見下列規劃中 |
+| audit 事件即時推送 / SIEM 自動串接（outbox webhook） | 規劃中 | `audit-event-notification`（M9.6，依 M9.1）；承 `threat-model` AD3 |
 
 ### 8.6 CC8 變更管理
 
@@ -204,9 +206,9 @@
 | 機制 | 狀態 | 證據 |
 |---|---|---|
 | reconciler 收斂自我修復（滯留偵測 + 重試，避免 silent 卡死） | 已具備 | `reconciler-and-incident`（plan § 3.2 現況） |
-| backend HA（2 replica + leader election + graceful shutdown） | 規劃中 | `backend-ha-leader-election`（M5）；ADR-0008 |
-| Postgres main + streaming replica + WAL archive + daily pg_dump + PITR | 規劃中 | `postgres-ha-and-dr`（M5）；ADR-0008；runbooks `postgres-pitr` / `postgres-failover` / `postgres-restore-test` |
-| SLO/SLI 定義 + burn-rate alert（可用性目標監控） | 規劃中 | `slo-and-alerting`（M5）；ADR-0006（SLO 99.9%） |
+| backend HA（2 replica + leader election + graceful shutdown） | 已具備 | `backend-ha-leader-election`（M5.5，Done）；ADR-0008 |
+| Postgres main + streaming replica + WAL archive + daily pg_dump + PITR | 已具備 | `postgres-ha-and-dr`（M5.4，Done）；ADR-0008；runbook `docs/runbooks/postgres-pitr.md`（PITR 演練） |
+| SLO/SLI 定義 + burn-rate alert（可用性目標監控） | 已具備 | `slo-and-alerting`（M2.6 Observability GA，Done）；ADR-0006（SLO 99.9%） |
 
 > **ISO 27001（P3 / v3）延伸路徑**：本矩陣之 CC/A1 映射可作為 ISO 27001 Annex A（A.5 政策、A.8 資產管理、A.9 存取控制、A.12 運作安全、A.16 事故管理）之輸入；逐條對應於 v3 國際擴張時另開（plan § 4 P3）。本 spec 不展開。
 
@@ -255,9 +257,9 @@ docs/features/compliance-framework-mapping/
 | secret 加密 / rotation / TTL | `secrets-management`；migration 00003 |
 | redactor 共用 instance | `error-model` § 9 |
 | GitOps 變更可追溯 | `gitops-render-and-argocd`；ADR-0004 |
-| HA / PITR / DR（A1） | `postgres-ha-and-dr`、`backend-ha-leader-election`、`slo-and-alerting`（M5）；ADR-0008 |
-| append-only / tamper-evidence / export | `audit-export-and-integrity`（→ ADR-0015，待寫） |
-| SSO / anomaly / SBOM | `sso-saml`、`security-hardening`、`supply-chain-security`（待寫） |
+| HA / PITR / DR（A1，已交付） | `postgres-ha-and-dr`（M5.4）、`backend-ha-leader-election`（M5.5）、`slo-and-alerting`（M2.6）；ADR-0008；runbook `postgres-pitr` |
+| append-only / tamper-evidence / export（已交付） | `audit-export-and-integrity`；ADR-0015；migration 00013/00014；`audit/{chain,export,verify}.go`（M9.1） |
+| SSO / anomaly / SBOM（規劃中） | `sso-saml`（M9.5、ADR-0016）、`security-hardening`（M9.3）、`supply-chain-security`（M9.4、ADR-0017） |
 
 ## 12. 驗證準則
 

@@ -181,3 +181,20 @@ surface 隔壁 handler 同 bug 再補 fix 一次 — 都是延遲修正導致 pl
   3. 角色拆分 migration 的 Down 要用 `REASSIGN OWNED ... TO CURRENT_USER` 再 `DROP OWNED`/`DROP ROLE`；
      直接 `DROP OWNED BY` 會連該角色「擁有的表」一起刪（production 以 `0ops_migrate` 跑 migration 時
      等於刪光 schema）。
+
+## L013｜task-runner 的 `claude -p` agent 無法中途收人類決策（M9.2）
+
+- **情境**：`manage.sh task-run M9.2`（compliance-framework-mapping）。spawned `claude -p` agent
+  正確依 prompt「發現 spec 不一致就停下回報」揪出真問題：spec 把已 ship 的控制（M9.1 audit
+  append-only/export、M5.4/M5.5/M2.6 HA/PITR/SLO）標成 `規劃中`，且 §3 拿「M5 HA/DR」當 `規劃中`
+  範例已失準。升 `已具備` 涉及對審計斷言可用性，agent 要 sign-off。但 `-p` 是一次性、無法收答案 →
+  agent 結束、未翻 status → runner `VERIFY_FAILED=status` → 標 Failed、保留 worktree。
+- **這是 harness 設計要的行為**（停下回報優於 bulldoze），非 bug。
+- **規則**：
+  1. 純文件/需人類判斷（狀態準則、對外合規斷言、範圍取捨）的 task **不適合無人值守 task-runner**。
+     要嘛把**決策預先寫進 `tasks/todo.md` 對應 acceptance bullets** 再 `task-run`，要嘛人工完成後
+     用 `task-run --verify-only` 走 runner 的 verify+merge。
+  2. 自足 code task（明確 spec + 可測，如 M9.1）才是 task-runner 的甜蜜點——它能一氣呵成
+     implement→test→PR→CI→merge。
+  3. runner verify 較弱（只查 status 翻 Done + 一條 expected-path + `manage.sh test`），不保證
+     完整性；高風險 task（安全/合規）合入後仍值得人工複審一眼。
