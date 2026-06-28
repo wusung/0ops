@@ -1,7 +1,7 @@
 # 0ops Quickstart
 
 > 對應 spec：`docs/features/end-user-onboarding/spec.md`
-> 目標：5 分鐘內，在你的 AI CLI 內一句話 deploy 一個 app 到 0ops。
+> 目標：5 分鐘內，在你的 agent 內一句話 deploy 一個 app 到 0ops。
 
 ## 1. 安裝 + 設定（一條 curl，1 分鐘）
 
