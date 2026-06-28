@@ -159,6 +159,27 @@ WHERE team_id = $1 AND partition_month = $2
 		return fmt.Errorf("advance chain head: %w", err)
 	}
 
+	// Transactional outbox (audit-event-notification spec § 7.1, hard rule #3):
+	// enqueue matching webhook deliveries inside this same tx, so audit-success
+	// implies delivery-enqueued. The enqueuer isolates its own pure-logic
+	// panics; a DB error here fails the whole audit write (caller retries).
+	if r.auditEnqueuer != nil {
+		if err = r.auditEnqueuer.Enqueue(ctx, tx, AuditEnqueueEvent{
+			AuditLogID:  id,
+			TeamID:      teamIDCanon,
+			Action:      row.Action,
+			Source:      row.Source,
+			SubjectType: row.SubjectType,
+			SubjectID:   subjectCanon,
+			ActorUserID: actorCanon,
+			Outcome:     row.Outcome,
+			OccurredAt:  createdAt,
+			TraceID:     traceID,
+		}); err != nil {
+			return fmt.Errorf("enqueue webhook delivery: %w", err)
+		}
+	}
+
 	return tx.Commit(ctx)
 }
 

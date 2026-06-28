@@ -26,6 +26,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/winshare/zeroops/internal/server/apperror"
 	"github.com/winshare/zeroops/internal/server/auth"
@@ -33,6 +34,7 @@ import (
 	"github.com/winshare/zeroops/internal/server/db"
 	ratelimit "github.com/winshare/zeroops/internal/server/middleware/ratelimit"
 	"github.com/winshare/zeroops/internal/server/services/audit"
+	notify "github.com/winshare/zeroops/internal/server/services/audit/notify"
 	"github.com/winshare/zeroops/internal/server/services/cloudflare"
 	createappsvc "github.com/winshare/zeroops/internal/server/services/createapp"
 	"github.com/winshare/zeroops/internal/server/services/createapp/ingestion"
@@ -1538,6 +1540,21 @@ func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient 
 		)
 	}
 
+	// M9.6 audit-event-notification. Optional capability: only the real
+	// *db.Repository (which exposes Pool() + the preview store) wires the
+	// outbound webhook subscription API. The dispatcher + outbox enqueuer are
+	// started in cmd/server (they need the pool + leader directly).
+	var webhookSvc *notify.Service
+	if pp, ok := store.(interface{ Pool() *pgxpool.Pool }); ok {
+		if ps, ok := store.(notify.PreviewStore); ok {
+			var webhookAudit notify.AuditLogger
+			if callbackAuditWriter != nil {
+				webhookAudit = callbackAuditWriter
+			}
+			webhookSvc = notify.NewService(pp.Pool(), ps, webhookAudit, nil, nil)
+		}
+	}
+
 	var rateLimitFn func(http.Handler) http.Handler
 	if limiter != nil {
 		rateLimitFn = ratelimit.NewMiddleware(limiter, observer).Handler
@@ -1726,6 +1743,9 @@ func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient 
 		}
 		if ssoSvc != nil {
 			ssoauth.RegisterTeamRoutes(sr, mw, ssoSvc)
+		}
+		if webhookSvc != nil {
+			notify.RegisterTeamRoutes(sr, mw, webhookSvc)
 		}
 	})
 

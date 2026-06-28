@@ -14,8 +14,9 @@ import (
 
 // Repository wraps the database pool and generated queries.
 type Repository struct {
-	pool    *pgxpool.Pool
-	queries *sqlcgen.Queries
+	pool          *pgxpool.Pool
+	queries       *sqlcgen.Queries
+	auditEnqueuer AuditEnqueuer
 }
 
 // NewRepository returns a repository backed by the given pool.
@@ -24,6 +25,14 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 		pool:    pool,
 		queries: sqlcgen.New(pool),
 	}
+}
+
+// Pool exposes the underlying connection pool for service-layer packages that
+// own their own SQL against the same database (e.g. the webhook notify
+// subsystem, audit-event-notification spec § 3). It returns the shared,
+// concurrency-safe pool — callers must not close it.
+func (r *Repository) Pool() *pgxpool.Pool {
+	return r.pool
 }
 
 // ResolveTeamBySlug loads a team by slug.

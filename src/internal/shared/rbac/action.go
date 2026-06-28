@@ -53,6 +53,14 @@ const (
 	// ActionReadSSO requires admin role + sso:manage scope to read the team IdP
 	// config (secret-free); writes stay owner-only (spec § 5.1, § 12).
 	ActionReadSSO Action = "read_sso"
+	// ActionManageWebhook requires admin role + webhook:write scope to create /
+	// update / delete / rotate-secret / redeliver webhook subscriptions
+	// (audit-event-notification spec § 10, hard rule #9). owner/admin both
+	// satisfy MinRole admin; member / viewer are rejected with forbidden_role.
+	ActionManageWebhook Action = "manage_webhook"
+	// ActionReadWebhook requires admin role + webhook:read scope to list / view
+	// webhook subscriptions (secret-free) and delivery records (spec § 10).
+	ActionReadWebhook Action = "read_webhook"
 )
 
 // Requirement couples minimum role with required scope.
@@ -100,6 +108,10 @@ func RequiredFor(action Action) Requirement {
 		return Requirement{MinRole: RoleOwner, RequiredScope: ScopeSSOManage}
 	case ActionReadSSO:
 		return Requirement{MinRole: RoleAdmin, RequiredScope: ScopeSSOManage}
+	case ActionManageWebhook:
+		return Requirement{MinRole: RoleAdmin, RequiredScope: ScopeWebhookWrite}
+	case ActionReadWebhook:
+		return Requirement{MinRole: RoleAdmin, RequiredScope: ScopeWebhookRead}
 	default:
 		return Requirement{}
 	}

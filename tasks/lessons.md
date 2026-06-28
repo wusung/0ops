@@ -264,3 +264,22 @@ surface 隔壁 handler 同 bug 再補 fix 一次 — 都是延遲修正導致 pl
   1. 自寫 OIDC 切勿只驗 sig/iss/aud/exp 就信 `email`；OIDC email 非可信識別子除非 `email_verified`。
   2. logout_token ≠ id_token：必須走專屬驗證（events 必含、nonce 必禁），否則無認證端點變撤權 DoS。
   3. RS256-only（`WithValidMethods`）擋 alg=none/HS confusion 是底線，但不夠——claim 語意層也要驗。
+
+## L018｜transactional outbox 與 partitioned 投遞表的三個陷阱（M9.6 code review）
+
+- **情境**：M9.6 webhook outbox，enqueue 寄生在 `db.Repository.InsertAuditLog` 既有 tx；投遞表月 partition。
+- **T1（共享 tx 被 23505 污染）**：原本 enqueue 以「catch 23505 當 no-op」做冪等。但**共享 tx 內任一語句
+  錯誤會把整個 tx 標 aborted**，後續 audit `tx.Commit` 連帶 rollback → audit 列丟失（破 hard rule #3）。
+  **解**：用 `INSERT ... ON CONFLICT DO NOTHING`（無 target，PG11+ 在 partitioned parent 經各 partition
+  unique index 生效，不 raise）；絕不在共享 tx 內靠 catch-error 做冪等。
+- **T2（migrationlint R1 vs partitioned parent）**：lint 要求每句 `CREATE INDEX` 帶 `CONCURRENTLY`，但
+  PG 不允許在 partitioned **parent** 上 concurrent 建索引。**解**：索引逐 partition（child）建，每句帶
+  CONCURRENTLY → 同時滿足 lint 與 PG。dedup unique 鍵含 partition key `created_at`，且 delivery
+  `created_at` 釘 audit 事件時間（非 now()），使 enqueue 重放去重、redeliver(now()) 可成新列。
+- **T3（投遞側 SSRF：config-time 驗不夠）**：只在 preview 驗 URL → DNS rebinding / 接收端 302 導向內網
+  可在投遞時繞過。**解**：dispatcher 用 IP-pinned client（`net.Dialer.Control` 連線前驗實際解析 IP）+
+  拒 redirect；isPublicIP 補 CGNAT(100.64/10)/NAT64(64:ff9b::/96)。
+- **T4（claim→POST→update 的 crash window）**：claim 把列標 `delivering` 後 POST，若 worker 崩潰或
+  terminal UPDATE 遺失，列永遠卡 `delivering` 不再被選 → 靜默丟投遞。**解**：claim 加租約
+  （`next_attempt_at = now()+lease`）並把 `delivering` 納入 due 條件，租約到期可重認領（at-least-once，
+  接收端以 X-0ops-Delivery 去重）。

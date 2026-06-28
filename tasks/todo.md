@@ -79,7 +79,7 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
     - **§7.3 SSO token 不 rolling refresh — 完整落地（可測）**；**§9 audit + §13 CLI（`0ops sso status/deprovision`）— 完整落地（可測）**：新 audit action（IdP-initiated source=system/actor NULL）+ redactor 蓋 secret/token。
     - **§3.2 SAML — 僅 schema 預留不實作**；**§16 open（SCIM/多 IdP/Web UI/service account/break-glass/group 降級/批次 revoke）— deferred**。
     - **可驗證性**：幾乎全 backend Go+DB+CLI，絕大多數可被 `manage.sh test` 證明（mock IdP/httptest）；無 CI/cluster deferred。expected-path 命中 `src/internal/server/auth/sso/**` + `src/migrations/**` + `src/internal/cli/**`。
-- [ ] **M9.6 audit-event-notification（outbox webhook）** — Pending（依 M9.1）
+- [x] **M9.6 audit-event-notification（outbox webhook）** — Done 2026-06-29（依 M9.1）
   - **已核准 v1 scope（直接執行、勿再停下問範圍）**：通知唯一源 `audit_log`，transactional outbox 同 tx enqueue、fire-and-retry 非阻塞（hard rule #1/#3/#4/#5）；v1 generic webhook，不做原生 SIEM、不開 MCP write tool。migration 取下一未用號（`00015+`；與 M9.5 各取不同號）。
     - **§4 schema — 完整落地（可測）**：migration 建 `webhook_subscription` + `webhook_delivery`（月 partition、dedup unique）+ DB 測。
     - **§7.1 outbox enqueue — 完整落地（核心，可測）**：與 `audit.Log()` 同 tx 比訂閱 INSERT delivery（ON CONFLICT DO NOTHING）；DB 測斷言 audit 成功⇒delivery 落地、rollback⇒一併、enqueue panic 以 defer-recover 隔離不影響 audit commit。

@@ -32,4 +32,12 @@ const (
 	// can be granted / revoked independently and stays owner-only for writes
 	// (sso-saml spec § 12, ADR-0016, hard rule #4).
 	ScopeSSOManage Scope = "sso:manage"
+	// ScopeWebhookRead grants read access to webhook subscriptions and delivery
+	// records (audit-event-notification spec § 10).
+	ScopeWebhookRead Scope = "webhook:read"
+	// ScopeWebhookWrite grants create / update / delete / rotate-secret /
+	// redeliver on webhook subscriptions (audit-event-notification spec § 10,
+	// hard rule #9). Deliberately distinct from audit:read so the outbound
+	// notification surface can be granted / revoked independently.
+	ScopeWebhookWrite Scope = "webhook:write"
 )
