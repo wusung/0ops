@@ -26,9 +26,12 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
   - [x] **slice a**：hash-chain 核心（`chain.go`）+ migration `00013`(schema) + ADR-0015→Accepted
     + spec §4.3 配方對齊 — Done 2026-06-29，**PR #130**；13 單元測試（golden-vector / 0x1F 注入 /
     竄改偵測×8）、migration up/down/up 可逆驗證、CI `test` 綠
-  - [ ] **slice b**：寫入路徑交易（head-lock + INSERT 帶 hash + UPDATE head）+ **append-only DB
-    role 分離**（`0ops_app` 撤 UPDATE/DELETE，hard rule #1/#2）+ 連線切換 + 整合測試 — 進行中
-    （worktree `feat/m9.1-write-path-roles`）
+  - [x] **slice b**：寫入路徑交易（head-lock + `ON CONFLICT` upsert + hash + UPDATE head）—
+    Done 2026-06-29，**PR #133**；5 整合測試（重算 / 跨 team 隔離 / 24-writer 並發無丟失 /
+    unicode+大整數 jsonb / 非 canonical UUID）對真 postgres 綠、CI `test` 綠
+  - [ ] **slice b2（append-only role）**：`0ops_app`/`0ops_migrate`/`0ops_archive` 分離 +
+    `revoke UPDATE/DELETE on audit_log`（hard rule #1/#2）+ 連線切換（compose/deploy/.env）+
+    整合測試（app role 改/刪被拒）— 下一步
   - [ ] **slice c**：export API `GET .../audit/export` + 新 scope `audit:export` + integrity 摘要
   - [ ] **slice d**：verify CLI `0ops audit verify`（chain 重算 / 斷裂偵測）
 - [ ] **M9.2 compliance-framework-mapping（PDPA/SOC2 控制對應）** — Pending（依 M9.0）
