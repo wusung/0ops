@@ -79,11 +79,19 @@ type SideEffect struct {
 
 //nolint:revive // exported for public API
 type PreviewResponse struct {
-	PreviewID    string       `json:"preview_id"`
-	Action       string       `json:"action"`
-	Summary      string       `json:"summary"`
-	ExpiresAt    time.Time    `json:"expires_at"`
-	SideEffects  []SideEffect `json:"side_effects,omitempty"`
+	PreviewID   string       `json:"preview_id"`
+	Action      string       `json:"action"`
+	Summary     string       `json:"summary"`
+	ExpiresAt   time.Time    `json:"expires_at"`
+	SideEffects []SideEffect `json:"side_effects,omitempty"`
+	// RiskLevel is the backend-computed blast-radius class for the action
+	// (normal | high | critical, security-hardening spec § 5.2). Read-only:
+	// the client must never set or trust it. Absent means normal.
+	RiskLevel string `json:"risk_level,omitempty"`
+	// RequiredPhrase is the typed-confirmation token a high-risk confirm must
+	// echo back via confirmation_phrase (spec § 5.4). Empty for normal-risk
+	// actions. Backend-generated; the client must not synthesise it.
+	RequiredPhrase string `json:"required_phrase,omitempty"`
 }
 
 //nolint:revive // exported for public API

@@ -2192,10 +2192,12 @@ func validateCreateAppPreview(w http.ResponseWriter, r *http.Request, store apps
 func writePreviewResponse(w http.ResponseWriter, preview db.Preview, summary string) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(dto.PreviewResponse{
-		PreviewID: preview.ID,
-		Action:    preview.Action,
-		Summary:   summary,
-		ExpiresAt: preview.ExpiresAt,
+		PreviewID:      preview.ID,
+		Action:         preview.Action,
+		Summary:        summary,
+		ExpiresAt:      preview.ExpiresAt,
+		RiskLevel:      preview.RiskLevel,
+		RequiredPhrase: preview.RequiredPhrase,
 	})
 }
 

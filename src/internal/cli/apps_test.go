@@ -15,6 +15,7 @@ import (
 	serverpkg "github.com/winshare/zeroops/internal/server"
 	"github.com/winshare/zeroops/internal/server/auth"
 	"github.com/winshare/zeroops/internal/server/db"
+	"github.com/winshare/zeroops/internal/server/security"
 	"github.com/winshare/zeroops/internal/server/services/githuboauth"
 	"github.com/winshare/zeroops/internal/shared/authconfig"
 )
@@ -131,7 +132,18 @@ func (f *cliFakeStore) ListTeamTokens(_ context.Context, teamID string) ([]db.Cl
 	return out, nil
 }
 func (f *cliFakeStore) CreatePreview(_ context.Context, teamID, actorUserID, action string, args json.RawMessage, _ string) (db.Preview, error) {
-	preview := db.Preview{ID: "preview-1", TeamID: teamID, ActorUserID: actorUserID, Action: action, Args: args, ExpiresAt: time.Now().UTC().Add(time.Minute)}
+	// Mirror the real db.CreatePreview chokepoint so the CLI exercises the
+	// high-risk typed-confirmation flow end to end (security-hardening § 5.4).
+	var argMap map[string]any
+	if len(args) > 0 {
+		_ = json.Unmarshal(args, &argMap)
+	}
+	preview := db.Preview{
+		ID: "preview-1", TeamID: teamID, ActorUserID: actorUserID, Action: action, Args: args,
+		RiskLevel:      string(security.RiskLevel(action, argMap)),
+		RequiredPhrase: security.RequiredPhrase(action, argMap),
+		ExpiresAt:      time.Now().UTC().Add(time.Minute),
+	}
 	f.previews[preview.ID] = preview
 	return preview, nil
 }

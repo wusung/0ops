@@ -36,6 +36,11 @@ var (
 	// ErrCompensateMarked signals reversible execution failed and the app
 	// was marked delete_compensated; cleanup_residue is enqueued.
 	ErrCompensateMarked = errors.New("delete compensated")
+	// ErrConfirmationPhraseMismatch signals a high-risk confirm whose
+	// confirmation_phrase does not equal the preview's backend-generated
+	// required_phrase (security-hardening spec § 5.4). It is enforced as an
+	// AND condition on top of preview_id — never a substitute for it.
+	ErrConfirmationPhraseMismatch = errors.New("confirmation phrase mismatch")
 )
 
 // SideEffectsForApp builds the deterministic 5-effect list used in the

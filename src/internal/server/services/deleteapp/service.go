@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/winshare/zeroops/internal/server/db"
+	"github.com/winshare/zeroops/internal/server/security"
 	gitopssvc "github.com/winshare/zeroops/internal/server/services/gitops"
 	"github.com/winshare/zeroops/internal/shared/dto"
 )
@@ -176,7 +177,7 @@ type ConfirmResult struct {
 // the durable response and enqueues a cleanup_residue reconciliation_job;
 // on failure mid-reversible it marks the app delete_compensated and
 // enqueues cleanup_residue for the partial state.
-func (s *Service) Confirm(ctx context.Context, teamID, actorUserID, teamSlug, previewID, traceID string) (ConfirmResult, error) {
+func (s *Service) Confirm(ctx context.Context, teamID, actorUserID, teamSlug, previewID, confirmationPhrase, traceID string) (ConfirmResult, error) {
 	preview, err := s.store.GetPreview(ctx, previewID)
 	if err != nil {
 		if errors.Is(err, db.ErrPreviewNotFound) {
@@ -186,6 +187,22 @@ func (s *Service) Confirm(ctx context.Context, teamID, actorUserID, teamSlug, pr
 	}
 	if preview.Action != PreviewAction || preview.TeamID != teamID || preview.ActorUserID != actorUserID {
 		return ConfirmResult{}, ErrPreviewNotFound
+	}
+	// High-risk differentiated confirmation: an additional typed-phrase gate
+	// layered ON TOP of preview_id (security-hardening spec § 5.4, hard rule
+	// #1). It is an AND condition — checked before the consumed/expired
+	// branches so a replay cannot bypass it, and it never substitutes for the
+	// preview_id / team / actor validation above. required_phrase is
+	// backend-generated and stored on the row; the client only echoes it.
+	if security.Level(preview.RiskLevel).AtLeast(security.RiskHigh) {
+		// Fail closed: a high-risk preview must carry a non-empty
+		// backend-generated required_phrase, and the client must echo it
+		// exactly. An empty required_phrase (a backend bug, or a catalog
+		// action wired before it resolves a subject) must NOT let an empty
+		// confirmationPhrase slip through the `"" == ""` path.
+		if preview.RequiredPhrase == "" || confirmationPhrase != preview.RequiredPhrase {
+			return ConfirmResult{}, ErrConfirmationPhraseMismatch
+		}
 	}
 	if preview.ConsumedAt != nil {
 		if len(preview.LastResult) == 0 {

@@ -1,0 +1,35 @@
+# K3s at-rest encryption for Kubernetes Secrets (security-hardening spec § 9).
+#
+# This is a TEMPLATE, not a live config. It encrypts the `secrets` resource
+# at rest in the K3s datastore (kine on Postgres, ADR-0004) so a datastore
+# dump does not leak Secret material in base64.
+#
+# HARD RULES (security-hardening spec § 13 #9):
+#   - The key below is a PLACEHOLDER. Generate a real 32-byte key with
+#       head -c 32 /dev/urandom | base64
+#     and inject it out-of-band. The real key MUST NOT be committed to git,
+#     MUST NOT live in a Kubernetes Secret, and MUST NOT share a trust domain
+#     with the data it encrypts (store it in the ops-managed KMS / a controlled
+#     file with strict OS permissions on the control-plane host only).
+#   - Key rotation is a documented 90-day procedure; see
+#     docs/runbooks/at-rest-encryption-key.md.
+#
+# Apply: place the real file at /var/lib/rancher/k3s/server/encryption-config.yaml
+# and start k3s with `--kube-apiserver-arg=encryption-provider-config=<path>`.
+# This file is the single source for the EncryptionConfiguration shape; the
+# Secret manifests themselves remain owned by secrets-management (spec § 13 #7).
+apiVersion: apiserver.config.k8s.io/v1
+kind: EncryptionConfiguration
+resources:
+  - resources:
+      - secrets
+    providers:
+      # aescbc is first → new writes are encrypted. Keep older keys below it
+      # (most-recent first) during a rotation window so existing rows still
+      # decrypt; the `identity` provider stays LAST as the read fallback for
+      # any not-yet-migrated plaintext rows.
+      - aescbc:
+          keys:
+            - name: key-2026-06   # rotate name on each cycle; never reuse
+              secret: REPLACE_WITH_BASE64_32_BYTE_KEY_FROM_OPS_KMS
+      - identity: {}

@@ -344,16 +344,33 @@ func newAppsCommand() *cobra.Command {
 			}
 
 			fmt.Fprintln(out)
+			if preview.RiskLevel != "" && preview.RiskLevel != "normal" {
+				fmt.Fprintf(out, "RISK: %s\n", preview.RiskLevel)
+			}
 			fmt.Fprintf(out, "Plan: %s\n", preview.Summary)
 			fmt.Fprintln(out, "Side effects:")
 			for i, se := range preview.SideEffects {
 				irrev := ""
 				if !se.Reversible {
-					irrev = " (irreversible)"
+					irrev = " ⚠ irreversible"
 				}
 				fmt.Fprintf(out, "  %d. %s%s\n", i+1, se.Description, irrev)
 			}
 			fmt.Fprintln(out)
+
+			// High-risk differentiated confirmation (security-hardening § 5.4):
+			// the user must echo the backend-generated required_phrase. This is
+			// a local guard AND is sent to the backend, which re-validates it as
+			// an AND condition on top of preview_id — --yes does not skip it.
+			confirmationPhrase := ""
+			if preview.RequiredPhrase != "" {
+				fmt.Fprintf(out, "Type %q to confirm this high-risk action: ", preview.RequiredPhrase)
+				phraseLine, _ := reader.ReadString('\n')
+				confirmationPhrase = strings.TrimSpace(phraseLine)
+				if confirmationPhrase != preview.RequiredPhrase {
+					return fmt.Errorf("confirmation phrase mismatch: aborted")
+				}
+			}
 
 			if !deleteYes {
 				fmt.Fprintf(out, "Proceed with deleting app %q? [y/N] ", appSlug)
@@ -364,7 +381,7 @@ func newAppsCommand() *cobra.Command {
 				}
 			}
 
-			resp, err := client.DeleteApp(ctx, ctxInfo.TeamSlug, appSlug, dto.ConfirmDeleteAppRequest{PreviewID: preview.PreviewID})
+			resp, err := client.DeleteApp(ctx, ctxInfo.TeamSlug, appSlug, dto.ConfirmDeleteAppRequest{PreviewID: preview.PreviewID, ConfirmationPhrase: confirmationPhrase})
 			if err != nil {
 				return err
 			}

@@ -80,12 +80,16 @@ func TestAppsDeleteHappyPath(t *testing.T) {
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stdout)
-	cmd.SetIn(strings.NewReader("alpha\n"))
+	// slug guard, then the backend-generated high-risk phrase.
+	cmd.SetIn(strings.NewReader("alpha\nDELETE alpha\n"))
 
 	if err := cmd.ExecuteContext(context.Background()); err != nil {
 		t.Fatalf("Execute() error = %v\noutput: %s", err, stdout.String())
 	}
 	out := stdout.String()
+	if !strings.Contains(out, "RISK: critical") {
+		t.Fatalf("expected RISK header, got %q", out)
+	}
 	if !strings.Contains(out, "deletion initiated") {
 		t.Fatalf("expected confirmation line, got %q", out)
 	}
@@ -105,12 +109,37 @@ func TestAppsDeleteSecondPromptAcceptsNo(t *testing.T) {
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stdout)
-	cmd.SetIn(strings.NewReader("alpha\nN\n"))
+	cmd.SetIn(strings.NewReader("alpha\nDELETE alpha\nN\n"))
 
 	if err := cmd.ExecuteContext(context.Background()); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
 	if got := store.apps[0].Status; got == nil || *got != "live" {
 		t.Fatalf("app status mutated despite N reply: %v", got)
+	}
+}
+
+// spec § 5.4: typing the wrong high-risk phrase aborts locally before any
+// confirm request is sent.
+func TestAppsDeleteRefusesWhenPhraseTypedIncorrectly(t *testing.T) {
+	store, token := newDeleteCapableStore(t)
+	srv := httptest.NewServer(serverpkg.NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	cmd := NewRootCommand()
+	cmd.SetArgs([]string{"apps", "delete", "alpha", "--team", store.team.Slug, "--host", srv.URL, "--token", token, "--yes"})
+
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+	// correct slug guard, then a wrong high-risk phrase.
+	cmd.SetIn(strings.NewReader("alpha\nDELETE wrong\n"))
+
+	err := cmd.ExecuteContext(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "confirmation phrase mismatch") {
+		t.Fatalf("expected confirmation phrase mismatch abort, got %v", err)
+	}
+	if got := store.apps[0].Status; got == nil || *got != "live" {
+		t.Fatalf("app status mutated despite phrase mismatch: %v", got)
 	}
 }

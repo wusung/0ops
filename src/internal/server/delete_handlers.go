@@ -86,11 +86,13 @@ func previewDeleteAppHandler(store appsStore) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(dto.PreviewResponse{
-			PreviewID:   out.Preview.ID,
-			Action:      previewActionDelete,
-			Summary:     out.Summary,
-			ExpiresAt:   out.Preview.ExpiresAt,
-			SideEffects: out.SideEffects,
+			PreviewID:      out.Preview.ID,
+			Action:         previewActionDelete,
+			Summary:        out.Summary,
+			ExpiresAt:      out.Preview.ExpiresAt,
+			SideEffects:    out.SideEffects,
+			RiskLevel:      out.Preview.RiskLevel,
+			RequiredPhrase: out.Preview.RequiredPhrase,
 		})
 		recordPreviewCreatedMetric(previewActionDelete)
 	}
@@ -110,6 +112,7 @@ func deleteAppHandler(store appsStore) http.HandlerFunc {
 			auth.ActorUserID(r.Context()),
 			auth.TeamSlug(r.Context()),
 			req.PreviewID,
+			req.ConfirmationPhrase,
 			audit.TraceIDFromContext(r.Context()),
 		)
 		if err != nil {
@@ -132,6 +135,8 @@ func writeDeleteAppError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, deleteappsvc.ErrConfirmMismatch):
 		apperror.Write(w, "confirm_mismatch", apperror.ClassBadRequest, "confirm must equal app_slug", nil)
+	case errors.Is(err, deleteappsvc.ErrConfirmationPhraseMismatch):
+		apperror.Write(w, "confirmation_phrase_mismatch", apperror.ClassBadRequest, "confirmation_phrase must equal the preview's required_phrase", nil)
 	case errors.Is(err, deleteappsvc.ErrValidationFailed):
 		apperror.Write(w, "validation_failed", apperror.ClassBadRequest, err.Error(), nil)
 	case errors.Is(err, deleteappsvc.ErrAppNotFound):

@@ -33,6 +33,51 @@ func TestCreatePreviewPersistsTraceIDFromContext(t *testing.T) {
 	}
 }
 
+func TestCreatePreviewComputesRiskLevelAndPhrase(t *testing.T) {
+	repo, ctx, pool := newTestRepository(t)
+	teamID, _ := seedTeam(ctx, t, pool, "risk-team", "Risk Team")
+	actorID := seedUser(ctx, t, pool, "risk-user")
+	seedMembership(ctx, t, pool, teamID, actorID, "owner")
+
+	t.Run("delete_app preview stores critical + DELETE phrase", func(t *testing.T) {
+		args := json.RawMessage(`{"confirm":"billing-api"}`)
+		pv, err := repo.CreatePreview(ctx, teamID, actorID, "delete_app", args, "")
+		if err != nil {
+			t.Fatalf("CreatePreview: %v", err)
+		}
+		if pv.RiskLevel != "critical" {
+			t.Fatalf("returned RiskLevel = %q, want critical", pv.RiskLevel)
+		}
+		if pv.RequiredPhrase != "DELETE billing-api" {
+			t.Fatalf("returned RequiredPhrase = %q, want %q", pv.RequiredPhrase, "DELETE billing-api")
+		}
+		got, err := repo.GetPreview(ctx, pv.ID)
+		if err != nil {
+			t.Fatalf("GetPreview: %v", err)
+		}
+		if got.RiskLevel != "critical" || got.RequiredPhrase != "DELETE billing-api" {
+			t.Fatalf("loaded risk=%q phrase=%q, want critical / DELETE billing-api", got.RiskLevel, got.RequiredPhrase)
+		}
+	})
+
+	t.Run("create_app preview is normal with empty phrase", func(t *testing.T) {
+		pv, err := repo.CreatePreview(ctx, teamID, actorID, "create_app", json.RawMessage(`{"slug":"x"}`), "")
+		if err != nil {
+			t.Fatalf("CreatePreview: %v", err)
+		}
+		got, err := repo.GetPreview(ctx, pv.ID)
+		if err != nil {
+			t.Fatalf("GetPreview: %v", err)
+		}
+		if got.RiskLevel != "normal" {
+			t.Fatalf("loaded RiskLevel = %q, want normal", got.RiskLevel)
+		}
+		if got.RequiredPhrase != "" {
+			t.Fatalf("loaded RequiredPhrase = %q, want empty", got.RequiredPhrase)
+		}
+	})
+}
+
 func TestCreatePreviewMissingTraceIDFallsBackToSentinel(t *testing.T) {
 	repo, ctx, pool := newTestRepository(t)
 	teamID, _ := seedTeam(ctx, t, pool, "cp-sentinel-team", "CP Sentinel Team")
@@ -56,4 +101,3 @@ func TestCreatePreviewMissingTraceIDFallsBackToSentinel(t *testing.T) {
 		t.Fatalf("loaded Preview.TraceID = %q, want sentinel %q", got.TraceID, sentinel)
 	}
 }
-

@@ -45,7 +45,13 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
     （row_hash / linkage / row_count / tip 斷裂偵測，exit 1）；`0ops audit verify` 逐月完整抓取（避免
     部分視窗 false-BREAK）→ `verifyEnvelope` 重算；verify/export 皆不暴露 MCP（hard rule #9）。
 - [x] **M9.2 compliance-framework-mapping（PDPA/SOC2 控制對應）** — Done 2026-06-29（控制狀態對齊已交付：A1 HA/PITR/SLO 升已具備 M5.4/M5.5/M2.6+ADR-0008、audit tamper-evidence/append-only/export/verify 升已具備 M9.1+ADR-0015、§3 範例改用 SSO M9.5/supply-chain M9.4；spec → accepted；`docs/0ops-plan-schema.md` 加資料分類+保留錨點）
-- [ ] **M9.3 security-hardening** — Pending（依 M9.0）
+- [x] **M9.3 security-hardening** — Done 2026-06-29（依 M9.0）
+  - 落地：`internal/server/security/{risk,anomaly,policy}.go`（純模組）+ migration `00015`（`preview.risk_level`/`required_phrase` 可逆、COALESCE 讀）
+    + confirm 端 typed-confirmation AND 驗證（`deleteapp.Confirm`，fail-closed；不繞過 preview_id，hard rule #1）+ DTO 唯讀欄（hard rule #2）
+    + CLI（RISK 標頭 + 輸入 required_phrase）/ MCP（`confirmation_phrase`）typed confirmation + delete_app 全鏈必測（service / handler / db 整合 / cli）。
+    §6 anomaly 純評估函式 + `abuse_detected` 常數（無 goroutine、無 geo 訊號）；§7 TTL `ResolveTTL` 純函式（未接簽發路徑）。
+    §4 `baseline-matrix.md`；§8 default-deny-all + 跨-ns CI 明確 deferred（歸 k3s-namespace-isolation，hard rule #7）；
+    §9 `docs/runbooks/at-rest-encryption-key.md` + `deploy/security/encryption-config.example.yaml`。`./manage.sh test` 綠（db 整合測對 v15 真 postgres 跑過）。
   - **已核准 v1 scope（直接執行、勿再停下問範圍）**：尊重 spec 的 deferred/open 邊界與 hard rule #4/#5/#7、§12。
     - **§5 高風險差異化確認 — 完整落地（本 task 主體）**：`security/risk.go` 純函式（risk_level 目錄）+ migration 加
       `preview.risk_level`/`required_phrase` 欄 + confirm 端 typed-confirmation AND 驗證（**不繞過既有 preview/confirm 後端強制**）+ DTO 唯讀欄 + CLI/MCP typed confirmation + 高風險動作必測。

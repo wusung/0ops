@@ -301,6 +301,19 @@ func seedApp(s *fakeStore, teamID, appID, slug, status string) db.App {
 	return app
 }
 
+// setPreviewRisk stamps the differentiated-confirmation metadata that the
+// real db.CreatePreview computes from (action, args). The fake store does not
+// recompute it, so high-risk confirm tests set it explicitly to mirror a
+// production delete_app preview (critical + "DELETE <slug>").
+func (s *fakeStore) setPreviewRisk(previewID, riskLevel, requiredPhrase string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p := s.previews[previewID]
+	p.RiskLevel = riskLevel
+	p.RequiredPhrase = requiredPhrase
+	s.previews[previewID] = p
+}
+
 // --- ValidateArgs ----------------------------------------------------------
 
 func TestValidateArgsRejectsMismatch(t *testing.T) {
@@ -437,7 +450,7 @@ func TestConfirmExecutesReversibleAndEnqueuesResidue(t *testing.T) {
 		t.Fatalf("preview: %v", err)
 	}
 
-	res, err := svc.Confirm(context.Background(), "team-1", "actor-1", "team-acme", prev.Preview.ID, "trace-xyz")
+	res, err := svc.Confirm(context.Background(), "team-1", "actor-1", "team-acme", prev.Preview.ID, "", "trace-xyz")
 	if err != nil {
 		t.Fatalf("confirm: %v", err)
 	}
@@ -488,11 +501,11 @@ func TestConfirmIsIdempotentOnReplay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("preview: %v", err)
 	}
-	res1, err := svc.Confirm(context.Background(), "team-1", "actor-1", "team-acme", prev.Preview.ID, "trace-1")
+	res1, err := svc.Confirm(context.Background(), "team-1", "actor-1", "team-acme", prev.Preview.ID, "", "trace-1")
 	if err != nil {
 		t.Fatalf("confirm: %v", err)
 	}
-	res2, err := svc.Confirm(context.Background(), "team-1", "actor-1", "team-acme", prev.Preview.ID, "trace-2")
+	res2, err := svc.Confirm(context.Background(), "team-1", "actor-1", "team-acme", prev.Preview.ID, "", "trace-2")
 	if err != nil {
 		t.Fatalf("replay confirm: %v", err)
 	}
@@ -517,7 +530,7 @@ func TestConfirmCancelsInflightDeployRuns(t *testing.T) {
 	svc := newServiceForTest(t, store, nil, wf, &fakeGitOps{}, nil)
 
 	prev, _ := svc.Preview(context.Background(), "team-1", "actor-1", "team-acme", "nextdemo", "nextdemo")
-	if _, err := svc.Confirm(context.Background(), "team-1", "actor-1", "team-acme", prev.Preview.ID, ""); err != nil {
+	if _, err := svc.Confirm(context.Background(), "team-1", "actor-1", "team-acme", prev.Preview.ID, "", ""); err != nil {
 		t.Fatalf("confirm: %v", err)
 	}
 	if len(wf.canceled) != 1 || wf.canceled[0] != runID {
@@ -535,7 +548,7 @@ func TestConfirmRejectsWrongTeam(t *testing.T) {
 	seedApp(store, "team-1", "app-1", "nextdemo", "live")
 	svc := newServiceForTest(t, store, nil, nil, &fakeGitOps{}, nil)
 	prev, _ := svc.Preview(context.Background(), "team-1", "actor-1", "team-acme", "nextdemo", "nextdemo")
-	_, err := svc.Confirm(context.Background(), "team-2", "actor-1", "team-acme", prev.Preview.ID, "")
+	_, err := svc.Confirm(context.Background(), "team-2", "actor-1", "team-acme", prev.Preview.ID, "", "")
 	if !errors.Is(err, deleteapp.ErrPreviewNotFound) {
 		t.Fatalf("expected ErrPreviewNotFound for wrong team, got %v", err)
 	}
@@ -546,7 +559,7 @@ func TestConfirmRejectsWrongActor(t *testing.T) {
 	seedApp(store, "team-1", "app-1", "nextdemo", "live")
 	svc := newServiceForTest(t, store, nil, nil, &fakeGitOps{}, nil)
 	prev, _ := svc.Preview(context.Background(), "team-1", "actor-1", "team-acme", "nextdemo", "nextdemo")
-	_, err := svc.Confirm(context.Background(), "team-1", "actor-other", "team-acme", prev.Preview.ID, "")
+	_, err := svc.Confirm(context.Background(), "team-1", "actor-other", "team-acme", prev.Preview.ID, "", "")
 	if !errors.Is(err, deleteapp.ErrPreviewNotFound) {
 		t.Fatalf("expected ErrPreviewNotFound for wrong actor, got %v", err)
 	}
@@ -559,7 +572,7 @@ func TestConfirmRejectsExpiredPreview(t *testing.T) {
 	prev, _ := svc.Preview(context.Background(), "team-1", "actor-1", "team-acme", "nextdemo", "nextdemo")
 	// advance the service clock past expiry
 	svc = svc.WithClock(func() time.Time { return time.Date(2026, 5, 16, 12, 11, 0, 0, time.UTC) })
-	_, err := svc.Confirm(context.Background(), "team-1", "actor-1", "team-acme", prev.Preview.ID, "")
+	_, err := svc.Confirm(context.Background(), "team-1", "actor-1", "team-acme", prev.Preview.ID, "", "")
 	if !errors.Is(err, deleteapp.ErrPreviewExpired) {
 		t.Fatalf("expected ErrPreviewExpired, got %v", err)
 	}
@@ -573,7 +586,7 @@ func TestConfirmCompensatesOnGitOpsFailure(t *testing.T) {
 	svc := newServiceForTest(t, store, nil, nil, gops, nil)
 
 	prev, _ := svc.Preview(context.Background(), "team-1", "actor-1", "team-acme", "nextdemo", "nextdemo")
-	_, err := svc.Confirm(context.Background(), "team-1", "actor-1", "team-acme", prev.Preview.ID, "")
+	_, err := svc.Confirm(context.Background(), "team-1", "actor-1", "team-acme", prev.Preview.ID, "", "")
 	if !errors.Is(err, deleteapp.ErrCompensateMarked) {
 		t.Fatalf("expected ErrCompensateMarked, got %v", err)
 	}
@@ -607,7 +620,7 @@ func TestConfirmMarksResidualCFOnUnbindFailure(t *testing.T) {
 	cf := &fakeCustomHostnameClient{errFor: map[string]error{cfID1: errors.New("api timeout")}}
 	svc := newServiceForTest(t, store, cf, nil, &fakeGitOps{}, nil)
 	prev, _ := svc.Preview(context.Background(), "team-1", "actor-1", "team-acme", "nextdemo", "nextdemo")
-	if _, err := svc.Confirm(context.Background(), "team-1", "actor-1", "team-acme", prev.Preview.ID, ""); err != nil {
+	if _, err := svc.Confirm(context.Background(), "team-1", "actor-1", "team-acme", prev.Preview.ID, "", ""); err != nil {
 		t.Fatalf("confirm: %v", err)
 	}
 	if len(store.reconciliations) != 1 {
@@ -616,6 +629,95 @@ func TestConfirmMarksResidualCFOnUnbindFailure(t *testing.T) {
 	residuals, _ := store.reconciliations[0].Payload["residual_cf_hostname_ids"].([]string)
 	if len(residuals) != 1 || residuals[0] != cfID1 {
 		t.Fatalf("residual_cf_hostname_ids = %v, want [%s]", residuals, cfID1)
+	}
+}
+
+// --- Confirm: high-risk typed-confirmation gate (spec § 5.4) ---------------
+
+func newHighRiskPreview(t *testing.T, store *fakeStore, svc *deleteapp.Service) string {
+	t.Helper()
+	seedApp(store, "team-1", "app-1", "nextdemo", "live")
+	store.bindings["app-1"] = nil
+	prev, err := svc.Preview(context.Background(), "team-1", "actor-1", "team-acme", "nextdemo", "nextdemo")
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	store.setPreviewRisk(prev.Preview.ID, "critical", "DELETE nextdemo")
+	return prev.Preview.ID
+}
+
+func TestConfirmRejectsHighRiskWithoutPhrase(t *testing.T) {
+	store := newFakeStore()
+	svc := newServiceForTest(t, store, nil, nil, &fakeGitOps{}, nil)
+	pid := newHighRiskPreview(t, store, svc)
+	_, err := svc.Confirm(context.Background(), "team-1", "actor-1", "team-acme", pid, "", "trace")
+	if !errors.Is(err, deleteapp.ErrConfirmationPhraseMismatch) {
+		t.Fatalf("expected ErrConfirmationPhraseMismatch for empty phrase, got %v", err)
+	}
+	if len(store.reconciliations) != 0 {
+		t.Fatalf("high-risk confirm must not execute without phrase")
+	}
+}
+
+func TestConfirmRejectsHighRiskWithWrongPhrase(t *testing.T) {
+	store := newFakeStore()
+	svc := newServiceForTest(t, store, nil, nil, &fakeGitOps{}, nil)
+	pid := newHighRiskPreview(t, store, svc)
+	_, err := svc.Confirm(context.Background(), "team-1", "actor-1", "team-acme", pid, "delete nextdemo", "trace")
+	if !errors.Is(err, deleteapp.ErrConfirmationPhraseMismatch) {
+		t.Fatalf("expected ErrConfirmationPhraseMismatch for wrong phrase, got %v", err)
+	}
+}
+
+func TestConfirmAcceptsHighRiskWithCorrectPhrase(t *testing.T) {
+	store := newFakeStore()
+	svc := newServiceForTest(t, store, nil, nil, &fakeGitOps{}, nil)
+	pid := newHighRiskPreview(t, store, svc)
+	res, err := svc.Confirm(context.Background(), "team-1", "actor-1", "team-acme", pid, "DELETE nextdemo", "trace")
+	if err != nil {
+		t.Fatalf("confirm with correct phrase: %v", err)
+	}
+	if res.Response.AppSlug != "nextdemo" {
+		t.Fatalf("response slug = %q", res.Response.AppSlug)
+	}
+}
+
+// Phrase is an AND condition on top of preview_id: a correct phrase must NOT
+// let an expired preview through (spec § 11 — phrase does not replace
+// preview_id validation).
+func TestConfirmHighRiskCorrectPhraseStillRejectsExpiredPreview(t *testing.T) {
+	store := newFakeStore()
+	svc := newServiceForTest(t, store, nil, nil, &fakeGitOps{}, nil)
+	pid := newHighRiskPreview(t, store, svc)
+	svc = svc.WithClock(func() time.Time { return time.Date(2026, 5, 16, 12, 11, 0, 0, time.UTC) })
+	_, err := svc.Confirm(context.Background(), "team-1", "actor-1", "team-acme", pid, "DELETE nextdemo", "trace")
+	if !errors.Is(err, deleteapp.ErrPreviewExpired) {
+		t.Fatalf("expected ErrPreviewExpired even with correct phrase, got %v", err)
+	}
+}
+
+// Conversely, preview_id is an AND condition on top of the phrase: a correct
+// phrase against the wrong team must still be rejected as not-found.
+func TestConfirmHighRiskCorrectPhraseStillRejectsWrongTeam(t *testing.T) {
+	store := newFakeStore()
+	svc := newServiceForTest(t, store, nil, nil, &fakeGitOps{}, nil)
+	pid := newHighRiskPreview(t, store, svc)
+	_, err := svc.Confirm(context.Background(), "team-2", "actor-1", "team-acme", pid, "DELETE nextdemo", "trace")
+	if !errors.Is(err, deleteapp.ErrPreviewNotFound) {
+		t.Fatalf("expected ErrPreviewNotFound for wrong team even with correct phrase, got %v", err)
+	}
+}
+
+// Fail-closed: a high-risk preview whose required_phrase is empty (a backend
+// bug / unwired catalog action) must reject even an empty confirmation_phrase.
+func TestConfirmHighRiskRejectsWhenRequiredPhraseEmpty(t *testing.T) {
+	store := newFakeStore()
+	svc := newServiceForTest(t, store, nil, nil, &fakeGitOps{}, nil)
+	pid := newHighRiskPreview(t, store, svc)
+	store.setPreviewRisk(pid, "critical", "") // degenerate: high-risk, no phrase
+	_, err := svc.Confirm(context.Background(), "team-1", "actor-1", "team-acme", pid, "", "trace")
+	if !errors.Is(err, deleteapp.ErrConfirmationPhraseMismatch) {
+		t.Fatalf("expected ErrConfirmationPhraseMismatch on empty required_phrase, got %v", err)
 	}
 }
 
@@ -715,7 +817,7 @@ func TestPreviewAndConfirmEmitAuditRowsWithPreviewID(t *testing.T) {
 	seedApp(store, "team-1", "app-1", "nextdemo", "live")
 	svc := newServiceForTest(t, store, nil, nil, &fakeGitOps{}, nil)
 	prev, _ := svc.Preview(context.Background(), "team-1", "actor-1", "team-acme", "nextdemo", "nextdemo")
-	_, err := svc.Confirm(context.Background(), "team-1", "actor-1", "team-acme", prev.Preview.ID, "trace-x")
+	_, err := svc.Confirm(context.Background(), "team-1", "actor-1", "team-acme", prev.Preview.ID, "", "trace-x")
 	if err != nil {
 		t.Fatalf("confirm: %v", err)
 	}

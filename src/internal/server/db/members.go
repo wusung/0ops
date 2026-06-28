@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/winshare/zeroops/internal/server/security"
 	"github.com/winshare/zeroops/internal/server/services/audit"
 )
 
@@ -50,16 +51,18 @@ type Member struct {
 
 //nolint:revive // exported for public API
 type Preview struct {
-	ID          string
-	TeamID      string
-	ActorUserID string
-	Action      string
-	Args        json.RawMessage
-	LastResult  json.RawMessage
-	TraceID     string
-	CreatedAt   time.Time
-	ExpiresAt   time.Time
-	ConsumedAt  *time.Time
+	ID             string
+	TeamID         string
+	ActorUserID    string
+	Action         string
+	Args           json.RawMessage
+	LastResult     json.RawMessage
+	TraceID        string
+	RiskLevel      string
+	RequiredPhrase string
+	CreatedAt      time.Time
+	ExpiresAt      time.Time
+	ConsumedAt     *time.Time
 }
 
 //nolint:revive // exported for public API
@@ -210,6 +213,18 @@ func (r *Repository) CreatePreview(ctx context.Context, teamID, actorUserID, act
 
 	traceID := audit.TraceIDFromContext(ctx)
 
+	// Differentiated-confirmation metadata is a deterministic function of
+	// (action, args) — the single backend chokepoint that stamps every
+	// preview (security-hardening spec § 5.2). risk_level is read-only and
+	// never sourced from the client (hard rule #2). required_phrase is the
+	// backend-generated typed-confirmation token for high-risk actions.
+	var argMap map[string]any
+	if len(args) > 0 {
+		_ = json.Unmarshal(args, &argMap)
+	}
+	riskLevel := string(security.RiskLevel(action, argMap))
+	requiredPhrase := security.RequiredPhrase(action, argMap)
+
 	var (
 		id        pgtype.UUID
 		createdAt pgtype.Timestamptz
@@ -217,22 +232,24 @@ func (r *Repository) CreatePreview(ctx context.Context, teamID, actorUserID, act
 		rowTrace  string
 	)
 	if err := r.pool.QueryRow(ctx, `
-INSERT INTO preview (team_id, actor_user_id, action, args, action_summary, side_effects, idempotency_key, expires_at, trace_id)
-VALUES ($1, $2, $3, $4::jsonb, $5, '[]'::jsonb, $6, now() + interval '10 minute', $7)
+INSERT INTO preview (team_id, actor_user_id, action, args, action_summary, side_effects, idempotency_key, expires_at, trace_id, risk_level, required_phrase)
+VALUES ($1, $2, $3, $4::jsonb, $5, '[]'::jsonb, $6, now() + interval '10 minute', $7, $8, $9)
 RETURNING id, created_at, expires_at, trace_id
-`, parsedTeamID, parsedActorID, action, []byte(args), actionSummary, key, traceID).Scan(&id, &createdAt, &expiresAt, &rowTrace); err != nil {
+`, parsedTeamID, parsedActorID, action, []byte(args), actionSummary, key, traceID, riskLevel, requiredPhrase).Scan(&id, &createdAt, &expiresAt, &rowTrace); err != nil {
 		return Preview{}, err
 	}
 
 	return Preview{
-		ID:          id.String(),
-		TeamID:      teamID,
-		ActorUserID: actorUserID,
-		Action:      action,
-		Args:        args,
-		TraceID:     rowTrace,
-		CreatedAt:   createdAt.Time,
-		ExpiresAt:   expiresAt.Time,
+		ID:             id.String(),
+		TeamID:         teamID,
+		ActorUserID:    actorUserID,
+		Action:         action,
+		Args:           args,
+		TraceID:        rowTrace,
+		RiskLevel:      riskLevel,
+		RequiredPhrase: requiredPhrase,
+		CreatedAt:      createdAt.Time,
+		ExpiresAt:      expiresAt.Time,
 	}, nil
 }
 
@@ -244,25 +261,29 @@ func (r *Repository) GetPreview(ctx context.Context, previewID string) (Preview,
 	}
 
 	var (
-		id          pgtype.UUID
-		teamID      pgtype.UUID
-		actorUserID pgtype.UUID
-		action      string
-		args        []byte
-		lastResult  []byte
-		traceID     string
-		createdAt   pgtype.Timestamptz
-		expiresAt   pgtype.Timestamptz
-		consumedAt  pgtype.Timestamptz
+		id             pgtype.UUID
+		teamID         pgtype.UUID
+		actorUserID    pgtype.UUID
+		action         string
+		args           []byte
+		lastResult     []byte
+		traceID        string
+		riskLevel      string
+		requiredPhrase string
+		createdAt      pgtype.Timestamptz
+		expiresAt      pgtype.Timestamptz
+		consumedAt     pgtype.Timestamptz
 	)
 
 	if err := r.pool.QueryRow(ctx, `
 SELECT id, team_id, actor_user_id, action, args, last_result,
        COALESCE(trace_id, '00000000000000000000000000000000'),
+       COALESCE(risk_level, 'normal'),
+       COALESCE(required_phrase, ''),
        created_at, expires_at, consumed_at
 FROM preview
 WHERE id = $1
-`, parsedPreviewID).Scan(&id, &teamID, &actorUserID, &action, &args, &lastResult, &traceID, &createdAt, &expiresAt, &consumedAt); err != nil {
+`, parsedPreviewID).Scan(&id, &teamID, &actorUserID, &action, &args, &lastResult, &traceID, &riskLevel, &requiredPhrase, &createdAt, &expiresAt, &consumedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Preview{}, ErrPreviewNotFound
 		}
@@ -270,16 +291,18 @@ WHERE id = $1
 	}
 
 	return Preview{
-		ID:          id.String(),
-		TeamID:      teamID.String(),
-		ActorUserID: actorUserID.String(),
-		Action:      action,
-		Args:        json.RawMessage(args),
-		LastResult:  json.RawMessage(lastResult),
-		TraceID:     traceID,
-		CreatedAt:   createdAt.Time,
-		ExpiresAt:   expiresAt.Time,
-		ConsumedAt:  timestamptzPtr(consumedAt),
+		ID:             id.String(),
+		TeamID:         teamID.String(),
+		ActorUserID:    actorUserID.String(),
+		Action:         action,
+		Args:           json.RawMessage(args),
+		LastResult:     json.RawMessage(lastResult),
+		TraceID:        traceID,
+		RiskLevel:      riskLevel,
+		RequiredPhrase: requiredPhrase,
+		CreatedAt:      createdAt.Time,
+		ExpiresAt:      expiresAt.Time,
+		ConsumedAt:     timestamptzPtr(consumedAt),
 	}, nil
 }
 
