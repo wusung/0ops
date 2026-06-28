@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"regexp"
@@ -28,6 +29,7 @@ import (
 
 	"github.com/winshare/zeroops/internal/server/apperror"
 	"github.com/winshare/zeroops/internal/server/auth"
+	ssoauth "github.com/winshare/zeroops/internal/server/auth/sso"
 	"github.com/winshare/zeroops/internal/server/db"
 	ratelimit "github.com/winshare/zeroops/internal/server/middleware/ratelimit"
 	"github.com/winshare/zeroops/internal/server/services/audit"
@@ -1150,6 +1152,19 @@ func createTokenHandler(store appsStore) http.HandlerFunc {
 			return
 		}
 
+		// SSO PAT policy (M9.5 spec § 7.4): an SSO-enforced team may forbid
+		// personal access tokens. Optional capability — only stores that expose
+		// GetIdPConfigByTeam (the real Repository) participate; absent config is
+		// a no-op so non-SSO teams are unaffected.
+		if cfgStore, ok := store.(interface {
+			GetIdPConfigByTeam(context.Context, string) (db.IdPConfig, error)
+		}); ok {
+			if cfg, cfgErr := cfgStore.GetIdPConfigByTeam(r.Context(), auth.TeamID(r.Context())); cfgErr == nil && cfg.Enforce && cfg.PATPolicy == "disallow" {
+				apperror.Write(w, "sso_pat_disabled", apperror.ClassForbidden, "personal access tokens are disabled for this SSO-enforced team", nil)
+				return
+			}
+		}
+
 		token, err := store.CreatePAT(r.Context(), auth.ActorUserID(r.Context()), auth.TeamID(r.Context()), req.Name, req.Scopes, time.Now().UTC().Add(time.Duration(expiresDays)*24*time.Hour))
 		if err != nil {
 			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to create token", nil)
@@ -1361,6 +1376,10 @@ func pollDeviceLoginHandler(store appsStore, githubClient githubOAuthClient) htt
 			string(rbac.ScopeAppsRead),
 			string(rbac.ScopeTeamsRead),
 			string(rbac.ScopeMembersManage),
+			// sso:manage is role-gated at the middleware (owner for writes, admin
+			// for reads), so granting it to every device token mirrors how
+			// members:manage works and lets owners drive the SSO CLI (M9.5).
+			string(rbac.ScopeSSOManage),
 		})
 		if err != nil {
 			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to create bearer token", nil)
@@ -1495,6 +1514,30 @@ func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient 
 	mw := auth.NewMiddleware(store)
 	githubSvc, githubWebhookVer := githubServiceFactoryFn(store)
 
+	// M9.5 SSO/OIDC. Optional capability: only stores that implement the full
+	// SSO surface (the real *db.Repository) wire SSO routes. The real IdP code
+	// exchange + secret at-rest storage are deferred (need a live IdP /
+	// secrets-management), so the default exchanger / in-memory secret store are
+	// placeholders; discovery + id_token verification + central revocation are
+	// fully wired (ADR-0016, sso-saml spec).
+	var ssoSvc *ssoauth.Service
+	if ssoStore, ok := store.(ssoauth.Store); ok {
+		var ssoAudit ssoauth.AuditWriter
+		if callbackAuditWriter != nil {
+			ssoAudit = callbackAuditWriter
+		}
+		ssoSvc = ssoauth.NewService(
+			ssoStore,
+			ssoAudit,
+			ssoauth.NewVerifier(nil),
+			ssoauth.NewHTTPCodeExchanger(nil),
+			ssoauth.NewMemorySecretStore(),
+			ssoauth.NewMemoryStateStore(),
+			net.DefaultResolver,
+			callbackBaseURL(),
+		)
+	}
+
 	var rateLimitFn func(http.Handler) http.Handler
 	if limiter != nil {
 		rateLimitFn = ratelimit.NewMiddleware(limiter, observer).Handler
@@ -1530,6 +1573,9 @@ func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient 
 		sr.Post("/device/poll", pollDeviceLoginHandler(store, githubClient))
 		sr.Get("/github/install-callback", githubInstallCallbackV2Handler(githubSvc))
 		sr.With(mw.Bearer).Post("/logout", logoutHandler(store))
+		if ssoSvc != nil {
+			ssoauth.RegisterAuthRoutes(sr, ssoSvc)
+		}
 	})
 	r.Post("/v1/webhooks/github", githubWebhookDispatchHandler(store, githubSvc, githubWebhookVer, newRedeployTriggerFromEnv))
 
@@ -1677,6 +1723,9 @@ func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient 
 			sr.With(func(next http.Handler) http.Handler {
 				return mw.CheckTokenScope(rbac.ActionCloseIncident, next)
 			}).Post("/incidents/{id}:close", closeIncidentHandler(incidentSvc))
+		}
+		if ssoSvc != nil {
+			ssoauth.RegisterTeamRoutes(sr, mw, ssoSvc)
 		}
 	})
 

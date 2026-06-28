@@ -63,6 +63,19 @@ type fakeStore struct {
 
 	// M6.8 app-source-ingestion upload bookkeeping.
 	uploadRows []db.Upload
+
+	// M9.5 SSO: optional IdP config so PAT-policy enforcement (sso_pat_disabled)
+	// can be exercised; nil → createTokenHandler's optional check is skipped.
+	idpConfig *db.IdPConfig
+}
+
+// GetIdPConfigByTeam lets createTokenHandler's optional SSO PAT-policy check
+// fire in tests (M9.5 spec § 7.4). nil config → pgx.ErrNoRows (no SSO).
+func (f *fakeStore) GetIdPConfigByTeam(_ context.Context, _ string) (db.IdPConfig, error) {
+	if f.idpConfig == nil {
+		return db.IdPConfig{}, pgx.ErrNoRows
+	}
+	return *f.idpConfig, nil
 }
 
 // fakeAuditEntry records calls to AppendWebhookAudit so push-handler tests
@@ -1490,6 +1503,37 @@ func TestAuthTokensCreateDefaultsToNinetyDays(t *testing.T) {
 	delta := out.ExpiresAt.Sub(out.CreatedAt)
 	if delta < 89*24*time.Hour || delta > 91*24*time.Hour {
 		t.Fatalf("expires_at delta = %s, want about 90d (now=%s)", delta, now)
+	}
+}
+
+func TestCreateTokenBlockedByPATPolicy(t *testing.T) {
+	store, token := newFakeStore()
+	store.idpConfig = &db.IdPConfig{Enforce: true, PATPolicy: "disallow"}
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	client := backendclient.New(srv.URL, token)
+	_, err := client.CreateTeamToken(context.Background(), store.team.Slug, dto.PATCreateRequest{
+		Name:   "ci",
+		Scopes: []string{"apps:read"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "sso_pat_disabled") {
+		t.Fatalf("expected sso_pat_disabled, got %v", err)
+	}
+}
+
+func TestCreateTokenAllowedWhenPATPolicyAllows(t *testing.T) {
+	store, token := newFakeStore()
+	store.idpConfig = &db.IdPConfig{Enforce: true, PATPolicy: "allow"}
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	client := backendclient.New(srv.URL, token)
+	if _, err := client.CreateTeamToken(context.Background(), store.team.Slug, dto.PATCreateRequest{
+		Name:   "ci",
+		Scopes: []string{"apps:read"},
+	}); err != nil {
+		t.Fatalf("allow policy should permit PAT: %v", err)
 	}
 }
 

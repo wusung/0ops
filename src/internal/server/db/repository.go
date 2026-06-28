@@ -94,22 +94,22 @@ func (r *Repository) ListUserTeams(ctx context.Context, userID string, limit int
 	return items, nil
 }
 
-// CheckTeamMembership reports whether the user belongs to the team.
+// CheckTeamMembership reports whether the user is an active member of the team.
+//
+// Hand-written (not sqlc) because deactivated_at lands in migration 00017,
+// which the sqlc schema snapshot does not include. The deactivated_at IS NULL
+// filter makes an SSO deprovision (sso-saml spec § 7.2) a single team-wide
+// revocation: CheckMembership then returns 404 team_not_found (hard rule #5).
 func (r *Repository) CheckTeamMembership(ctx context.Context, teamID string, userID string) (bool, error) {
-	parsedTeamID, err := parseUUID(teamID)
-	if err != nil {
-		return false, fmt.Errorf("parse team id: %w", err)
+	var ok bool
+	if err := r.pool.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM team_membership
+  WHERE team_id = $1 AND user_id = $2 AND deactivated_at IS NULL
+)`, teamID, userID).Scan(&ok); err != nil {
+		return false, err
 	}
-
-	parsedUserID, err := parseUUID(userID)
-	if err != nil {
-		return false, fmt.Errorf("parse user id: %w", err)
-	}
-
-	return r.queries.CheckTeamMembership(ctx, sqlcgen.CheckTeamMembershipParams{
-		TeamID: parsedTeamID,
-		UserID: parsedUserID,
-	})
+	return ok, nil
 }
 
 func parseUUID(value string) (pgtype.UUID, error) {

@@ -46,6 +46,13 @@ const (
 	// app-source archive (ADR-0013 § 5.1). Same grant set as ActionCreateApp
 	// (Owner, Admin, Member; NOT Viewer).
 	ActionCreateUpload Action = "create_upload"
+	// ActionManageSSO requires owner role + sso:manage scope to create / update /
+	// delete the team IdP config, add / verify a domain, toggle enforce, and
+	// deprovision a user (sso-saml spec § 12, hard rule #4).
+	ActionManageSSO Action = "manage_sso"
+	// ActionReadSSO requires admin role + sso:manage scope to read the team IdP
+	// config (secret-free); writes stay owner-only (spec § 5.1, § 12).
+	ActionReadSSO Action = "read_sso"
 )
 
 // Requirement couples minimum role with required scope.
@@ -89,6 +96,10 @@ func RequiredFor(action Action) Requirement {
 		return Requirement{MinRole: RoleAdmin, RequiredScope: ScopeIncidentsWrite}
 	case ActionCreateUpload:
 		return Requirement{MinRole: RoleMember, RequiredScope: ScopeAppsWrite}
+	case ActionManageSSO:
+		return Requirement{MinRole: RoleOwner, RequiredScope: ScopeSSOManage}
+	case ActionReadSSO:
+		return Requirement{MinRole: RoleAdmin, RequiredScope: ScopeSSOManage}
 	default:
 		return Requirement{}
 	}

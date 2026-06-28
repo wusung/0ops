@@ -41,6 +41,7 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(newAdminCommand())
 	root.AddCommand(newAuditCommand())
 	root.AddCommand(newIncidentsCommand())
+	root.AddCommand(newSSOCommand())
 	root.AddCommand(newMcpCommand())
 	root.AddCommand(newOnboardCommand())
 	return root

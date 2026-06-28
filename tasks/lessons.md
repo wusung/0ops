@@ -232,3 +232,35 @@ surface 隔壁 handler 同 bug 再補 fix 一次 — 都是延遲修正導致 pl
   2. supply-chain 類 task 大量是 CI/cluster config（workflows / argocd policy / runbook），`manage.sh test`
      驗不到；只有 backend Go（migration + callback 寫入 + 純函式）可測。交付時逐項標 deferred-validation，
      不把 config 當「已驗證」。
+
+## L016｜sqlc.yaml schema 清單已過時，新欄位的 query 改動不能走 regen（M9.5）
+
+- **情境**：M9.5 要讓 `CheckTeamMembership` 排除 `deactivated_at != null`（撤權核心）。第一直覺是改
+  `queries.sql` 加條件再 `./manage.sh sqlc` regen。
+- **踩到**：`src/sqlc.yaml` 的 `schema:` 只列三個檔且其一（`00003_tool_grants_and_auth_status.sql`）根本
+  不存在 → `manage.sh sqlc` 直接 `path error` 壞掉；且 sqlc 只讀那三檔的 schema snapshot，看不到新
+  migration（00017）加的欄位 → 加 `deactivated_at` 條件 regen 會報 column 不存在。
+- **解法**：該 query 改走**手寫 `r.pool.QueryRow`**（與 `CreateCLIToken`/`CreatePAT` 同模式），不動
+  sqlc 生成碼；queries.sql 保持原狀避免與壞掉的 sqlc.yaml 漂移。
+- **規則**：
+  1. 動到「牽涉新 migration 欄位」的 query 前，先確認 `sqlc.yaml` 的 schema 清單是否涵蓋該欄位來源
+     migration；多半沒有 → 改手寫 repository wrapper，別嘗試 regen。
+  2. `ALTER TABLE ADD COLUMN ... NOT NULL` 但既有 INSERT 路徑沒帶該欄時，三步（nullable→backfill→SET
+     NOT NULL）之外**還要 `ALTER COLUMN SET DEFAULT`**（R2 lint 只禁 ADD COLUMN 合併寫法，分離的 SET
+     DEFAULT 合法），否則 seed/既有 handler 的 INSERT 全 23502 NOT NULL violation。
+  3. NO TRANSACTION migration 的 `ADD CONSTRAINT` 無 `IF NOT EXISTS`，re-run 會 42710；用
+     `DO $$ IF NOT EXISTS(pg_constraint) ... $$` + `-- +goose StatementBegin/End` 包起來才真 idempotent。
+
+## L017｜OIDC 自實作要守 email_verified 與 logout-token 專屬驗證（M9.5 code review）
+
+- **情境**：M9.5 自實作 OIDC 驗證器（免引 coreos/go-oidc）。code-review subagent 抓到兩個真漏洞。
+- **C1（account takeover）**：JIT 以 `email` 連結既有 `user_account`，但 `VerifyIDToken` 沒檢
+  `email_verified`，且 `user_account.email` 非 unique（`LIMIT 1` 取任意列）。permissive IdP 給未驗證
+  email 即可把 SSO 身分綁到既有帳號。**解**：callback 強制 `email_verified==true` 才綁定。
+- **I1（unauth forced-deprovision DoS）**：back-channel logout 端點無認證，卻用同一個 `VerifyIDToken`
+  驗 logout_token → 任何被重放的合法 id_token 都能強制撤權任意 sub。**解**：專屬 `VerifyLogoutToken`：
+  必含 `events`（backchannel-logout）、禁 `nonce`（OIDC Back-Channel Logout § 2.4）。
+- **規則**：
+  1. 自寫 OIDC 切勿只驗 sig/iss/aud/exp 就信 `email`；OIDC email 非可信識別子除非 `email_verified`。
+  2. logout_token ≠ id_token：必須走專屬驗證（events 必含、nonce 必禁），否則無認證端點變撤權 DoS。
+  3. RS256-only（`WithValidMethods`）擋 alg=none/HS confusion 是底線，但不夠——claim 語意層也要驗。
