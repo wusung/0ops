@@ -25,6 +25,7 @@
 |---|---|---|---|
 | agent 原生出貨工具 | **是**（agent 工具帶裡的一級 `ship`，原生呼叫） | 否（僅 Web UI / REST） | 否 |
 | 寫入安全模型 | **兩階段 preview → confirm** | 單階段、即時生效 | 看實作 |
+| agent 操作可稽核性 | **寫入路徑內建稽核**（每次 production 變更落 audit_log + 回溯 Git commit） | 裸 API key / web scraping，稽核薄弱 | 自行建構 |
 | 客戶自有域名 | CNAME + Cloudflare Tunnel 即時驗證 | 支援、流程繁瑣 | 自行建構 |
 | 台灣本土運維 | **是**（繁中、台灣 zone、本地 SLA） | 海外為主 | N/A |
 | 部署模式 | Self-host + Managed 雙軌 | 純 Managed | 純 Self-host |
@@ -163,6 +164,8 @@
 3. **12–24 月**：Self-host license 與 managed cloud 雙軌客戶綁定
 4. **24 月+**：開源社群與生態系、可替代的 backend implementation 由我們主導 reference
 
+> **架構級信任為難以事後補上的 moat**：preview/confirm 後端強制、GitOps 唯一真相、backend 不跑 LLM、audit_log 業務帳本——這些在 agent 時代成為 enterprise 採購核心顧慮（「AI 對我的 production 做了什麼、能不能擋、能不能查」）的答案，皆內建於 0ops 的寫入路徑。Web-UI-first 競品要補上，需重構其安全模型而非加一個 feature。詳見 `docs/trust-and-compliance/plan.md`。
+
 ---
 
 ## 六、產品（Product）
@@ -208,6 +211,11 @@
 - **Community**（OSS）：免費、社群支援
 - **Business**：USD 5,000–15,000 / 年 / 安裝（含商業支援、私人 buildpack registry）
 - **Enterprise**：USD 30,000+ / 年（客製化、on-prem、合規與稽核）
+
+> **Enterprise tier 信任承諾**（已具備 vs 規劃中，承 `docs/trust-and-compliance/plan.md`，不混淆已實作與路線圖）：
+> - **已具備**：兩階段 preview/confirm、team RBAC + scope、audit_log 業務帳本（13 個月保留）、token argon2 雜湊 + 加密儲存、GitOps 全變更可回溯。
+> - **規劃中**：SSO / OIDC 集中身分與撤權（ADR-0016）、audit export + tamper-evidence 取證交付（ADR-0015）、供應鏈 SBOM + 簽章驗證（ADR-0017）、SOC2 Type II 與台灣個資法控制對應、資料落地分區、DPA。
+> 對外溝通時須以此狀態標示，不得把規劃中能力宣稱為已具備。
 
 ### 單位經濟（Unit Economics 假設）
 
@@ -341,10 +349,11 @@
 | 創辦團隊規模過小，無法覆蓋所有面向 | M | 初期聚焦 P0；DevRel 優先於 sales |
 | 募資 timeline 不如預期 | M | 維持 18 月 runway buffer；保留 self-host 一次性收入 fallback |
 
-### 合規 / 法務風險
-- **資料落地**：客戶自有域名 + Tunnel 不存客戶資料；managed 版本明確分區
-- **GitHub Token / Cloudflare Token 管理**：argon2 雜湊、加密儲存、稽核日誌（已於 schema 設計）
-- **GDPR / 個資法**：v1 僅蒐集 GitHub login 與 email；明確 privacy policy
+### 合規 / 法務（風險緩解 + 主動信任資產）
+- **資料落地**：客戶自有域名 + Tunnel 下，**執行期資料與 app secret 不入控制平面**（控制平面仍存 PII 與 audit metadata，非「完全不存任何資料」）；managed 版本明確分區。資料盤點與分類見 `compliance-framework-mapping`。
+- **GitHub Token / Cloudflare Token 管理**：argon2 雜湊、加密儲存、稽核日誌（已實作）。
+- **GDPR / 個資法（PDPA）**：v1 僅蒐集 GitHub login 與 email；privacy policy 與帳號/PII 刪除權流程為**規劃中**（`compliance-framework-mapping` 已標缺口）。
+- **主動信任資產（非僅防守）**：威脅模型（STRIDE）、audit 完整性、供應鏈簽章、SSO 集中撤權之框架對應，集中於 `docs/trust-and-compliance/`，作為 design partner / 投資人 due diligence 之可出示材料。
 
 ---
 
@@ -415,6 +424,7 @@
 
 ### A. 對應技術文件
 - `docs/0ops-plan.md`：完整技術規劃（架構、tool catalog、DB schema、auth、verification）
+- `docs/trust-and-compliance/plan.md`：Compliance / Audit / Security 統籌計畫與拆解（含威脅模型、框架對應、ADR-0015/0016/0017）
 
 ### B. 競品定價對照（2026 Q1 公開資訊）
 | 產品 | 入門 | 中階 | 企業 |
@@ -435,6 +445,25 @@
 | ArgoCD | K8s GitOps 控制器，持續同步 cluster 狀態到 Git |
 | Cloudflare Tunnel | 反向 tunnel，讓 origin server 不需公開 IP 即可對外提供服務 |
 | Two-phase write | preview → confirm 兩段式 API，避免沉默副作用 |
+
+### D. 信任與合規一頁表（due diligence 用）
+
+> 狀態誠實標示：**已具備**＝已實作可驗證；**規劃中**＝有 spec/ADR、尚未實作。對外不得把規劃中講成已具備（承 `docs/trust-and-compliance/plan.md` § 6 規則 1）。
+
+| 維度 | 控制 / 能力 | 0ops 機制 | 狀態 | 來源 |
+|---|---|---|---|---|
+| 安全 | 寫入需人類閘門、agent 無法靜默生效 | preview → confirm 後端強制 | 已具備 | `preview-confirm-gate` |
+| 安全 | 無 prompt injection 攻擊面（後端） | backend 不跑 LLM | 已具備 | `0ops-plan.md` |
+| 安全 | 租戶隔離與最小權限 | team RBAC + scope；K3s namespace 隔離 | 已具備 | ADR-0001、`k3s-namespace-isolation` |
+| 安全 | 系統威脅模型 | STRIDE（含 agent 攻擊面） | 已具備（文件） | `threat-model` |
+| 安全 | 集中身分與撤權（SSO） | OIDC + membership 停用連帶 token revoke | 規劃中 | ADR-0016、`sso-saml` |
+| 安全 | 供應鏈完整性 | SBOM + cosign 簽章 + SLSA provenance + 部署端驗簽 | 規劃中 | ADR-0017、`supply-chain-security` |
+| 稽核 | 業務行為帳本 | audit_log（寫入/刪除/auth/secret 全入帳、13 個月保留） | 已具備 | `audit-log` |
+| 稽核 | 帳本不可竄改 + 取證交付 | append-only + hash chain + export/verify | 規劃中 | ADR-0015、`audit-export-and-integrity` |
+| 稽核 | 重要事件對外通知 | outbox webhook（簽章、redact） | 規劃中 | `audit-event-notification` |
+| 合規 | 框架控制對應 | PDPA → SOC2 Type II → ISO 27001 矩陣 | 規劃中 | `compliance-framework-mapping` |
+| 合規 | 資料落地與分類 | self-host 不入控制平面 / managed 分區；四級分類 | 部分已具備 | `compliance-framework-mapping` |
+| 合規 | 密鑰保護 | token argon2 雜湊 + 加密儲存 | 已具備 | `0ops-plan-schema.md` |
 
 ---
 
