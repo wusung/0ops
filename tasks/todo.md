@@ -60,8 +60,31 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
     - **§4/§8/§9 — 文件**：`baseline-matrix.md`（盤點，審計可出示）、§8 default-deny-all manifest 與跨-ns CI 列明確 deferred（歸 k3s-namespace-isolation + 需 CI cluster）、§9 at-rest 金鑰 runbook。
     - **誠實**：spec §11 三條 end-to-end（TTL 簽發收斂 / anomaly→abuse_detected / 跨 ns 拒）降級為函式級單元測試 + 文件標 deferred 條件，不灌水講成已具備（hard rule #4）。
 - [ ] **M9.4 supply-chain-security** — Pending（依 M2.2/M2.3；ADR-0017）
+  - **已核准 v1 scope（直接執行、勿再停下問範圍）**：尊重 spec §2.2/§13 hard rule #1–#10；CI/簽章/admission 類交付 config+文件並明標 deferred-validation，僅 backend Go 為可驗證 code。migration 取下一未用號（repo 已到 00014，起 `00015`）。
+    - **§6 callback 補帶 `image_digest` → `deploy_run.image_digest` — 完整落地（可測）**：migration 加 `deploy_run.image_digest text` + callback handler 解析 payload 寫入 + DTO；httptest+DB 測斷言 digest 落地。
+    - **§4.4/§12.1 gitops render 改 `@sha256` digest pin — 完整落地（可測）**：`src/internal/server/services/gitops/*` 之 ImageRef 由 commit_sha tag 改 `<repo>@sha256:<digest>`；render 測斷言不可變 digest（hard rule #6）。
+    - **§7.2 非 backend commit 偵測 — 僅純函式**：commit 合法性判定純函式（signer/author≠ops-bot / 無 deploy_run_id → unauthorized）+ `gitops_unauthorized_commit` audit action 常數 + 單元測試。**不掛 reconciler goroutine/webhook**（deferred）。
+    - **§4/§5 SBOM·govulncheck·Trivy·SLSA·cosign·admission policy — config+文件（deferred-validation, needs-CI/cluster）**：改 `.github/workflows/*`、`deploy/workflows/deploy-app.yml`、`deploy/gitops/argocd/apps/policy-controller.yaml`(mode warn)、`docs/runbooks/signing-key-rotation.md`；明標 `manage.sh test` 不驗（hard rule #2/#3/#4/#5/#9）。
+    - **§12.1 回填 threat-model SC3 / gitops-render §4.3 — 列合入前置，本 task 不改該兩檔**。
+    - **可驗證性**：僅 gitops digest pin + callback image_digest + 偵測純函式可被 `manage.sh test` 證明；其餘 CI/cluster config 標 deferred-validation。expected-path 命中 `deploy/**` + gitops。
 - [ ] **M9.5 sso-saml（OIDC + 集中撤權）** — Pending（依 M1；ADR-0016）
+  - **已核准 v1 scope（直接執行、勿再停下問範圍）**：v1 **OIDC-only**；SAML 欄位 nullable 預留、`protocol` CHECK 僅 `'oidc'`（hard rule #10）；不另造平行權限模型，集中撤權靠既有 `CheckMembership`+`cli_token.revoked_at`（hard rule #1/#2/#5）。migration 取下一未用號（`00015+`；與 M9.6 併行須各取不同號）。
+    - **§11 schema — 完整落地（可測）**：migration 建 `idp_config`/`idp_domain`/`idp_identity` + `team_membership`(auth_source/deactivated_at) + `cli_token`(auth_source/idp_config_id)；CHECK 落地 + DB 測。
+    - **§7.2 集中撤權 deprovision — 完整落地（核心，可測）**：同 tx membership.deactivated_at + 該 user 該 team 全部 cli_token.revoked_at + cache invalidate + audit；httptest+DB 斷言 device→401、PAT→404、一次覆蓋全部（hard rule #5）。
+    - **§6 JIT — 完整落地（可測）**：upsert user+membership+idp_identity；role 解析**封頂 admin、不給 owner**（hard rule #3）；mock OIDC callback 測。
+    - **§3/§5/§12 OIDC 路徑+端點 — 完整落地（可測）**：oidc/authorize/callback/domain(DNS TXT,resolver 可注入)/config(owner-only)/enforce/backchannel + routers；scope `sso:manage`(owner-only) 入 rbac；RBAC/enumeration(跨 team→404) httptest。
+    - **§7.3 SSO token 不 rolling refresh — 完整落地（可測）**；**§9 audit + §13 CLI（`0ops sso status/deprovision`）— 完整落地（可測）**：新 audit action（IdP-initiated source=system/actor NULL）+ redactor 蓋 secret/token。
+    - **§3.2 SAML — 僅 schema 預留不實作**；**§16 open（SCIM/多 IdP/Web UI/service account/break-glass/group 降級/批次 revoke）— deferred**。
+    - **可驗證性**：幾乎全 backend Go+DB+CLI，絕大多數可被 `manage.sh test` 證明（mock IdP/httptest）；無 CI/cluster deferred。expected-path 命中 `src/internal/server/auth/sso/**` + `src/migrations/**` + `src/internal/cli/**`。
 - [ ] **M9.6 audit-event-notification（outbox webhook）** — Pending（依 M9.1）
+  - **已核准 v1 scope（直接執行、勿再停下問範圍）**：通知唯一源 `audit_log`，transactional outbox 同 tx enqueue、fire-and-retry 非阻塞（hard rule #1/#3/#4/#5）；v1 generic webhook，不做原生 SIEM、不開 MCP write tool。migration 取下一未用號（`00015+`；與 M9.5 各取不同號）。
+    - **§4 schema — 完整落地（可測）**：migration 建 `webhook_subscription` + `webhook_delivery`（月 partition、dedup unique）+ DB 測。
+    - **§7.1 outbox enqueue — 完整落地（核心，可測）**：與 `audit.Log()` 同 tx 比訂閱 INSERT delivery（ON CONFLICT DO NOTHING）；DB 測斷言 audit 成功⇒delivery 落地、rollback⇒一併、enqueue panic 以 defer-recover 隔離不影響 audit commit。
+    - **§7.2–7.4 dispatcher — 完整落地（可測）**：`FOR UPDATE SKIP LOCKED` poll + 指數退避+jitter + max_attempts drop + 連續失敗熔斷（寫 `webhook_subscription_disabled` audit）；httptest mock receiver 斷言狀態機。
+    - **§6 payload·sign·SSRF — 完整落地（純函式，可測）**：白名單 redact（無 args/result/secret/token）、HMAC over `ts.body` 三 header、https-only + 拒私網/loopback/metadata；單元測試簽章/redact/SSRF→422。
+    - **§5/§10/§3/§7.6 catalog+RBAC+router+redeliver — 完整落地（可測）**：action→event 映射、owner/admin + scope `webhook:read|write`(走既有 preview-confirm)、DTO；投遞不入 audit、config/熔斷/redeliver 入 audit。
+    - **§8 簽章金鑰 — 部分（at-rest deferred）**：≥32B、write-only reveal、secret_ref + interface；**DB at-rest envelope 加密依賴 secrets-management（repo 尚無本體）→ deferred**。**§9 retention drop / §11 native SIEM v3 / §16 MCP write tool — deferred**。
+    - **可驗證性**：幾乎全 backend Go+DB，絕大多數可被 `manage.sh test` 證明；唯 §8 at-rest 加密接點 + retention 排程 deferred。expected-path 命中 `src/internal/server/services/audit/notify/**` + `src/migrations/**`。
 
 ### M6 follow-up（來源：`docs/features/app-source-ingestion/spec.md` § 16-17）
 
