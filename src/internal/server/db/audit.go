@@ -30,35 +30,31 @@ func (r *Repository) InsertAuditLog(ctx context.Context, row audit.InsertRow) er
 	if err != nil {
 		return fmt.Errorf("parse team id: %w", err)
 	}
-	var actor any
-	if row.ActorUserID != nil {
-		parsed, err := parseUUID(*row.ActorUserID)
-		if err != nil {
-			return fmt.Errorf("parse actor id: %w", err)
-		}
-		actor = parsed
+	// Parse the optional UUIDs once, keeping both the pgx value (for the
+	// INSERT) and its canonical string form (for the hash). The hash MUST cover
+	// the canonical form, because the row is stored as uuid and read back as
+	// canonical ::text — hashing the raw caller string would silently break the
+	// chain for any non-canonical (uppercase / braced) input.
+	actor, actorCanon, err := parseOptionalUUID(row.ActorUserID, "actor")
+	if err != nil {
+		return err
 	}
-	var subject any
-	if row.SubjectID != nil {
-		parsed, err := parseUUID(*row.SubjectID)
-		if err != nil {
-			return fmt.Errorf("parse subject id: %w", err)
-		}
-		subject = parsed
+	subject, subjectCanon, err := parseOptionalUUID(row.SubjectID, "subject")
+	if err != nil {
+		return err
 	}
-	var preview any
-	if row.PreviewID != nil {
-		parsed, err := parseUUID(*row.PreviewID)
-		if err != nil {
-			return fmt.Errorf("parse preview id: %w", err)
-		}
-		preview = parsed
+	preview, previewCanon, err := parseOptionalUUID(row.PreviewID, "preview")
+	if err != nil {
+		return err
 	}
+	teamIDCanon := parsedTeamID.String()
 	traceID := strings.TrimSpace(row.TraceID)
 	var httpStatus any
 	if row.HTTPStatus != nil {
 		httpStatus = *row.HTTPStatus
 	}
+	argsJSON := jsonOrNull(row.Args)
+	resultJSON := jsonOrNull(row.Result)
 
 	createdAt := time.Now().UTC().Truncate(time.Microsecond)
 	partitionMonth := audit.PartitionMonth(createdAt)
@@ -69,24 +65,26 @@ func (r *Repository) InsertAuditLog(ctx context.Context, row audit.InsertRow) er
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// Lock the (team, month) chain head, creating it on first write. The lock
-	// serialises concurrent writers for this one chain so tip advances linearly.
-	var genesis, tip []byte
-	err = tx.QueryRow(ctx, `
-SELECT genesis_hash, tip_hash FROM audit_chain_head
-WHERE team_id = $1 AND partition_month = $2
-FOR UPDATE
-`, parsedTeamID, partitionMonth).Scan(&genesis, &tip)
-	if errors.Is(err, pgx.ErrNoRows) {
-		genesis = audit.GenesisHash(row.TeamID, partitionMonth)
-		if _, err = tx.Exec(ctx, `
+	// Ensure the (team, month) chain head exists, then lock it. A bare
+	// SELECT ... FOR UPDATE cannot lock a row that does not exist yet, so two
+	// concurrent first-writers would both miss and one would hit a duplicate
+	// key. INSERT ... ON CONFLICT DO NOTHING makes head creation idempotent;
+	// the subsequent SELECT ... FOR UPDATE then serialises writers and returns
+	// the authoritative committed tip.
+	genesis := audit.GenesisHash(teamIDCanon, partitionMonth)
+	if _, err = tx.Exec(ctx, `
 INSERT INTO audit_chain_head (team_id, partition_month, genesis_hash, tip_hash, row_count)
 VALUES ($1, $2, $3, $3, 0)
+ON CONFLICT (team_id, partition_month) DO NOTHING
 `, parsedTeamID, partitionMonth, genesis); err != nil {
-			return fmt.Errorf("init chain head: %w", err)
-		}
-		tip = genesis
-	} else if err != nil {
+		return fmt.Errorf("ensure chain head: %w", err)
+	}
+	var tip []byte
+	if err = tx.QueryRow(ctx, `
+SELECT tip_hash FROM audit_chain_head
+WHERE team_id = $1 AND partition_month = $2
+FOR UPDATE
+`, parsedTeamID, partitionMonth).Scan(&tip); err != nil {
 		return fmt.Errorf("lock chain head: %w", err)
 	}
 	prev := tip
@@ -100,15 +98,15 @@ VALUES ($1, $2, $3, $3, 0)
 
 	core := audit.Core{
 		ID:          id,
-		TeamID:      row.TeamID,
-		ActorUserID: row.ActorUserID,
+		TeamID:      teamIDCanon,
+		ActorUserID: actorCanon,
 		Source:      row.Source,
 		SubjectType: row.SubjectType,
-		SubjectID:   row.SubjectID,
+		SubjectID:   subjectCanon,
 		Action:      row.Action,
-		Args:        row.Args,
-		Result:      row.Result,
-		PreviewID:   row.PreviewID,
+		Args:        json.RawMessage(argsJSON),
+		Result:      json.RawMessage(resultJSON),
+		PreviewID:   previewCanon,
 		TraceID:     traceID,
 		Outcome:     row.Outcome,
 		HTTPStatus:  row.HTTPStatus,
@@ -134,8 +132,8 @@ VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11, $12, $13, $1
 		row.SubjectType,
 		subject,
 		row.Action,
-		[]byte(row.Args),
-		[]byte(row.Result),
+		argsJSON,
+		resultJSON,
 		preview,
 		traceID,
 		row.Source,
@@ -161,6 +159,31 @@ WHERE team_id = $1 AND partition_month = $2
 	}
 
 	return tx.Commit(ctx)
+}
+
+// parseOptionalUUID parses an optional UUID string, returning the pgx value
+// for the INSERT (nil → SQL NULL) and its canonical string form for the hash,
+// keeping stored and hashed representations in sync.
+func parseOptionalUUID(s *string, field string) (any, *string, error) {
+	if s == nil {
+		return nil, nil, nil
+	}
+	parsed, err := parseUUID(*s)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse %s id: %w", field, err)
+	}
+	canon := parsed.String()
+	return parsed, &canon, nil
+}
+
+// jsonOrNull coerces empty / whitespace-only raw JSON to the literal null so
+// the jsonb column never receives an invalid empty document and the stored
+// value matches what the hash canonicalises (canonicalJSON treats empty as null).
+func jsonOrNull(raw json.RawMessage) []byte {
+	if strings.TrimSpace(string(raw)) == "" {
+		return []byte("null")
+	}
+	return []byte(raw)
 }
 
 // ListAuditLog implements audit.Reader.ListAuditLog with cursor-based

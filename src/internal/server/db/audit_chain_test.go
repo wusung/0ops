@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,6 +13,28 @@ import (
 
 	"github.com/winshare/zeroops/internal/server/services/audit"
 )
+
+// recomputeChain re-derives the whole stored chain and fails on any mismatch,
+// returning the final tip. It is the shared "independent verify" used by the
+// chain integration tests.
+func recomputeChain(t *testing.T, stored []storedRow, genesis []byte) []byte {
+	t.Helper()
+	prev := genesis
+	for i, sr := range stored {
+		if !bytes.Equal(sr.prevHash, prev) {
+			t.Fatalf("row %d (id=%d): prev_hash %x != running %x", i, sr.id, sr.prevHash, prev)
+		}
+		canon, err := audit.CanonicalCore(sr.core)
+		if err != nil {
+			t.Fatalf("row %d canonicalise: %v", i, err)
+		}
+		if want := audit.RowHash(prev, canon); !bytes.Equal(sr.rowHash, want) {
+			t.Fatalf("row %d (id=%d): row_hash %x != recomputed %x", i, sr.id, sr.rowHash, want)
+		}
+		prev = sr.rowHash
+	}
+	return prev
+}
 
 // TestInsertAuditLogChainRecomputable is the write-path integration test for
 // the hash chain (M9.1 slice b): insert several rows, then recompute the whole
@@ -129,6 +153,108 @@ func TestInsertAuditLogChainsAreTeamIsolated(t *testing.T) {
 	if bytes.Equal(gA, gB) {
 		t.Error("distinct teams must have distinct genesis")
 	}
+}
+
+// TestInsertAuditLogChainConcurrentWriters proves the (team, month) head lock
+// + ON CONFLICT upsert serialise concurrent writers with no lost rows and a
+// chain that still recomputes. id ASC equals chain order because nextval runs
+// only after the head lock is acquired.
+func TestInsertAuditLogChainConcurrentWriters(t *testing.T) {
+	repo, ctx, pool := newTestRepository(t)
+	userID := seedUser(ctx, t, pool, "conc")
+	teamID, _ := seedTeam(ctx, t, pool, "conc-team", "Conc Team")
+	seedMembership(ctx, t, pool, teamID, userID, "owner")
+
+	const n = 24
+	var wg sync.WaitGroup
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- repo.InsertAuditLog(ctx, audit.InsertRow{
+				TeamID: teamID, Source: "system", SubjectType: "system",
+				Action: "concurrent", Args: json.RawMessage(`{}`), Result: json.RawMessage(`null`),
+				TraceID: "00000000000000000000000000000001", Outcome: "success",
+			})
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent insert: %v", err)
+		}
+	}
+
+	var genesis, tip []byte
+	var rowCount int64
+	if err := pool.QueryRow(ctx,
+		`SELECT genesis_hash, tip_hash, row_count FROM audit_chain_head WHERE team_id = $1::uuid`,
+		teamID).Scan(&genesis, &tip, &rowCount); err != nil {
+		t.Fatalf("read head: %v", err)
+	}
+	if rowCount != n {
+		t.Fatalf("row_count = %d, want %d (lost writes?)", rowCount, n)
+	}
+	stored := readChainRows(ctx, t, pool, teamID)
+	if len(stored) != n {
+		t.Fatalf("stored %d rows, want %d", len(stored), n)
+	}
+	if got := recomputeChain(t, stored, genesis); !bytes.Equal(got, tip) {
+		t.Fatal("recomputed tip != head tip")
+	}
+}
+
+// TestInsertAuditLogChainNonASCIIAndLargeInt proves jsonb round-trip symmetry
+// for unicode and out-of-float64-range integers (both sides converge through
+// canonicalJSON, so the chain still verifies).
+func TestInsertAuditLogChainNonASCIIAndLargeInt(t *testing.T) {
+	repo, ctx, pool := newTestRepository(t)
+	teamID, _ := seedTeam(ctx, t, pool, "u8-team", "U8 Team")
+
+	if err := repo.InsertAuditLog(ctx, audit.InsertRow{
+		TeamID: teamID, Source: "system", SubjectType: "system", Action: "unicode",
+		Args:    json.RawMessage(`{"name":"日本語","flag":"🎌","big":9223372036854775807,"f":1.5,"nested":{"z":1,"a":2}}`),
+		Result:  json.RawMessage(`null`),
+		TraceID: "00000000000000000000000000000001", Outcome: "success",
+	}); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	genesis := readGenesis(ctx, t, pool, teamID)
+	stored := readChainRows(ctx, t, pool, teamID)
+	recomputeChain(t, stored, genesis) // fails internally on any mismatch
+}
+
+// TestInsertAuditLogChainNonCanonicalUUID feeds uppercase UUIDs and proves the
+// chain still verifies — the hash covers the canonical stored form, not the raw
+// caller string.
+func TestInsertAuditLogChainNonCanonicalUUID(t *testing.T) {
+	repo, ctx, pool := newTestRepository(t)
+	userID := seedUser(ctx, t, pool, "case")
+	teamID, _ := seedTeam(ctx, t, pool, "case-team", "Case Team")
+	seedMembership(ctx, t, pool, teamID, userID, "owner")
+
+	upTeam := strings.ToUpper(teamID)
+	upActor := strings.ToUpper(userID)
+	if err := repo.InsertAuditLog(ctx, audit.InsertRow{
+		TeamID: upTeam, ActorUserID: &upActor, Source: "user", SubjectType: "app",
+		Action: "create_app", Args: json.RawMessage(`{"slug":"demo"}`), Result: json.RawMessage(`{"ok":true}`),
+		TraceID: "0af7651916cd43dd8448eb211c80319c", Outcome: "success",
+	}); err != nil {
+		t.Fatalf("insert with uppercase uuid: %v", err)
+	}
+	// Genesis is keyed on the canonical (lowercase) team id.
+	genesis := readGenesis(ctx, t, pool, teamID)
+	month := audit.PartitionMonth(time.Now().UTC())
+	if !bytes.Equal(genesis, audit.GenesisHash(teamID, month)) {
+		t.Fatal("genesis must use canonical team id")
+	}
+	stored := readChainRows(ctx, t, pool, teamID)
+	if len(stored) != 1 {
+		t.Fatalf("stored %d rows, want 1", len(stored))
+	}
+	recomputeChain(t, stored, genesis)
 }
 
 type storedRow struct {
