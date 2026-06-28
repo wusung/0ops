@@ -124,3 +124,29 @@ reconciliation_job(id uuid pk, team_id uuid fk not null,
 - `preview` 過期 + consumed 後 7 天清
 - `reconciliation_job` completed 後 7 天清；`failed_permanently` 保留 30 天供 root-cause
 
+## 資料分類 + 保留（合規錨點）
+
+> **來源**：`docs/features/compliance-framework-mapping/spec.md` § 4（四級分類）+ § 9（統一保留矩陣）。
+> 本區為 schema 側的雙向可查錨點，讓「資料分類 已具備」之主張可由 schema 直接對照；分類標準與處理規則之單一事實來源仍為 compliance spec，本區僅鏡射、不另行裁決。
+
+**四級分類**（public / internal / customer / secret，對齊 compliance spec § 4.1）：
+
+| 級別 | 定義 | log / audit 明文 | at-rest 加密 | 對應 schema 欄位（例） |
+|---|---|---|---|---|
+| **public** | 公開即無損：repo URL、app slug、公開域名 | 可 | 不要求 | `app.slug`、`domain_binding.hostname` |
+| **internal** | 內部營運，外洩有限影響：desired state、deploy_run、metric label | 可（必要時 redact） | 建議（DB at-rest） | `deploy_run.*`、`reconciliation_job.*`、`audit_log.*` |
+| **customer** | 客戶資產與 PII：repo 原始碼/artifact、github_login、email | 僅 id / 摘要 | 強制 | `user_account.github_login`、`user_account.email` |
+| **secret** | 憑證與金鑰：PAT/device token、App token、CF token、app env secret | 禁止明文（redactor 強制） | 強制（加密 + token argon2 雜湊） | `cli_token.token_hash`（僅雜湊，不存明文） |
+
+**各級保留期**（對齊 compliance spec § 9 + 上節「保留期」）：
+
+| 資料類別 | 分類 | 保留期 |
+|---|---|---|
+| `audit_log` | internal（取證） | 13 個月；`delete_app` 對應永久移 `audit_log_archive` |
+| `deploy_run` | internal | 90 天熱資料 + monthly aggregate 永存 |
+| `usage_sample` | internal | 30 天熱資料 + daily aggregate 永存 |
+| secret（`cli_token` 等） | secret | 不保留明文；TTL `expires_at` / rotation 兩段 |
+| PII—`audit_log` 內（github_login/email 欄） | customer（PII） | 隨 `audit_log` 13 個月 |
+| PII—`user_account`（github_login/email） | customer（PII） | 帳號生命週期；刪除流程未釘定（PDPA 刪除權，compliance spec § 6 / § 14 Open issue） |
+| gitops desired state | internal | 永久（git history 不可變） |
+

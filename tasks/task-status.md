@@ -33,7 +33,7 @@
 | M8    | Remove deprecated github repo_url alias (Q6) | Done | 2026-06-09     |
 | M9.0  | Threat model (STRIDE 系統威脅模型)          | Done     | 2026-06-28     |
 | M9.1  | Audit append-only + tamper-evidence + export/verify | Done     | 2026-06-29     |
-| M9.2  | Compliance framework mapping (PDPA/SOC2 控制對應) | Pending | -            |
+| M9.2  | Compliance framework mapping (PDPA/SOC2 控制對應) | Done     | 2026-06-29     |
 | M9.3  | Security hardening                          | Pending  | -              |
 | M9.4  | Supply-chain security                       | Pending  | -              |
 | M9.5  | SSO/OIDC + 集中撤權                         | Pending  | -              |

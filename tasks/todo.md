@@ -44,7 +44,7 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
   - [x] **slice d（verify CLI）** — Done 2026-06-29；`audit.VerifyChain` 重算 per-(team,month) 鏈
     （row_hash / linkage / row_count / tip 斷裂偵測，exit 1）；`0ops audit verify` 逐月完整抓取（避免
     部分視窗 false-BREAK）→ `verifyEnvelope` 重算；verify/export 皆不暴露 MCP（hard rule #9）。
-- [ ] **M9.2 compliance-framework-mapping（PDPA/SOC2 控制對應）** — Pending（依 M9.0）
+- [x] **M9.2 compliance-framework-mapping（PDPA/SOC2 控制對應）** — Done 2026-06-29（控制狀態對齊已交付：A1 HA/PITR/SLO 升已具備 M5.4/M5.5/M2.6+ADR-0008、audit tamper-evidence/append-only/export/verify 升已具備 M9.1+ADR-0015、§3 範例改用 SSO M9.5/supply-chain M9.4；spec → accepted；`docs/0ops-plan-schema.md` 加資料分類+保留錨點）
 - [ ] **M9.3 security-hardening** — Pending（依 M9.0）
 - [ ] **M9.4 supply-chain-security** — Pending（依 M2.2/M2.3；ADR-0017）
 - [ ] **M9.5 sso-saml（OIDC + 集中撤權）** — Pending（依 M1；ADR-0016）
