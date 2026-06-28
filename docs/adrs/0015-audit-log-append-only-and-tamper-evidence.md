@@ -1,7 +1,7 @@
 ---
 adr: "0015"
 title: Audit Log Append-Only and Tamper-Evidence
-status: Proposed
+status: Accepted
 date: 2026-06-28
 tags:
   - audit
@@ -14,7 +14,7 @@ superseded-by: []
 
 # ADR-0015：Audit Log Append-Only and Tamper-Evidence
 
-* Status：Proposed（對應 spec 為 draft；尚未實作。承 `docs/trust-and-compliance/plan.md` § 6 規則 1，狀態誠實標示，不得對外宣稱已具備）
+* Status：Accepted（架構決策已採納，隨 M9.1 實作落地；對外信任聲明仍以實際實作完成度為準，承 `docs/trust-and-compliance/plan.md` § 6 規則 1）
 * Date：2026-06-28
 * 適用範圍：`audit_log` 寫入路徑之完整性保證；DB role 權限模型；partition / archive 互動
 * 來源：`docs/trust-and-compliance/plan.md` § 5.1（P0）；`docs/features/threat-model/spec.md` § 5.7 AD1（H 級威脅）；對應 spec [`docs/features/audit-export-and-integrity/spec.md`](../features/audit-export-and-integrity/spec.md)
