@@ -102,15 +102,15 @@ create table audit_chain_head (
 ### 4.3 hash 計算（決定性）
 
 - 演算法：**SHA-256**。
-- `genesis_hash = SHA256( "0ops-audit-chain-v1" || team_id_bytes || partition_month_iso )`——純由不變的 partition 座標導出，無需儲存秘密；任何驗證者可獨立重算。
-- `row_hash = SHA256( prev_hash || canonical(core) )`，其中 genesis row 的 `prev_hash = genesis_hash`。
+- **實作為 v1 wire 契約，逐位元事實源為 `internal/server/services/audit/chain.go`**（`golden_test` 釘住確切 hex）；本節為其文字化，二者須一致，任何變更須 bump `chainDomainSep`。
+- `genesis_hash = SHA256( "0ops-audit-chain-v1" ‖ 0x1F ‖ team_id ‖ 0x1F ‖ partition_month )`，其中 `team_id` 為 team UUID 之 UTF-8 文字（非 16-byte raw）、`partition_month` 格式為 `"2006-01"`（`YYYY-MM`）。純由不變的 partition 座標導出，無需儲存秘密；任何驗證者可獨立重算。
+- `row_hash = SHA256( prev_hash ‖ canonical(core) )`，其中 genesis row 的 `prev_hash = genesis_hash`。
 - `core` 涵蓋欄位（**全部為 redact 後之儲存值**）：`id, team_id, actor_user_id, source, subject_type, subject_id, action, args, result, preview_id, trace_id, outcome, http_status, created_at`。`prev_hash`/`row_hash` 本身不入 `core`。
-- **決定性序列化 `canonical()`**：
-  1. 物件 key 以 UTF-8 byte 順序遞增排序（含 `args`/`result` 內巢狀 JSON 遞迴排序）。
-  2. `created_at` 一律 RFC3339 UTC、奈秒截斷至微秒（與 Postgres `timestamptz` 精度一致）。
-  3. `NULL` 欄位顯式輸出 `null`（不省略），避免「缺欄位」與「值為 null」碰撞。
-  4. 數值不含前導零、無 `+`；`bytea` 不入 core（故無編碼歧義）。
-  5. 欄位以固定 schema 順序串接，分隔符 `0x1F`（unit separator），防止欄位邊界注入（如 `a|b` vs `ab|`）。
+- **決定性序列化 `canonical()`**：欄位以固定 schema 順序（同上 core 列舉）串接，分隔符單一 `0x1F` byte。
+  1. 每個純量欄位經 JSON 編碼（`json.Marshal`）：字串→帶引號跳脫字串、數值→裸 JSON number、nullable 為 nil→裸 `null`。JSON 編碼把所有控制字元（含 `0x1F`）跳脫為 `\u00XX`，故欄位值不可能吐出原始分隔符 → 邊界注入無法偽造（`0x1F` 分隔為 defense-in-depth）。
+  2. `args`/`result` 經 `canonical(json)`：解析為物件後 re-marshal，key 遞迴排序、移除空白；nil/空→裸 `null`。**數值經 float64 正規化**（interface{} 預設），超出 float64 精確範圍的大整數在 hash domain 失真（儲存 jsonb 值不受影響）；此為 v1 契約，改用 `UseNumber()` 屬 scheme 版本變更。
+  3. `NULL` 欄位顯式輸出 `null`，與空字串 `""`、字面字串 `"null"` 三者不碰撞。
+  4. `created_at` 一律 UTC、`Truncate` 至微秒、`RFC3339Nano` 格式後再 JSON 編碼（與 Postgres `timestamptz` 精度對齊；**寫入路徑須 INSERT 同一截斷值**，見 § 4.4）。
 - **hash 在 redact 之後算**：`log.go` 路徑為 `redact → canonical → hash → INSERT`；確保儲存內容、export 出示內容、verify 重算內容三者位元一致（§ 1）。
 
 ### 4.4 寫入路徑（最小改動 `log.go` / `db/audit.go`）
@@ -145,8 +145,10 @@ COMMIT
 | `0ops_migrate` | goose migration（deploy 期，DDL） | 全權（建 partition、backfill、加欄位） | 全權 |
 | `0ops_archive` | ops audit-rollover / archive job（特權批次，非 runtime） | `SELECT, INSERT, DELETE` + partition `DROP`（經 `0ops_migrate` 委派 owner 或 `SECURITY DEFINER` 函式） | `SELECT, UPDATE` |
 
+> **切片落點**：migration `00013`（M9.1 slice a）只建 schema（hash 欄位 + `audit_chain_head` + archive 補欄）。下方 role 分離與 `revoke` **落在後續 migration（role-split slice）**，與 runtime 連線切換為 `0ops_app` 同批上線；hard rule #1/#2 在該 slice 合入前不視為滿足。
+
 ```sql
--- 00013：撤 app role 對 audit_log 的改/刪權（parent + 既有 partitions + 未來 partitions）
+-- role-split migration（後續 slice）：撤 app role 對 audit_log 的改/刪權（parent + 既有 partitions + 未來 partitions）
 revoke update, delete on audit_log from 0ops_app;
 -- 對既有每個 partition 逐一 revoke（防直連 partition 繞過 parent 檢查）
 revoke update, delete on
