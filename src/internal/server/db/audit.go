@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/winshare/zeroops/internal/server/services/audit"
@@ -322,6 +323,148 @@ WHERE a.team_id = $1
 	return audit.QueryResult{Items: items, NextCursor: nextCursor}, nil
 }
 
+// ExportAuditLog implements audit.ExportReader.ExportAuditLog: a team-scoped,
+// keyset-paginated page of rows ascending by (created_at, id), carrying the
+// stored prev_hash / row_hash so the export is offline-verifiable
+// (audit-export-and-integrity spec § 6). Ascending order (and the strict `>`
+// cursor) lets verify recompute the chain from genesis without re-sorting.
+func (r *Repository) ExportAuditLog(ctx context.Context, filter audit.ExportFilter) ([]audit.ExportRow, error) {
+	parsedTeamID, err := parseUUID(filter.TeamID)
+	if err != nil {
+		return nil, fmt.Errorf("parse team id: %w", err)
+	}
+
+	const baseQuery = `
+SELECT a.id, a.team_id, a.actor_user_id, ua.github_login, a.source,
+       COALESCE(a.subject_type, ''), a.subject_id, a.action,
+       COALESCE(a.args, 'null'::jsonb), COALESCE(a.result, 'null'::jsonb),
+       a.preview_id, COALESCE(a.trace_id, ''), a.outcome, a.http_status,
+       a.created_at, a.prev_hash, a.row_hash
+FROM audit_log a
+LEFT JOIN user_account ua ON ua.id = a.actor_user_id
+WHERE a.team_id = $1
+  AND a.created_at >= $2
+  AND a.created_at <= $3
+`
+	args := []any{parsedTeamID, filter.Since.UTC(), filter.Until.UTC()}
+	query := baseQuery
+	if filter.Cursor != "" {
+		cursorTS, cursorID, err := audit.DecodeCursor(filter.Cursor)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, cursorTS.UTC(), cursorID)
+		query += fmt.Sprintf("  AND (a.created_at, a.id) > ($%d, $%d)\n", len(args)-1, len(args))
+	}
+	query += "ORDER BY a.created_at ASC, a.id ASC"
+	if filter.Limit > 0 {
+		args = append(args, filter.Limit)
+		query += fmt.Sprintf(" LIMIT $%d", len(args))
+	}
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]audit.ExportRow, 0, filter.Limit)
+	for rows.Next() {
+		var (
+			id          int64
+			teamID      pgtype.UUID
+			actorID     pgtype.UUID
+			actorLogin  pgtype.Text
+			source      string
+			subjectType string
+			subjectID   pgtype.UUID
+			action      string
+			argsBytes   []byte
+			resultBytes []byte
+			previewID   pgtype.UUID
+			traceID     string
+			outcome     string
+			httpStatus  pgtype.Int4
+			createdAt   pgtype.Timestamptz
+			prevHash    []byte
+			rowHash     []byte
+		)
+		if err := rows.Scan(
+			&id, &teamID, &actorID, &actorLogin, &source,
+			&subjectType, &subjectID, &action,
+			&argsBytes, &resultBytes, &previewID, &traceID, &outcome, &httpStatus,
+			&createdAt, &prevHash, &rowHash,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, audit.ExportRow{
+			Row: audit.Row{
+				ID:          id,
+				TeamID:      teamID.String(),
+				ActorUserID: uuidPtr(actorID),
+				ActorLogin:  textPtr(actorLogin),
+				Source:      source,
+				SubjectType: subjectType,
+				SubjectID:   uuidPtr(subjectID),
+				Action:      action,
+				Args:        json.RawMessage(argsBytes),
+				Result:      json.RawMessage(resultBytes),
+				PreviewID:   uuidPtr(previewID),
+				TraceID:     traceID,
+				Outcome:     outcome,
+				HTTPStatus:  intPtr(httpStatus),
+				CreatedAt:   createdAt.Time,
+			},
+			PrevHash: prevHash,
+			RowHash:  rowHash,
+		})
+	}
+	return out, rows.Err()
+}
+
+// ListChainHeads implements audit.ExportReader.ListChainHeads: the per-(team,
+// month) anchors whose partition_month falls in [sinceMonth, untilMonth],
+// ordered chronologically. These supply the export integrity manifest and are
+// retained even after the partition is dropped (spec § 4.2, § 8).
+func (r *Repository) ListChainHeads(ctx context.Context, teamID string, sinceMonth, untilMonth time.Time) ([]audit.ChainHead, error) {
+	parsedTeamID, err := parseUUID(teamID)
+	if err != nil {
+		return nil, fmt.Errorf("parse team id: %w", err)
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT partition_month, genesis_hash, tip_hash, row_count
+FROM audit_chain_head
+WHERE team_id = $1
+  AND partition_month >= $2
+  AND partition_month <= $3
+ORDER BY partition_month ASC
+`, parsedTeamID, monthStart(sinceMonth), monthStart(untilMonth))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]audit.ChainHead, 0)
+	for rows.Next() {
+		var (
+			month    pgtype.Date
+			genesis  []byte
+			tip      []byte
+			rowCount int64
+		)
+		if err := rows.Scan(&month, &genesis, &tip, &rowCount); err != nil {
+			return nil, err
+		}
+		out = append(out, audit.ChainHead{
+			PartitionMonth: month.Time,
+			GenesisHash:    genesis,
+			TipHash:        tip,
+			RowCount:       rowCount,
+		})
+	}
+	return out, rows.Err()
+}
+
 // GetAuditLogByID implements audit.Reader.GetAuditLogByID. The lookup
 // is team-scoped so a cross-team id cannot leak through (spec § 6.2,
 // ADR-0001 enumeration defence).
@@ -393,6 +536,13 @@ LIMIT 1
 // CreateMonthlyPartition implements audit.PartitionMaintainer for the
 // real Postgres backend. Idempotent: the IF NOT EXISTS keeps re-runs
 // safe when two leader candidates race during failover.
+//
+// The fresh partition would inherit UPDATE/DELETE for the runtime role via the
+// migration 00014 default privileges, so the rollover path immediately revokes
+// them — every audit_log partition, present or future, stays append-only for
+// "0ops_app" (audit-export-and-integrity spec § 5.1, § 8). The REVOKE is best
+// effort: deployments that have not provisioned the role yet (the grantee is
+// absent) must not fail rollover, so a missing-role error is tolerated.
 func (r *Repository) CreateMonthlyPartition(ctx context.Context, month time.Time) error {
 	month = monthStart(month)
 	next := month.AddDate(0, 1, 0)
@@ -403,8 +553,26 @@ func (r *Repository) CreateMonthlyPartition(ctx context.Context, month time.Time
 		month.Format("2006-01-02"),
 		next.Format("2006-01-02"),
 	)
-	_, err := r.pool.Exec(ctx, stmt)
-	return err
+	if _, err := r.pool.Exec(ctx, stmt); err != nil {
+		return err
+	}
+	if _, err := r.pool.Exec(ctx,
+		fmt.Sprintf(`REVOKE UPDATE, DELETE ON %s FROM "0ops_app"`, tableName)); err != nil {
+		if !isUndefinedObject(err) {
+			return fmt.Errorf("revoke app mutation on %s: %w", tableName, err)
+		}
+	}
+	return nil
+}
+
+// isUndefinedObject reports whether err is the Postgres "role does not exist"
+// (42704) condition, so rollover tolerates a not-yet-provisioned "0ops_app".
+func isUndefinedObject(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "42704"
+	}
+	return false
 }
 
 // ArchiveDeleteAppRows moves delete_app rows from a partition into the

@@ -31,3 +31,50 @@ type ListAuditResponse struct {
 	NextCursor *string         `json:"next_cursor,omitempty"`
 	PageSize   int             `json:"page_size"`
 }
+
+// AuditExportEntry extends a query entry with the chain linkage hashes
+// (hex-encoded) so an auditor can recompute row_hash = SHA-256(prev ||
+// canonical(core)) offline and confirm the chain (audit-export-and-integrity
+// spec § 6.4). team_id lives once in the manifest, not per entry.
+type AuditExportEntry struct {
+	AuditLogEntry
+	PrevHash string `json:"prev_hash,omitempty"`
+	RowHash  string `json:"row_hash,omitempty"`
+}
+
+// AuditExportRange is the [since, until] window an export covers.
+type AuditExportRange struct {
+	Since time.Time `json:"since"`
+	Until time.Time `json:"until"`
+}
+
+// ChainSummary is one per-(team, month) anchor in the integrity manifest.
+type ChainSummary struct {
+	Month       string `json:"month"` // YYYY-MM
+	GenesisHash string `json:"genesis_hash"`
+	TipHash     string `json:"tip_hash"`
+	RowCount    int64  `json:"row_count"`
+}
+
+// IntegritySummary is the export integrity manifest (spec § 6.4, hard rule #7):
+// the chain anchors touching the exported range plus provenance, the evidence
+// an auditor matches a recomputed chain against. team_id is the UUID that
+// genesis derivation and the per-row core both hash over.
+type IntegritySummary struct {
+	TeamSlug    string           `json:"team_slug"`
+	TeamID      string           `json:"team_id"`
+	Range       AuditExportRange `json:"range"`
+	RowCount    int              `json:"row_count"`
+	Chains      []ChainSummary   `json:"chains"`
+	GeneratedAt time.Time        `json:"generated_at"`
+	Generator   string           `json:"generator"`
+}
+
+// AuditExportEnvelope is the JSON export body (spec § 6.4): the integrity
+// manifest, the exported entries, and a resume cursor when the response hit the
+// per-page cap.
+type AuditExportEnvelope struct {
+	Manifest   IntegritySummary   `json:"manifest"`
+	Entries    []AuditExportEntry `json:"entries"`
+	NextCursor *string            `json:"next_cursor,omitempty"`
+}

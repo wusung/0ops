@@ -30,6 +30,29 @@ services:
       db:
         condition: service_healthy
 
+  # Dev-only: attach a LOGIN password to the append-only "0ops_app" role that
+  # migration 00014 creates NOLOGIN. The server then connects under that
+  # restricted envelope via APP_DATABASE_URL — it cannot UPDATE/DELETE
+  # audit_log (audit-export-and-integrity spec § 5.1). Production provisions the
+  # runtime login out-of-band (docs/runbooks/audit-append-only-role.md) and
+  # never runs this service.
+  provision-app-role:
+    image: docker.io/library/postgres:17-alpine
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-app_dev_pw}
+    entrypoint: ["sh", "-c"]
+    command:
+      - >
+        psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -v pw="$$APP_DB_PASSWORD"
+        -f /provision/provision-app-role.sql
+    volumes:
+      - ./deploy/dev:/provision:ro,Z
+    restart: "no"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
   # Local image registry for ADR-0012 local-build dev path. Dev only;
   # production never reaches this service. Server reaches it as
   # `registry:5000` via compose DNS; host-side `pack push` (running through
@@ -52,6 +75,10 @@ services:
       target: dev
     environment:
       DATABASE_URL: ${DATABASE_URL}
+      # Runtime connects under the append-only "0ops_app" envelope (migration
+      # 00014); db.ConfigFromEnv prefers APP_DATABASE_URL over DATABASE_URL.
+      # Falls back to DATABASE_URL when unset (audit-export-and-integrity § 5.1).
+      APP_DATABASE_URL: ${APP_DATABASE_URL:-postgres://0ops_app:${APP_DB_PASSWORD:-app_dev_pw}@db:5432/${POSTGRES_DB:-ops}?sslmode=disable}
       OPS_LISTEN_ADDR: ${OPS_LISTEN_ADDR:-:8080}
       OPS_LOG_LEVEL: ${OPS_LOG_LEVEL:-debug}
       OPS_CALLBACK_SECRET: ${OPS_CALLBACK_SECRET:-dev-callback-secret-change-me}
@@ -110,6 +137,8 @@ services:
       start_period: 30s
     depends_on:
       migrate:
+        condition: service_completed_successfully
+      provision-app-role:
         condition: service_completed_successfully
       registry:
         condition: service_healthy

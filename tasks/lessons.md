@@ -163,3 +163,21 @@ surface 隔壁 handler 同 bug 再補 fix 一次 — 都是延遲修正導致 pl
   stored row），不能只斷言 `SourceKind` 之類的分類欄位——本案舊測試正是只測 kind 才漏掉。
 - **流程價值**：本案 brainstorming 階段兩次 STOP 提問釐清範圍（避免 1、2），requesting-code-review
   抓到第 3 點。三道關卡缺一都會出事。驗證測試務必覆蓋「值的端到端流動」，非僅型別/分類。
+
+## L012｜hash-chain verify 必須抓「完整鏈」而非使用者時間視窗（M9.1 slice d）
+
+- **情境**：M9.1 `0ops audit verify --since/--until` 第一版直接用使用者視窗呼 export，再對
+  回傳的 row 重算鏈。code-review subagent 抓到 CRITICAL：鏈是 per-(team, month)，`VerifyChain`
+  自 genesis 重算並核對 `audit_chain_head.row_count`（整月總數）與 linkage（首筆 prev_hash==genesis）。
+  使用者給次月視窗（如 `--since 24h`）會切掉月初的 row → 首筆 prev_hash≠genesis + count 不符 →
+  **false BREAK**（明明沒被竄改卻報失敗）。
+- **解法**：verify 與 export 分流。export 照使用者視窗逐字輸出；verify 走 `fetchChainsForVerify`：
+  把視窗展開到「觸及的每個月完整邊界」（`monthsInRange`），逐月完整抓取再重算，保住 completeness 語意。
+- **規則**：
+  1. 任何「自 anchor/genesis 重算並核對總數」的完整性驗證，輸入必須是**該鏈的完整集合**，
+     不能是呼叫端任意子區間；驗證層要自行補齊到鏈邊界。
+  2. partition/anchor 內含「全量計數」（row_count）時，凡拿子集去比對 count 必假陽性——
+     先確認資料粒度（整鏈 vs 視窗）再寫比對。
+  3. 角色拆分 migration 的 Down 要用 `REASSIGN OWNED ... TO CURRENT_USER` 再 `DROP OWNED`/`DROP ROLE`；
+     直接 `DROP OWNED BY` 會連該角色「擁有的表」一起刪（production 以 `0ops_migrate` 跑 migration 時
+     等於刪光 schema）。

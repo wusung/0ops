@@ -1654,6 +1654,13 @@ func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient 
 			sr.With(func(next http.Handler) http.Handler {
 				return mw.CheckTokenScope(rbac.ActionListSelfAudit, next)
 			}).Get("/audit", listAuditHandler(auditSvc))
+			// Bulk export is gated on admin + audit:export (hard rule #6) and is
+			// registered before /audit/{id}; chi prefers the static segment.
+			if exportSvc, ok := auditSvc.(auditExportService); ok {
+				sr.With(func(next http.Handler) http.Handler {
+					return mw.CheckTokenScope(rbac.ActionExportAudit, next)
+				}).Get("/audit/export", exportAuditHandler(exportSvc))
+			}
 			sr.With(func(next http.Handler) http.Handler {
 				return mw.CheckTokenScope(rbac.ActionListSelfAudit, next)
 			}).Get("/audit/{id}", getAuditHandler(auditSvc))

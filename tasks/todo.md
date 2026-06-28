@@ -21,7 +21,7 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
 > + ADR-0015/0016/0017 + business-plan 餵回（PR #126/#127）。實作層按依賴序逐切片跑 agent loop。
 
 - [x] **M9.0 threat-model（STRIDE 系統威脅模型）** — Done 2026-06-28，PR #126（純文件）
-- [ ] **M9.1 audit append-only + tamper-evidence + export/verify** — 進行中
+- [x] **M9.1 audit append-only + tamper-evidence + export/verify** — Done 2026-06-29
   （`docs/features/audit-export-and-integrity/spec.md` / ADR-0015；切片化）
   - [x] **slice a**：hash-chain 核心（`chain.go`）+ migration `00013`(schema) + ADR-0015→Accepted
     + spec §4.3 配方對齊 — Done 2026-06-29，**PR #130**；13 單元測試（golden-vector / 0x1F 注入 /
@@ -29,11 +29,21 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
   - [x] **slice b**：寫入路徑交易（head-lock + `ON CONFLICT` upsert + hash + UPDATE head）—
     Done 2026-06-29，**PR #133**；5 整合測試（重算 / 跨 team 隔離 / 24-writer 並發無丟失 /
     unicode+大整數 jsonb / 非 canonical UUID）對真 postgres 綠、CI `test` 綠
-  - [ ] **slice b2（append-only role）**：`0ops_app`/`0ops_migrate`/`0ops_archive` 分離 +
-    `revoke UPDATE/DELETE on audit_log`（hard rule #1/#2）+ 連線切換（compose/deploy/.env）+
-    整合測試（app role 改/刪被拒）— 下一步
-  - [ ] **slice c**：export API `GET .../audit/export` + 新 scope `audit:export` + integrity 摘要
-  - [ ] **slice d**：verify CLI `0ops audit verify`（chain 重算 / 斷裂偵測）
+  - [x] **slice b2（append-only role）** — Done 2026-06-29；migration `00014` 建
+    `"0ops_app"`/`"0ops_migrate"`/`"0ops_archive"`（NOLOGIN，無密碼）+ `revoke UPDATE/DELETE`
+    on audit_log（parent + 每 partition + archive，動態）+ `audit_chain_head` 保留 SELECT/INSERT/
+    UPDATE（hard rule #1/#2）；`db.ConfigFromEnv` 優先讀 `APP_DATABASE_URL`；`CreateMonthlyPartition`
+    對新 partition 補 revoke；連線切換落 compose（`provision-app-role` 服務 + `deploy/dev/`）+ .env；
+    runbook `docs/runbooks/audit-append-only-role.md`。整合測試：app role 改/刪被拒 + chain_head 可改 +
+    新 partition 被拒；migration up/down/up 可逆（Down 走 REASSIGN OWNED 防誤刪 migrate 擁有之表）。
+  - [x] **slice c（export API）** — Done 2026-06-29；`GET .../audit/export`（CSV/JSON、串流游標、
+    13mo 上限 422、since 必填）+ 新 scope `audit:export`（admin 專屬，與 `audit:read` 正交，hard rule #6）+
+    integrity manifest（per-chain genesis/tip/row_count，CSV 走 `X-0ops-Audit-Integrity` header；hard rule #7）；
+    export entries 帶 prev/row hash 供離線 verify；`ExportAuditLog`/`ListChainHeads` + handler + CLI `audit export`
+    + backendclient。RBAC（缺 scope 403 / viewer 403）+ 全鏈竄改偵測整合測試。
+  - [x] **slice d（verify CLI）** — Done 2026-06-29；`audit.VerifyChain` 重算 per-(team,month) 鏈
+    （row_hash / linkage / row_count / tip 斷裂偵測，exit 1）；`0ops audit verify` 逐月完整抓取（避免
+    部分視窗 false-BREAK）→ `verifyEnvelope` 重算；verify/export 皆不暴露 MCP（hard rule #9）。
 - [ ] **M9.2 compliance-framework-mapping（PDPA/SOC2 控制對應）** — Pending（依 M9.0）
 - [ ] **M9.3 security-hardening** — Pending（依 M9.0）
 - [ ] **M9.4 supply-chain-security** — Pending（依 M2.2/M2.3；ADR-0017）

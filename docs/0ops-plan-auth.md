@@ -19,18 +19,20 @@
 
 #### Role 矩陣
 
-| Role | apps:read | apps:write | apps:delete | domains:write | audit:read | tokens:manage（自己） | members:manage |
-|---|---|---|---|---|---|---|---|
-| owner | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| admin | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
-| member | ✓ | ✓ | ✗ | ✓ | 自己的 | ✓ | ✗ |
-| viewer | ✓ | ✗ | ✗ | ✗ | 自己的 | ✓ | ✗ |
+| Role | apps:read | apps:write | apps:delete | domains:write | audit:read | audit:export | tokens:manage（自己） | members:manage |
+|---|---|---|---|---|---|---|---|---|
+| owner | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| admin | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
+| member | ✓ | ✓ | ✗ | ✓ | 自己的 | ✗ | ✓ | ✗ |
+| viewer | ✓ | ✗ | ✗ | ✗ | 自己的 | ✗ | ✓ | ✗ |
 
 #### Scope 列舉（與 role 正交）
 - `apps:read`、`apps:write`、`apps:delete`
 - `domains:write`
 - `repos:read`
 - `audit:read`
+- `audit:export` — bulk 取證匯出，admin+ 專屬；與 `audit:read` 正交，預設不綁定
+  （audit-export-and-integrity spec § 6.2 / ADR-0015，hard rule #6）
 - `members:manage`
 - `tokens:manage`
 - `teams:read`

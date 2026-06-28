@@ -1,0 +1,11 @@
+-- Dev-only: give the append-only runtime role a LOGIN password so the dev
+-- compose server can connect under the "0ops_app" envelope established by
+-- migration 00014 (audit-export-and-integrity spec § 5.1; hard rules #1/#2).
+--
+-- The migration deliberately creates "0ops_app" NOLOGIN and carries no secret;
+-- this script attaches a per-environment credential. Production provisions the
+-- runtime login out-of-band — see docs/runbooks/audit-append-only-role.md — and
+-- never runs this dev script.
+--
+-- Idempotent: ALTER ROLE re-applies the same password on every compose up.
+ALTER ROLE "0ops_app" WITH LOGIN PASSWORD :'pw';
