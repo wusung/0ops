@@ -46,6 +46,13 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
     部分視窗 false-BREAK）→ `verifyEnvelope` 重算；verify/export 皆不暴露 MCP（hard rule #9）。
 - [x] **M9.2 compliance-framework-mapping（PDPA/SOC2 控制對應）** — Done 2026-06-29（控制狀態對齊已交付：A1 HA/PITR/SLO 升已具備 M5.4/M5.5/M2.6+ADR-0008、audit tamper-evidence/append-only/export/verify 升已具備 M9.1+ADR-0015、§3 範例改用 SSO M9.5/supply-chain M9.4；spec → accepted；`docs/0ops-plan-schema.md` 加資料分類+保留錨點）
 - [ ] **M9.3 security-hardening** — Pending（依 M9.0）
+  - **已核准 v1 scope（直接執行、勿再停下問範圍）**：尊重 spec 的 deferred/open 邊界與 hard rule #4/#5/#7、§12。
+    - **§5 高風險差異化確認 — 完整落地（本 task 主體）**：`security/risk.go` 純函式（risk_level 目錄）+ migration 加
+      `preview.risk_level`/`required_phrase` 欄 + confirm 端 typed-confirmation AND 驗證（**不繞過既有 preview/confirm 後端強制**）+ DTO 唯讀欄 + CLI/MCP typed confirmation + 高風險動作必測。
+    - **§6 token anomaly — 僅純模組**：`security/anomaly.go` 評估純函式 + 反應政策 + `abuse_detected` audit action 常數 + 單元測試（餵訊號→斷言 emit）。**不建偵測 goroutine**（歸 rate-limit-and-abuse，deferred；hard rule #5）。
+    - **§7 TTL team policy — 僅純函式**：`security/policy.go` `ResolveTTL = min(req, teamCap, globalMax)` + 全域常數 + 單元測試。**不加 migration、不改簽發路徑**（team_security_policy schema 屬 §12 open，待 auth-and-rbac）。
+    - **§4/§8/§9 — 文件**：`baseline-matrix.md`（盤點，審計可出示）、§8 default-deny-all manifest 與跨-ns CI 列明確 deferred（歸 k3s-namespace-isolation + 需 CI cluster）、§9 at-rest 金鑰 runbook。
+    - **誠實**：spec §11 三條 end-to-end（TTL 簽發收斂 / anomaly→abuse_detected / 跨 ns 拒）降級為函式級單元測試 + 文件標 deferred 條件，不灌水講成已具備（hard rule #4）。
 - [ ] **M9.4 supply-chain-security** — Pending（依 M2.2/M2.3；ADR-0017）
 - [ ] **M9.5 sso-saml（OIDC + 集中撤權）** — Pending（依 M1；ADR-0016）
 - [ ] **M9.6 audit-event-notification（outbox webhook）** — Pending（依 M9.1）
