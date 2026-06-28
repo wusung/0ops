@@ -121,7 +121,7 @@ func TestDeleteAppFullFlowConfirmEnqueuesResidue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("preview: %v", err)
 	}
-	resp, err := client.DeleteApp(context.Background(), store.team.Slug, "alpha", dto.ConfirmDeleteAppRequest{PreviewID: preview.PreviewID})
+	resp, err := client.DeleteApp(context.Background(), store.team.Slug, "alpha", dto.ConfirmDeleteAppRequest{PreviewID: preview.PreviewID, ConfirmationPhrase: preview.RequiredPhrase})
 	if err != nil {
 		t.Fatalf("delete: %v", err)
 	}
@@ -136,12 +136,67 @@ func TestDeleteAppFullFlowConfirmEnqueuesResidue(t *testing.T) {
 	}
 
 	// Replay must return idempotently.
-	resp2, err := client.DeleteApp(context.Background(), store.team.Slug, "alpha", dto.ConfirmDeleteAppRequest{PreviewID: preview.PreviewID})
+	resp2, err := client.DeleteApp(context.Background(), store.team.Slug, "alpha", dto.ConfirmDeleteAppRequest{PreviewID: preview.PreviewID, ConfirmationPhrase: preview.RequiredPhrase})
 	if err != nil {
 		t.Fatalf("replay: %v", err)
 	}
 	if resp2.AppID != resp.AppID {
 		t.Fatalf("replay returned different app id")
+	}
+}
+
+// spec § 11: a delete_app preview reports risk_level=critical and a
+// backend-generated required_phrase.
+func TestPreviewDeleteAppReportsCriticalRisk(t *testing.T) {
+	store, token := deleteAppCapableStore(t)
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	out, err := backendclient.New(srv.URL, token).PreviewDeleteApp(context.Background(), store.team.Slug, "alpha", dto.AppDeleteRequest{Confirm: "alpha"})
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	if out.RiskLevel != "critical" {
+		t.Fatalf("RiskLevel = %q, want critical", out.RiskLevel)
+	}
+	if out.RequiredPhrase != "DELETE alpha" {
+		t.Fatalf("RequiredPhrase = %q, want %q", out.RequiredPhrase, "DELETE alpha")
+	}
+}
+
+// spec § 11: confirming a high-risk action without confirmation_phrase is
+// rejected with a 400 confirmation_phrase_mismatch envelope.
+func TestDeleteAppRejectsMissingConfirmationPhrase(t *testing.T) {
+	store, token := deleteAppCapableStore(t)
+	store.apps[0].Status = strPtr("live")
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	client := backendclient.New(srv.URL, token)
+	preview, err := client.PreviewDeleteApp(context.Background(), store.team.Slug, "alpha", dto.AppDeleteRequest{Confirm: "alpha"})
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	_, err = client.DeleteApp(context.Background(), store.team.Slug, "alpha", dto.ConfirmDeleteAppRequest{PreviewID: preview.PreviewID})
+	if err == nil || !strings.Contains(err.Error(), "confirmation_phrase_mismatch") {
+		t.Fatalf("error = %v, want confirmation_phrase_mismatch", err)
+	}
+	if len(store.reconciliationJobs) != 0 {
+		t.Fatalf("delete must not execute without confirmation_phrase")
+	}
+}
+
+// spec § 11: a correct confirmation_phrase against a forged/expired
+// preview_id is still rejected — phrase does not replace preview_id.
+func TestDeleteAppPhraseDoesNotReplacePreviewID(t *testing.T) {
+	store, token := deleteAppCapableStore(t)
+	store.apps[0].Status = strPtr("live")
+	srv := httptest.NewServer(NewRouter(store))
+	t.Cleanup(srv.Close)
+
+	_, err := backendclient.New(srv.URL, token).DeleteApp(context.Background(), store.team.Slug, "alpha", dto.ConfirmDeleteAppRequest{PreviewID: "11111111-1111-1111-1111-111111111111", ConfirmationPhrase: "DELETE alpha"})
+	if err == nil || !strings.Contains(err.Error(), "preview_not_found") {
+		t.Fatalf("error = %v, want preview_not_found", err)
 	}
 }
 

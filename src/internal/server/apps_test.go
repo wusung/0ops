@@ -20,6 +20,7 @@ import (
 
 	"github.com/winshare/zeroops/internal/server/auth"
 	"github.com/winshare/zeroops/internal/server/db"
+	"github.com/winshare/zeroops/internal/server/security"
 	"github.com/winshare/zeroops/internal/server/services/githuboauth"
 	k3ssvc "github.com/winshare/zeroops/internal/server/services/k3s"
 	workflowdispatch "github.com/winshare/zeroops/internal/server/services/workflowdispatch"
@@ -45,9 +46,9 @@ type fakeStore struct {
 	lastCallbackEvent json.RawMessage
 	// M4.1 webhook-and-redeploy bookkeeping (defaults zero-valued so old
 	// tests continue to work without extra setup).
-	auditEntries      []fakeAuditEntry
-	redeployRuns      []db.InsertRedeployRunParams
-	inFlightAppIDs    map[string]bool
+	auditEntries   []fakeAuditEntry
+	redeployRuns   []db.InsertRedeployRunParams
+	inFlightAppIDs map[string]bool
 
 	// M5.1 delete-app-flow bookkeeping. domainBindings/deployRuns mirror
 	// the production tables; reconciliationJobs/auditLogRows capture the
@@ -266,13 +267,22 @@ func (f *fakeStore) ListTeamTokens(_ context.Context, teamID string) ([]db.CliTo
 }
 
 func (f *fakeStore) CreatePreview(_ context.Context, teamID, actorUserID, action string, args json.RawMessage, _ string) (db.Preview, error) {
+	// Mirror the real db.CreatePreview chokepoint: stamp risk_level +
+	// required_phrase from (action, args) via the security catalog, so the
+	// HTTP path through high-risk confirm behaves like production.
+	var argMap map[string]any
+	if len(args) > 0 {
+		_ = json.Unmarshal(args, &argMap)
+	}
 	p := db.Preview{
-		ID:          "preview-1",
-		TeamID:      teamID,
-		ActorUserID: actorUserID,
-		Action:      action,
-		Args:        args,
-		ExpiresAt:   time.Now().UTC().Add(10 * time.Minute),
+		ID:             "preview-1",
+		TeamID:         teamID,
+		ActorUserID:    actorUserID,
+		Action:         action,
+		Args:           args,
+		RiskLevel:      string(security.RiskLevel(action, argMap)),
+		RequiredPhrase: security.RequiredPhrase(action, argMap),
+		ExpiresAt:      time.Now().UTC().Add(10 * time.Minute),
 	}
 	f.previews[p.ID] = p
 	return p, nil

@@ -162,6 +162,11 @@ type deleteAppInput struct {
 	TeamSlug  string `json:"team_slug"`
 	AppSlug   string `json:"app_slug"`
 	PreviewID string `json:"preview_id"`
+	// ConfirmationPhrase is the typed-confirmation token for this critical
+	// action. It must equal the required_phrase the delete_app_preview tool
+	// returned; the backend re-validates it as an AND condition on top of
+	// preview_id (security-hardening spec § 5.4).
+	ConfirmationPhrase string `json:"confirmation_phrase"`
 }
 
 type queryAuditLogInput struct {
@@ -519,7 +524,7 @@ func registerTools(srv *mcp.Server, reg *appmcp.Registry) {
 
 	appmcp.AddTool(srv, reg, &mcp.Tool{
 		Name:        "delete_app",
-		Description: "Confirm delete_app using a preview_id returned by delete_app_preview. Idempotent on the same preview_id. NEVER call this tool without a fresh, user-approved preview_id; the backend will reject otherwise. The app row, its domain bindings, and the Kubernetes workload are destroyed; persistent volumes are pruned by default.",
+		Description: "Confirm delete_app using a preview_id returned by delete_app_preview. This is a CRITICAL-risk action: pass confirmation_phrase set to the exact required_phrase the preview returned (e.g. \"DELETE <slug>\") — the backend rejects the call with confirmation_phrase_mismatch otherwise. Idempotent on the same preview_id. NEVER call this tool without a fresh, user-approved preview_id and its required_phrase. The app row, its domain bindings, and the Kubernetes workload are destroyed; persistent volumes are pruned by default.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input deleteAppInput) (*mcp.CallToolResult, dto.AppDeleteResponse, error) {
 		if input.TeamSlug == "" || input.AppSlug == "" || input.PreviewID == "" {
 			return nil, dto.AppDeleteResponse{}, fmt.Errorf("team_slug, app_slug and preview_id are required")
@@ -528,7 +533,7 @@ func registerTools(srv *mcp.Server, reg *appmcp.Registry) {
 		if err != nil {
 			return nil, dto.AppDeleteResponse{}, err
 		}
-		out, err := backendclient.New(host, token).DeleteApp(ctx, input.TeamSlug, input.AppSlug, dto.ConfirmDeleteAppRequest{PreviewID: input.PreviewID})
+		out, err := backendclient.New(host, token).DeleteApp(ctx, input.TeamSlug, input.AppSlug, dto.ConfirmDeleteAppRequest{PreviewID: input.PreviewID, ConfirmationPhrase: input.ConfirmationPhrase})
 		if err != nil {
 			return nil, dto.AppDeleteResponse{}, err
 		}

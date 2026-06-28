@@ -67,9 +67,14 @@ type AppDeleteRequest struct {
 	Confirm string `json:"confirm"`
 }
 
-// ConfirmDeleteAppRequest confirms delete_app with a preview id.
+// ConfirmDeleteAppRequest confirms delete_app with a preview id. delete_app
+// is a critical-risk action: ConfirmationPhrase must equal the preview's
+// backend-generated required_phrase, enforced by the backend as an AND
+// condition on top of preview_id (security-hardening spec § 5.4, hard rule
+// #1). It never replaces preview_id validation.
 type ConfirmDeleteAppRequest struct {
-	PreviewID string `json:"preview_id"`
+	PreviewID          string `json:"preview_id"`
+	ConfirmationPhrase string `json:"confirmation_phrase,omitempty"`
 }
 
 // AppDeleteResponse is the delete_app confirmation result. DeletedAt is
