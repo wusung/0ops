@@ -2,6 +2,7 @@ package audit
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"testing"
 	"time"
@@ -180,6 +181,87 @@ func TestRowHashLinkageAndTamperDetection(t *testing.T) {
 		if bytes.Equal(h, RowHash(prev, mustCanon(t, tampered))) {
 			t.Errorf("mutation %d: tampered row produced identical hash", i)
 		}
+	}
+}
+
+// goldenCore is a fully-pinned row used by the known-answer test below.
+func goldenCore() Core {
+	return Core{
+		ID:          1,
+		TeamID:      "team-golden-0001",
+		ActorUserID: strptr("actor-golden-0001"),
+		Source:      "user",
+		SubjectType: "app",
+		SubjectID:   nil,
+		Action:      "create_app",
+		Args:        json.RawMessage(`{"slug":"demo"}`),
+		Result:      json.RawMessage(`null`),
+		PreviewID:   nil,
+		TraceID:     "00000000000000000000000000000001",
+		Outcome:     "success",
+		HTTPStatus:  nil,
+		CreatedAt:   time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+	}
+}
+
+// TestGoldenVectors pins the exact bytes of the v1 chain format. Any change to
+// field order, the separator, number/timestamp normalisation, or genesis
+// derivation breaks these constants — that is the point. A failure here means
+// the wire contract changed and chainDomainSep must be bumped (spec § 12),
+// existing row_hash values are invalidated, and third-party verifiers relying
+// on the documented recipe must be updated.
+func TestGoldenVectors(t *testing.T) {
+	const (
+		wantGenesis = "aa178e44465db669a20060939c06fe900357677754cd6f96dfc5f01fda2e5037"
+		wantRowHash = "ef3b5f0bbeda39719ad5bacab83b63d164973bfd44971a3ed248e010da61766c"
+	)
+	genesis := GenesisHash("team-golden-0001", time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
+	if got := hex.EncodeToString(genesis); got != wantGenesis {
+		t.Errorf("GenesisHash golden mismatch:\n got  %s\n want %s", got, wantGenesis)
+	}
+	core := mustCanon(t, goldenCore())
+	if got := hex.EncodeToString(RowHash(genesis, core)); got != wantRowHash {
+		t.Errorf("RowHash golden mismatch:\n got  %s\n want %s", got, wantRowHash)
+	}
+}
+
+// TestCanonicalCoreNestedKeyOrderIndependent guards spec § 4.3 rule 1: key
+// sorting must recurse into nested objects, not just the top level.
+func TestCanonicalCoreNestedKeyOrderIndependent(t *testing.T) {
+	a := baseCore()
+	a.Args = json.RawMessage(`{"outer":{"a":1,"b":2},"z":3}`)
+	b := baseCore()
+	b.Args = json.RawMessage(`{"z":3,"outer":{"b":2,"a":1}}`)
+	if !bytes.Equal(mustCanon(t, a), mustCanon(t, b)) {
+		t.Fatal("nested object key reordering must not change the canonical form")
+	}
+}
+
+// TestCanonicalCoreSeparatorInjection turns the 0x1F boundary defence into a
+// regression: a value containing a literal separator byte, and a "boundary
+// shift" between two adjacent fields, must both canonicalise distinctly from
+// the forged alternative.
+func TestCanonicalCoreSeparatorInjection(t *testing.T) {
+	// A literal 0x1F inside a value must not collapse into the real separator.
+	withSep := baseCore()
+	withSep.Action = "a\x1fb"
+	plain := baseCore()
+	plain.Action = "ab"
+	if bytes.Equal(mustCanon(t, withSep), mustCanon(t, plain)) {
+		t.Fatal("a value containing 0x1F must not canonicalise like the same value without it")
+	}
+
+	// Boundary shift: (subject_type="x\x1fy", action="...") must differ from
+	// (subject_type="x", action that begins "y..."). The fixed schema order
+	// plus escaping makes forgery impossible; assert it.
+	shifted := baseCore()
+	shifted.SubjectType = "x\x1fy"
+	shifted.Action = "zzz"
+	forged := baseCore()
+	forged.SubjectType = "x"
+	forged.Action = "y\x1fzzz"
+	if bytes.Equal(mustCanon(t, shifted), mustCanon(t, forged)) {
+		t.Fatal("field boundaries must not be forgeable by embedding separators")
 	}
 }
 

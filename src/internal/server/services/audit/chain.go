@@ -86,73 +86,66 @@ func RowHash(prevHash, canonicalCore []byte) []byte {
 // fixed schema order, JSON-encoded so null / "" / "null" never collide, joined
 // by the unit separator. args / result are re-canonicalised (recursive key
 // sort) so jsonb key reordering cannot change the hash. created_at is pinned
-// to UTC and truncated to microseconds to match Postgres timestamptz precision.
+// to UTC and truncated to microseconds.
+//
+// This byte recipe is the v1 wire contract: it is frozen so that a write-time
+// hash, an exported row, and a verify-time recomputation are byte-identical,
+// and so a third party can recompute it from the spec. Any change to field
+// order, separators, the number normalisation in canonicalJSON, or the
+// timestamp format silently invalidates every existing row_hash and MUST be
+// shipped as a new scheme version (bump chainDomainSep). The golden-vector
+// tests in chain_test.go pin the exact bytes to make such a change fail loudly.
 func CanonicalCore(c Core) ([]byte, error) {
 	var b bytes.Buffer
 	first := true
-	write := func(s []byte) {
+	writeRaw := func(s []byte) {
 		if !first {
 			b.WriteByte(coreFieldSep)
 		}
 		first = false
 		b.Write(s)
 	}
-	enc := func(v any) ([]byte, error) { return json.Marshal(v) }
+	// json.Marshal of string / int / int64 never errors, so the error is safe
+	// to drop. The encoding escapes every control byte: a 0x1F inside a value
+	// becomes an escaped sequence, so no field value can forge a boundary.
+	writeScalar := func(v any) { out, _ := json.Marshal(v); writeRaw(out) }
 
-	idB, _ := enc(c.ID)
-	write(idB)
-
-	teamB, err := enc(c.TeamID)
-	if err != nil {
-		return nil, err
-	}
-	write(teamB)
-
-	write(canonScalar(c.ActorUserID))
-	srcB, _ := enc(c.Source)
-	write(srcB)
-	stB, _ := enc(c.SubjectType)
-	write(stB)
-	write(canonScalar(c.SubjectID))
-	actB, _ := enc(c.Action)
-	write(actB)
+	writeScalar(c.ID)
+	writeScalar(c.TeamID)
+	writeRaw(canonNullable(c.ActorUserID))
+	writeScalar(c.Source)
+	writeScalar(c.SubjectType)
+	writeRaw(canonNullable(c.SubjectID))
+	writeScalar(c.Action)
 
 	argsB, err := canonicalJSON(c.Args)
 	if err != nil {
 		return nil, fmt.Errorf("audit: canonicalise args: %w", err)
 	}
-	write(argsB)
+	writeRaw(argsB)
 	resultB, err := canonicalJSON(c.Result)
 	if err != nil {
 		return nil, fmt.Errorf("audit: canonicalise result: %w", err)
 	}
-	write(resultB)
+	writeRaw(resultB)
 
-	write(canonScalar(c.PreviewID))
-	traceB, _ := enc(c.TraceID)
-	write(traceB)
-	outB, _ := enc(c.Outcome)
-	write(outB)
-	write(canonHTTPStatus(c.HTTPStatus))
-
-	tsB, _ := enc(c.CreatedAt.UTC().Truncate(time.Microsecond).Format(time.RFC3339Nano))
-	write(tsB)
+	writeRaw(canonNullable(c.PreviewID))
+	writeScalar(c.TraceID)
+	writeScalar(c.Outcome)
+	writeRaw(canonNullable(c.HTTPStatus))
+	// Write-path invariant (enforced in the write-path slice, not here): the
+	// row INSERTed into audit_log must carry exactly this truncated created_at,
+	// because Postgres timestamptz rounds — not truncates — sub-microsecond
+	// values. Hashing the truncated value while storing the raw value would make
+	// verify recompute from a rounded timestamp and flag a legitimate row.
+	writeScalar(c.CreatedAt.UTC().Truncate(time.Microsecond).Format(time.RFC3339Nano))
 
 	return b.Bytes(), nil
 }
 
-// canonScalar JSON-encodes a nullable string: nil → `null`, else a quoted,
-// escaped string. This keeps a literal "null" string distinct from SQL NULL
-// and an empty string distinct from both.
-func canonScalar(p *string) []byte {
-	if p == nil {
-		return []byte("null")
-	}
-	out, _ := json.Marshal(*p)
-	return out
-}
-
-func canonHTTPStatus(p *int) []byte {
+// canonNullable JSON-encodes a nullable scalar: nil → `null`, else the marshalled
+// value. This keeps SQL NULL, an empty string, and a literal "null" distinct.
+func canonNullable[T any](p *T) []byte {
 	if p == nil {
 		return []byte("null")
 	}
@@ -161,9 +154,14 @@ func canonHTTPStatus(p *int) []byte {
 }
 
 // canonicalJSON re-marshals raw JSON so semantically equal documents produce
-// identical bytes: json.Marshal sorts map keys and strips insignificant
-// whitespace, and we recurse implicitly via interface{}. Empty / nil raw
-// (a row with no args) canonicalises to the literal `null`.
+// identical bytes: json.Marshal sorts map keys (recursively, via interface{})
+// and strips insignificant whitespace. Empty / nil raw (a row with no args)
+// canonicalises to the literal `null`.
+//
+// v1 wire contract: numbers round-trip through float64 (the interface{} default),
+// so integers beyond float64's exact range are normalised in the hash domain
+// (the stored jsonb value is unaffected). Switching to decoder.UseNumber() would
+// silently change every row_hash and is a scheme-version change, not a fix.
 func canonicalJSON(raw json.RawMessage) ([]byte, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
