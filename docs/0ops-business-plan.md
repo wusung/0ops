@@ -248,7 +248,7 @@
 #### 階段二：限定範圍 dogfooding 與 design partner 驗證（2026 H2）
 - Winshare 內部首個服務進入限定範圍 dogfooding
 - 與 3–5 家 design partner 驗證部署流程、權限模型、可審計性
-- 在取得可重現案例後，再釋出技術內容與 SKILL packs
+- 技術內容**不等 design partner 案例**：以 build-in-public 三節奏（見 §八「Build-in-Public 決策透明引擎」）自 ADR / lessons / milestone 取材即可啟動，與 design partner 驗證並行；SKILL packs 仍俟可重現案例釋出
 - **目標**：3 個 LOI、2 個實際 design partner、1 個內部服務穩定運行 30 天
 
 #### 階段三：對外 Beta 與垂直擴張（2027 H1 起）
@@ -261,8 +261,18 @@
 1. **Winshare 內部試點**：先證明團隊自己願意把低風險服務交給 0ops
 2. **Design partners**：3–5 家有 AI CLI 與自動部署需求的團隊
 3. **Case study**：輸出可重現的部署案例、失敗模式與治理機制
-4. **內容與社群**：技術部落格、demo、中英雙語 docs、社群互動
+4. **內容與社群**：以下「Build-in-Public 決策透明引擎」為主軸；技術部落格、demo、中英雙語 docs、社群互動為其產出載體
 5. **平台合作**：與 AI CLI 廠商建立生態合作，列為加速器，不列為前提
+
+### Build-in-Public 決策透明引擎
+
+行銷不應綁死在「需先有 design partner 案例」——讓內容由工程過程本身產出，零外部依賴即可啟動，同時補 §九 缺的團隊 credibility。0ops 以 docs-driven agentic engineering 蓋成，ADR / feature spec / `tasks/lessons.md` / reconciler 修復史皆為現成高密度素材。三個固定節奏：
+
+- **每週「為什麼這麼做」**：自 `docs/adrs/*.md` 決策點提煉一則「限制 → 選項 → 取捨」短文（中英雙語）。建立技術判斷力的公開記錄——讀者因看見決策過程而信任，直接補 credibility。
+- **每月「失敗教會什麼」**：自 `tasks/lessons.md` 與 P0 修復史提煉一則復盤（症狀 → 根因 → 為何當初沒看見 → 制度性修正）。願公開失敗的反脆弱信號，是 enterprise self-host 客戶交付 repo/token/domain 前要看的東西。
+- **每季「從問題到解法」**：以一個 milestone 端到端切片（痛點 → 設計約束 → 架構決策鏈 → 實作 → 驗證證據 → 失敗模式）成長文 + 可重現 demo。用自身 milestone 當案例，取代「需 design partner 案例才能行銷」的死結，並累積可索引 SEO 資產與投資人簡報附件。
+
+三節奏全部複用既有 docs-driven 產出物，增量成本近零。對外產出建議獨立放 `docs/marketing/` 或外部 blog repo，不污染規格來源文件。詳細評估見 `docs/six-stage-analysis/analysis.md` § Stage 5。
 
 ---
 
