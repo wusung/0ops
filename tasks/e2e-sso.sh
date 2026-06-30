@@ -73,8 +73,12 @@ fi
 # so the readiness budget is generous (server depends_on mock-idp:healthy, so a
 # healthy server implies the mock IdP is already up).
 HEALTH_TRIES="${HEALTH_TRIES:-150}" # × 2s = up to 300s
+# Probe health INSIDE the server container (same path the dance uses) so
+# readiness does not depend on the published host port (OPS_HOST_PORT may be
+# remapped in .env). `podman exec` fails until the container exists, which the
+# loop treats as not-ready and retries.
 for i in $(seq 1 "$HEALTH_TRIES"); do
-  if curl -fsS "$HOST/health" >/dev/null 2>&1; then
+  if scurl -fsS http://localhost:8080/health >/dev/null 2>&1; then
     log "  server healthy after ~$((i * 2))s"; break
   fi
   sleep 2
