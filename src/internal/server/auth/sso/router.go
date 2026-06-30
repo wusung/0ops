@@ -32,9 +32,10 @@ func RegisterTeamRoutes(sr chi.Router, mw *auth.Middleware, svc *Service) {
 // /v1/auth subrouter (paths are relative to /v1/auth). They sit outside the
 // Bearer-protected team subtree because the IdP redirect / back-channel carry
 // no 0ops token; each validates state+PKCE or the IdP signature itself
-// (spec § 12). Resulting paths: /v1/auth/sso/{team_slug}/callback and
-// /v1/auth/sso/{team_slug}/backchannel-logout.
+// (spec § 12). Resulting paths: /v1/auth/sso/{team_slug}/authorize,
+// /v1/auth/sso/{team_slug}/callback and /v1/auth/sso/{team_slug}/backchannel-logout.
 func RegisterAuthRoutes(sr chi.Router, svc *Service) {
+	sr.Get("/sso/{team_slug}/authorize", svc.Authorize)
 	sr.Get("/sso/{team_slug}/callback", svc.Callback)
 	sr.Post("/sso/{team_slug}/backchannel-logout", svc.BackchannelLogout)
 }

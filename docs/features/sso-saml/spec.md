@@ -454,18 +454,26 @@ deprovisioned bob@acme.com: 1 membership deactivated, 3 tokens revoked
 
 ### 19.2 Deferred-validation（需真 IdP / 既有功能缺口；非本 task `manage.sh test` 可驗）
 
+> 2026-06-30 更新：補上 `GET /v1/auth/sso/{team_slug}/authorize` 登入入口（state+PKCE 簽發 +
+> 302 重導 IdP），並以 in-repo mock IdP + `compose.e2e.yaml` overlay 跑通完整 OIDC dance
+> 端到端（`tasks/e2e-sso.sh`）。下列項目因此**窄化**：
+> 詳見 `docs/features/sso-saml/release/2026-06-30-oidc-login-and-e2e.md`。
+
 - **device-flow 瀏覽器 IdP 重導端到端**：未改寫既有 GitHub device flow（屬 `auth-login-flow` 範疇且
   `DeviceStartRequest` 不帶 team_slug，全面接線過大）。building block（`BuildAuthorizeURL` 純函式 + 獨立
-  callback 端點）已交付且可測；enforce→device 授權頁改走 IdP 的端到端串接 deferred（需真 IdP + 瀏覽器）。
-- **真 OIDC code 交換（token endpoint）**：`HTTPCodeExchanger` 為預設實作但需 live IdP + client secret；
-  callback 測試以注入式 stub exchanger 驗證 JIT/簽發/audit 全鏈，真交換 deferred。
+  callback 端點）已交付且可測；web 起點 `/authorize`（302→IdP）2026-06-30 補上並由 e2e 行使；
+  **CLI device-flow 改走 IdP 重導**之整合仍 deferred（需真 IdP + 瀏覽器）。
+- **真 OIDC code 交換（token endpoint）**：`HTTPCodeExchanger` 為預設實作。2026-06-30 起以 mock IdP
+  token endpoint 在 compose e2e 行使真交換（authorize→token→id_token→JIT 全鏈）；**真 IdP（Google/
+  Okta/Azure）互通**仍屬 staging/人工驗收，deferred。
 - **client secret at-rest 加密 + state/secret 共享儲存（HA 前置）**：`SecretStore`/`StateStore` 介面 +
   process-local `MemorySecretStore`/`MemoryStateStore` 預設（DB 僅存 `client_secret_ref`，符 hard rule #7）。
   此 in-memory 預設為 **single-process**，在多 replica（ADR-0008 HA：2 replica + leader）下 secret/state
   不跨 replica 可見 → 真 login/code-exchange 路徑須先以 durable 共享 store（DB / shared cache，依賴
-  `secrets-management`，repo 尚無本體）替換。因 §19.2 之真 code-exchange 與 device-flow 重導本即 deferred，
-  in-memory 預設只在測試與單機 dev 被完整行使；**啟用真 IdP login 前必先換 durable store**，此前置與
-  durable 加密一併 deferred。
+  `secrets-management`，repo 尚無本體）替換。2026-06-30 起 `/authorize`+callback 之 state/PKCE 路徑
+  以 `MemoryStateStore` 在 **single-replica**（dev / e2e / 單機 prod）被完整行使且 e2e 驗證；
+  **multi-replica HA（ADR-0008，2 replica）下須換 DB/shared-cache 之 durable StateStore**（建議
+  `sso_login_state` 表 + StateStore 介面加 ctx/error），此為窄化後的 deferred，與 durable 加密一併 deferred。
 - **JWKS 快取**：v1 每次驗證即抓 JWKS（登入頻率低，≤ 每 session_max_ttl 一次）；快取 deferred。
 
 ### 19.3 與 spec 之有意微調
