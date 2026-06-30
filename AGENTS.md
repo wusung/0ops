@@ -186,6 +186,21 @@ Merge 至主分支，更新 SQL 狀態為 'done'
 - DB 整合測試
 - CLI / MCP 與 backend DTO contract test
 
+### e2e 測試（每個 feature 必備）
+
+每個 feature 必須有一條 e2e，對「真實組裝起來的系統」行使該 feature 的招牌保證，而非僅
+單元/handler 層的隔離測試。標準與棧的建法見 `docs/features/e2e-testing/spec.md`，要點：
+
+- 兩層擇一或併用：**composition test（Go，`e2e_*_test.go`）** 對 in-process router（可接真
+  postgres）；**compose-stack e2e（`tasks/e2e-{feature}.sh` + `manage.sh e2e-{feature}`）** 對
+  `podman compose` 真服務棧。跨容器/外部協定/權限與撤權鏈類，必走 compose-stack e2e。
+- 外部依賴以 in-repo mock（`src/cmd/devtools/mock-*`）+ `compose.e2e.yaml` overlay 提供；
+  production compose 永不含 mock。
+- 硬規約（L001）：e2e 一律經 `OPS_HOST` 打 compose stack / staging；不可在 host 直跑
+  `./bin/0ops-server`；CLI/MCP 以 `podman run` runtime image 驅動。
+- 招牌保證本身必須經 live 路徑行使，不可用 SQL 偽造結果；無法在 e2e 行使者（需真 IdP/cluster）
+  於 feature 文件明列 deferred 與替代覆蓋層。
+
 高風險區域必測：
 
 - preview / confirm 流程
