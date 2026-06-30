@@ -1,0 +1,40 @@
+# podman compose e2e overlay — 疊在 root compose.yaml 上，加入 SSO e2e 所需的 in-repo
+# mock OIDC IdP。production compose 永不含本檔。
+#
+# 用法：podman compose -f compose.yaml -f compose.e2e.yaml up -d --wait
+# 驅動：tasks/e2e-sso.sh / `./manage.sh e2e-sso`
+# 設計：docs/features/sso-saml/release/2026-06-30-oidc-login-and-e2e.md § 4
+# 規範：docs/features/e2e-testing/spec.md § 2
+#
+# DNS 一致性：mock-idp 之 issuer = compose DNS `http://mock-idp:9000`。OIDC dance 的跨服務
+# 重導（server→mock-idp→server/callback）只有網內可解析，故 e2e 腳本一律以
+# `podman exec <server> curl` 在 server 容器內驅動 HTTP（server dev image 內含 curl），
+# 不靠 host 改寫位址。
+
+name: 0ops
+
+services:
+  mock-idp:
+    image: localhost/0ops-mock-idp:dev
+    build:
+      context: ./src
+      dockerfile: cmd/devtools/mock-idp/Dockerfile
+    environment:
+      MOCK_IDP_ADDR: ":9000"
+      MOCK_IDP_ISSUER: ${MOCK_IDP_ISSUER:-http://mock-idp:9000}
+      MOCK_IDP_SUBJECT: ${MOCK_IDP_SUBJECT:-mock-sub-1}
+      MOCK_IDP_EMAIL: ${MOCK_IDP_EMAIL:-alice@acme.example}
+      MOCK_IDP_GROUPS: ${MOCK_IDP_GROUPS:-}
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/mock-idp", "healthcheck"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  server:
+    # Gate server readiness on the mock IdP so `--wait` yields a stack that can
+    # complete the OIDC dance. depends_on lists merge across compose files, so
+    # the base deps (migrate / provision-app-role / registry) are preserved.
+    depends_on:
+      mock-idp:
+        condition: service_healthy

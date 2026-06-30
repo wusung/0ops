@@ -70,7 +70,14 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
     - **§4/§5 SBOM·govulncheck·Trivy·SLSA·cosign·admission policy — config+文件（deferred-validation, needs-CI/cluster）**：改 `.github/workflows/*`、`deploy/workflows/deploy-app.yml`、`deploy/gitops/argocd/apps/policy-controller.yaml`(mode warn)、`docs/runbooks/signing-key-rotation.md`；明標 `manage.sh test` 不驗（hard rule #2/#3/#4/#5/#9）。
     - **§12.1 回填 threat-model SC3 / gitops-render §4.3 — 列合入前置，本 task 不改該兩檔**。
     - **可驗證性**：僅 gitops digest pin + callback image_digest + 偵測純函式可被 `manage.sh test` 證明；其餘 CI/cluster config 標 deferred-validation。expected-path 命中 `deploy/**` + gitops。
-- [ ] **M9.5 sso-saml（OIDC + 集中撤權）** — Pending（依 M1；ADR-0016）
+- [x] **M9.5 sso-saml（OIDC + 集中撤權）** — Done 2026-06-29（merged PR #141；task-status.md 已 Done）
+  - **e2e 補完 2026-06-30**（branch `feat/m9.5-sso-e2e`）：補 `GET .../sso/{slug}/authorize` OIDC 登入入口
+    （state+PKCE 簽發 + 302→IdP；`authorize.go` + 2 handler 測）+ in-repo mock IdP（`cmd/devtools/mock-idp`）
+    + `compose.e2e.yaml` overlay + `tasks/e2e-sso.sh`（`./manage.sh e2e-sso`）。對真 compose 棧跑通**完整 OIDC
+    dance + 集中撤權端到端**（authorize→mock IdP→callback→JIT→bearer→GET /apps 200→deprovision→401 +
+    DB/audit 斷言全綠）。設計：`docs/features/sso-saml/release/2026-06-30-oidc-login-and-e2e.md` +
+    跨切面標準 `docs/features/e2e-testing/spec.md`；AGENTS.md 加「每 feature 必備 e2e」。
+    窄化 deferred：multi-replica HA 之 durable StateStore（spec § 19.2）。
   - **已核准 v1 scope（直接執行、勿再停下問範圍）**：v1 **OIDC-only**；SAML 欄位 nullable 預留、`protocol` CHECK 僅 `'oidc'`（hard rule #10）；不另造平行權限模型，集中撤權靠既有 `CheckMembership`+`cli_token.revoked_at`（hard rule #1/#2/#5）。migration 取下一未用號（`00015+`；與 M9.6 併行須各取不同號）。
     - **§11 schema — 完整落地（可測）**：migration 建 `idp_config`/`idp_domain`/`idp_identity` + `team_membership`(auth_source/deactivated_at) + `cli_token`(auth_source/idp_config_id)；CHECK 落地 + DB 測。
     - **§7.2 集中撤權 deprovision — 完整落地（核心，可測）**：同 tx membership.deactivated_at + 該 user 該 team 全部 cli_token.revoked_at + cache invalidate + audit；httptest+DB 斷言 device→401、PAT→404、一次覆蓋全部（hard rule #5）。

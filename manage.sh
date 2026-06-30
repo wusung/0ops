@@ -76,6 +76,9 @@ cmd_e2e_local_build()   { bash tasks/local-build-e2e.sh; }
 # upload-source ingestion → preview → confirm → JWT-signed archive fetch（compose 必須先 healthy）。
 # 對齊 ADR-0013 / docs/features/app-source-ingestion/spec.md § 22；dev mode 不觸發實際 GHA workflow。
 cmd_e2e_source_upload() { bash tasks/e2e-source-upload.sh; }
+# SSO/OIDC (M9.5) 登入 dance + 集中撤權端到端（base + compose.e2e.yaml mock IdP overlay）。
+# 對齊 docs/features/sso-saml/release/2026-06-30-oidc-login-and-e2e.md § 5；E2E_SSO_DOWN=1 收尾拆棧。
+cmd_e2e_sso()           { bash tasks/e2e-sso.sh "$@"; }
 
 # --- production bootstrap ---
 # docs/features/production-deployment/spec.md — 一鍵 production 部署 / 卸載 / smoke。
@@ -189,6 +192,8 @@ end-to-end acceptance (compose 必須先 healthy):
   e2e-local-build              local file:// repo → pack build → registry → live deploy
   e2e-source-upload            upload-source ingestion → preview → confirm → JWT archive fetch
                                (ADR-0013；dev mode 不觸發實際 GHA workflow)
+  e2e-sso                      SSO/OIDC 登入 dance + 集中撤權端到端 (mock IdP overlay)
+                               (M9.5；E2E_SSO_DOWN=1 收尾拆棧)
 
 production bootstrap (spec docs/features/production-deployment/spec.md):
   prod-up                      一鍵裝 K3s + ArgoCD + sealed-secrets + 套用 root app + smoke
@@ -266,6 +271,7 @@ main() {
     e2e-create-app)       cmd_e2e_create_app "$@" ;;
     e2e-local-build)      cmd_e2e_local_build "$@" ;;
     e2e-source-upload)    cmd_e2e_source_upload "$@" ;;
+    e2e-sso)              cmd_e2e_sso "$@" ;;
 
     prod-up)              cmd_prod_up "$@" ;;
     prod-down)            cmd_prod_down "$@" ;;
