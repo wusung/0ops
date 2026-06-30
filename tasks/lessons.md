@@ -283,3 +283,18 @@ surface 隔壁 handler 同 bug 再補 fix 一次 — 都是延遲修正導致 pl
   terminal UPDATE 遺失，列永遠卡 `delivering` 不再被選 → 靜默丟投遞。**解**：claim 加租約
   （`next_attempt_at = now()+lease`）並把 `delivering` 納入 due 條件，租約到期可重認領（at-least-once，
   接收端以 X-0ops-Delivery 去重）。
+
+## L019｜compose-stack e2e 的就緒檢查不可綁 published host port（M9.5 e2e）
+
+- **情境**：`tasks/e2e-sso.sh` 對真 compose 棧跑 OIDC dance；就緒迴圈原本 host 端 `curl $HOST/health`，
+  `$HOST` 預設 `localhost:8080`。
+- **陷阱**：`.env` 把 `OPS_HOST_PORT=18080`，compose publish 到 18080。**經 `./manage.sh` 跑會 source .env**
+  → `$HOST` 對；但**直接 `bash tasks/e2e-sso.sh` 不 source .env** → `$HOST` 退回 8080 → host curl 永遠連不到
+  → 就緒檢查靜默 timeout（容器內 healthcheck 其實早綠）。debug 成本高，因為「容器 healthy」與「腳本連不到」
+  同時為真。
+- **解**：就緒檢查改走**容器內**（`podman exec <server> curl localhost:8080/health`，與 dance 同路徑），
+  與 published host port 徹底解耦；唯獨真的需要 host 入口者（host 上 `go run cli --host`）才依賴 `$HOST`，
+  且該情境必經 `manage.sh`。**通則**：compose-stack e2e 的 server↔server / 跨服務呼叫一律在網內驅動
+  （DNS 一致、免 host port / URL 改寫，L001 同源）；host 端只留必要的 CLI 入口。
+- **延伸（OIDC dance 專屬）**：authorize→IdP→callback 跨服務 302 只有網內可解析，故全程 `podman exec server
+  curl`；issuer/redirect_uri 用 compose DNS（`mock-idp:9000`/`server:8080`），三方位址一致才不破 iss/aud 驗。
