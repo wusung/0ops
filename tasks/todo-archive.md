@@ -456,7 +456,7 @@
 - [x] dev DB smoke：`podman compose up -d db` → `psql -At -c 'SHOW transaction_read_only'` 回 `off`；`SELECT pg_is_in_recovery()` 回 `f`；確認 EnsurePrimary 對單實例 dev compose db 為 pass-through，不會誤擋 dev 啟動。
 
 **Out of scope / 風險回報**：
-1. **deploy/postgres 路徑 vs spec § 3 layout 差異** — spec § 3 文字列 `deploy/chart/postgres/` 與既有 `deploy/chart/cloudflare-tunnel/` 對齊；但 `tasks/task-list.md` row M5.4 之 Expected Paths 為 `deploy/postgres/**`。為對齊 harness verify 契約（runner 會驗 changed paths 至少一條落在 `deploy/postgres/**`），實作落 `deploy/postgres/`。spec § 3 為 draft 狀態的示意 layout，與 task-list 衝突時 task-list 勝出。建議未來統一：若要遵循 `deploy/chart/*` 命名，應更新 task-list.md row M5.4；本任務不擅改 task-list。
+1. **deploy/postgres 路徑 vs spec § 3 layout 差異** — spec § 3 文字列 `deploy/chart/postgres/` 與既有 `deploy/chart/cloudflare-tunnel/` 對齊；但 `tasks/task-list.md` row M5.4 之 Expected Paths 為 `deploy/postgres/**`。為對齊 task runner verify 契約（runner 會驗 changed paths 至少一條落在 `deploy/postgres/**`），實作落 `deploy/postgres/`。spec § 3 為 draft 狀態的示意 layout，與 task-list 衝突時 task-list 勝出。建議未來統一：若要遵循 `deploy/chart/*` 命名，應更新 task-list.md row M5.4；本任務不擅改 task-list。
 2. **Full prod-style PITR / failover drill 尚未跑** — local PITR drill 腳本 (`deploy/postgres/scripts/pitr-drill.sh`) 已就位且可隨 chart 變更跑；但 spec § 8.3 之「M5 GA 前必演練一次完整 PITR」屬 ops 排程（需 staging cluster + 真實 R2），不在本 PR 範疇。`docs/runbooks/postgres-restore-test.md` § 5.1 已記錄此 gap 並指派為 M5 GA 前 owner=ops。
 3. **postgres_exporter sidecar（spec § 11）** — `pg_replication_lag_seconds` / `pg_wal_archive_status` 之 Prometheus exporter sidecar 於 v1.1 補；v1 採 ops 手動觀察 + 演練覆蓋，與 spec 一致。M5.5 之 backend HA 完成後再評估是否同時上 exporter。
 4. **R2 bucket lifecycle 30d** — chart values 已宣告 `retentionDays: 30`（spec § 16 hard rule #9），但 R2 bucket 端 lifecycle rule 為帳號層級設定，需由 ops 在 Cloudflare 控制台或 wrangler 配置，chart 本身無法施加。已在 README + values 註解明示。
@@ -519,7 +519,7 @@
 - [x] cmd/server 啟動順序：metrics → leader（決定 identity + mode=lease 開 Run goroutine）→ reconciler runner（pull IsLeader）→ HTTP server；shutdown 順序逆向（HTTP shutdown → ctx cancel → leader 因 `ReleaseOnCancel=true` 立即 release lease → reconciler runner ctx 結束 drain）
 
 **Out of scope / 風險回報**：
-1. **spec § 3 `internal/server/leaderelection/` 與 task-list `internal/server/leader/**` 命名差異** — task-list 為 harness verify 契約；spec § 3 為 draft；本任務對齊 task-list 並把 spec § 3 修齊。延續 M5.4 之 deploy/postgres 處理模式（spec draft vs task-list 衝突時 task-list 勝出）。
+1. **spec § 3 `internal/server/leaderelection/` 與 task-list `internal/server/leader/**` 命名差異** — task-list 為 task runner verify 契約；spec § 3 為 draft；本任務對齊 task-list 並把 spec § 3 修齊。延續 M5.4 之 deploy/postgres 處理模式（spec draft vs task-list 衝突時 task-list 勝出）。
 2. **spec § 8.1 metric 命名前綴 `0ops_` vs 既有 `zeroops_`** — 全專案 metric 統一 `zeroops_` 前綴（既有 22+ metric 全部如此）；本任務採 `zeroops_leader_*` 並同步把 spec § 8.1 改齊。
 3. **chart resource name `ops-server` 而非 `0ops-server`** — Helm `helm lint` 對 K8s DNS-1035 強制（resource name 必須以字母開頭）；改採 `ops-server` 對齊 spec § 7.1 之 deployment YAML 範例（`metadata.name: ops-server`），同時與既有 backend binary 名 `0ops-server`（host）對映清楚。chart `name:` 同步為 `ops-server`。
 4. **`Subscribe() <-chan Event`（spec § 4.1）不引入** — reconciler 採 Pull `IsLeader()` 模型，Observer callback 已覆蓋 metric/log 需求；channel 為 dead weight；待未來 caller 真的需要 push 通知再加，本任務在 spec § 5.3 補註此 Pull-not-Push 決定。

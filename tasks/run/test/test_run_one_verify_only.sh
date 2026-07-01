@@ -3,7 +3,7 @@
 # Scenario: a prior run-one invocation flipped main's task-status to Failed
 # after verify failed, but the worktree already contains agent's work. The
 # user adjusts task-list.md (or fixes whatever made verify fail) and reruns
-# with --verify-only so the harness picks up commit/push/PR without invoking
+# with --verify-only so the task runner picks up commit/push/PR without invoking
 # the agent again.
 
 set -euo pipefail

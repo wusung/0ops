@@ -187,7 +187,7 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
 - [ ] Repo 主機位置最終定案（自建 vs GitHub org）
 - [ ] Copilot CLI / Codex CLI 與官方 Go SDK 相容性矩陣（v1 起手時驗證）
 - [ ] Backend SSE → MCP streaming 評估（官方 Go SDK 若不足則分頁拉取）
-- [ ] 啟動 build-in-public 行銷引擎 go/no-go（每週決策 / 每月失敗 / 每季路徑；gated on §九 團隊 credibility 與 design partner 時機；引擎 bootstrap 見 task `MKT.0`，持續出刊走編輯日曆而非 harness）
+- [ ] 啟動 build-in-public 行銷引擎 go/no-go（每週決策 / 每月失敗 / 每季路徑；gated on §九 團隊 credibility 與 design partner 時機；引擎 bootstrap 見 task `MKT.0`，持續出刊走編輯日曆而非 task runner）
 
 ## Governance Guide
 

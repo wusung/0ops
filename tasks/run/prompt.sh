@@ -53,7 +53,7 @@ done < <(task_spec_refs "$task_id")
 
 mapfile -t expected_paths_list < <(task_expected_paths "$task_id")
 if (( ${#expected_paths_list[@]} > 0 )); then
-  printf '\n【Expected Paths（harness verify 契約）】\n'
+  printf '\n【Expected Paths（task runner verify 契約）】\n'
   printf 'runner 在 verify 階段會檢查改動清單（含 untracked）至少有一條 path 符合以下 glob：\n'
   for glob in "${expected_paths_list[@]}"; do
     printf -- '- %s\n' "$glob"

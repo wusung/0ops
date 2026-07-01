@@ -71,7 +71,7 @@
 
 > 早期 spec draft 列 `internal/server/leaderelection/`；M5.5 落地對齊
 > `tasks/task-list.md` row M5.5 Expected Paths（`internal/server/leader/**`、
-> `deploy/server/**`），harness verify 契約以 task-list 為準。
+> `deploy/server/**`），task runner verify 契約以 task-list 為準。
 
 ## 4. Leader 介面
 

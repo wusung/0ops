@@ -36,13 +36,13 @@
 
 - 不預建 `docs/marketing/` 空殼（屬執行非評估；由 task `MKT.0` 產出）。
 - 不改任何 ADR / spec / runbook（無觸發條件）。
-- 持續出刊（每週/每月/每季）不進 task harness——屬持續營運，harness 為一次性工程/spec 產出。落於編輯日曆 / `/schedule`。
+- 持續出刊（每週/每月/每季）不進 task runner——屬持續營運，task runner 為一次性工程/spec 產出。落於編輯日曆 / `/schedule`。
 
 ---
 
 ## 追加評估（2026-06-29）：todos / tasks 落點
 
-**問題**：六階段需求是否要加進 todos / tasks harness？
+**問題**：六階段需求是否要加進 todos / task runner？
 
 **先前不精確處更正**：原「刻意不做」列「不在 `tasks/todo.md` 加行銷 checkbox（違 AGENTS.md 進度單一來源規約）」過度概括。AGENTS.md 規約是「**工程進度** checkbox 只在 todo.md、docs/ 不得新增 checkbox」；而 `tasks/todo.md` 本身設有「治理 / 商業（文件層 backlog）」段，明標「不是工程任務；founder 決策範疇」，正是非工程決策項的合法託管處。故 founder 決策類 checkbox 加在該段並不違規。
 
@@ -52,8 +52,8 @@
 |---|---|---|---|
 | 引擎 bootstrap（spec + scaffold + 首篇證明） | 一次性、產出 doc、可 verify | `tasks/task-list.md` + `task-status.md`（runner 事實源；precedent：M9.0/M9.2 doc-only 任務） | 新增 task `MKT.0`（Pending，deps `-`，paths `docs/marketing/**`） |
 | 行銷 go/no-go（持續節奏 + 渠道/品牌承諾） | founder 決策 | `tasks/todo.md` § 治理 / 商業 backlog | 新增 1 checkbox，回指 `MKT.0` |
-| 每週/每月/每季實際出刊 | 持續營運、非一次性 | 編輯日曆 / `/schedule` | 不入 harness（明確排除） |
+| 每週/每月/每季實際出刊 | 持續營運、非一次性 | 編輯日曆 / `/schedule` | 不入 task runner（明確排除） |
 
-**為何 bootstrap 適合 harness 而出刊不適合**：task harness 每筆皆一次性、有 Expected Paths、走 verify gate。bootstrap 符合（產出 `docs/marketing/**`、首篇可追溯至真實 ADR 即 verify 通過）；出刊是無終點的週期動作，塞進一次性 harness 是 category error。
+**為何 bootstrap 適合 task runner 而出刊不適合**：task runner 每筆皆一次性、有 Expected Paths、走 verify gate。bootstrap 符合（產出 `docs/marketing/**`、首篇可追溯至真實 ADR 即 verify 通過）；出刊是無終點的週期動作，塞進一次性 task runner 是 category error。
 
 **為何 bootstrap 不需 founder gate**：最便宜節奏（每週決策文）僅需既有 ADR 為素材，零外部依賴，是 analysis § Stage 5 指認的死結破解點，可獨立於 go/no-go 先行。`MKT.0` 因此設為可直接 `make task-run` 的 Pending backlog，不等決策。
