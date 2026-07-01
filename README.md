@@ -36,7 +36,7 @@ Full walkthrough: [`docs/quickstart.md`](docs/quickstart.md).
 | `docs/features/*/spec.md` | feature specs（規格來源） |
 | `docs/adrs/*` | architecture decision records |
 | `docs/runbooks/*.md` | ops runbooks |
-| `tasks/` | task harness + 進度（`todo.md` / `lessons.md`） |
+| `tasks/` | task runner + 進度（`todo.md` / `lessons.md`） |
 
 ## Self-host
 

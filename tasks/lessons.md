@@ -30,7 +30,7 @@
 ## L003｜runner 從本機 main 開 worktree → stale chore 進 PR → CI 不派發
 
 - **情境**：M2.8 / M3.1 兩次失敗各自留下 `chore(task-runner): mark <ID> failed` commit 在本機 main，未 push。M2.8 之後另一次 task-run 成功並 merge 至 origin/main，但本機 main 仍帶兩筆舊 chore。對 M3.1 跑 `task-rerun` 時 worktree 從本機 main HEAD 開分支，PR 帶上這兩筆 stale chore → 與 origin/main `tasks/task-status.md` 同列三方衝突 → CI 不派發 → runner appear-timeout 後死。
-- **錯誤**：worktree base 是漂移過的本機 main，harness 不對 origin 校驗；PR conflicting 時 runner 把 `no checks reported` 當「CI 沒準備好」處理，沒回報衝突。
+- **錯誤**：worktree base 是漂移過的本機 main，task runner 不對 origin 校驗；PR conflicting 時 runner 把 `no checks reported` 當「CI 沒準備好」處理，沒回報衝突。
 - **規則**：
   1. `run-one.sh` 開 worktree 前 `git fetch origin && git merge-base --is-ancestor HEAD origin/main`；若 HEAD 不在 origin/main ancestor 集合內，先停下，由人決定要同步還是從 `origin/main` 直接開分支。
   2. `mark_task_failed` 的 chore 紀錄改成 `.task-sessions/<ID>/status.md` sidecar，不在 main 落 commit，避免本機與 origin 漂移。
@@ -189,7 +189,7 @@ surface 隔壁 handler 同 bug 再補 fix 一次 — 都是延遲修正導致 pl
   append-only/export、M5.4/M5.5/M2.6 HA/PITR/SLO）標成 `規劃中`，且 §3 拿「M5 HA/DR」當 `規劃中`
   範例已失準。升 `已具備` 涉及對審計斷言可用性，agent 要 sign-off。但 `-p` 是一次性、無法收答案 →
   agent 結束、未翻 status → runner `VERIFY_FAILED=status` → 標 Failed、保留 worktree。
-- **這是 harness 設計要的行為**（停下回報優於 bulldoze），非 bug。
+- **這是 task runner 設計要的行為**（停下回報優於 bulldoze），非 bug。
 - **規則**：
   1. 純文件/需人類判斷（狀態準則、對外合規斷言、範圍取捨）的 task **不適合無人值守 task-runner**。
      要嘛把**決策預先寫進 `tasks/todo.md` 對應 acceptance bullets** 再 `task-run`，要嘛人工完成後
