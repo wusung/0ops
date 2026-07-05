@@ -127,3 +127,28 @@ jobs:
           subject-name: ghcr.io/${{ github.repository_owner }}/0ops-migrations
           subject-digest: ${{ env.MIGRATIONS_DIGEST }}
           push-to-registry: true
+
+  # Tag-driven CD to the production K3s host (production-deployment spec § 7).
+  # Runs on the self-hosted runner already installed on that host
+  # (deploy/runner/*, `manage.sh prod-install-runner`, label 0ops-builder) so
+  # `helm upgrade` talks to the local k3s API directly — no kubeconfig
+  # secret, no ArgoCD. `needs: images` so only Trivy-gated, signed, attested
+  # images ever get rolled out.
+  deploy:
+    needs: images
+    runs-on: [self-hosted, 0ops-builder]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: helm upgrade ops-server
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          helm upgrade --install ops-server deploy/server \
+            --namespace system-0ops --create-namespace \
+            -f deploy/server/values-prod.yaml \
+            --set image.tag="$TAG" \
+            --set migrations.image.tag="$TAG" \
+            --wait --timeout 5m
+
+      - name: smoke test
+        run: bash deploy/bootstrap/smoke.sh

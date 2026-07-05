@@ -1,0 +1,13 @@
+# Production overlay for deploy/server chart.
+# Single source of truth for the prod-specific values that previously lived
+# as ArgoCD `helm.parameters` on deploy/gitops/argocd/apps/server.yaml
+# (now removed — ops-server is deployed by .github/workflows/release.yml's
+# `deploy` job via `helm upgrade -f deploy/server/values-prod.yaml`).
+# image.tag / migrations.image.tag are passed separately via --set at
+# deploy time (the release tag), not hardcoded here.
+ingress:
+  host: api.jesontech.com
+
+config:
+  publicURL: https://api.jesontech.com
+  domainBase: jesontech.com
