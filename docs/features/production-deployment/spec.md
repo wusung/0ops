@@ -228,21 +228,34 @@ secretRef:
 
 ## 7. ArgoCD app-of-apps
 
+> **Update（tag-driven CD）：`ops-server` 已移出 ArgoCD 管理。** release workflow
+> 之前只建 image、從不 bump `helm.parameters` 裡的 tag，導致每個 release 都要手動改
+> `apps/server.yaml` 才會部署。現在改為 `.github/workflows/release.yml` 的
+> `deploy` job：images 通過 Trivy/簽章後，跑在 host 上既有的 self-hosted runner
+> （`deploy/runner/*`，label `0ops-builder`）直接對本機 k3s 執行
+> `helm upgrade --install ops-server deploy/server -f deploy/server/values-prod.yaml
+> --set image.tag=$TAG --set migrations.image.tag=$TAG`，以 release tag 驅動部署，
+> 不再需要 kubeconfig secret 或 ArgoCD sync。`deploy/server/values-prod.yaml` 是
+> ingress/config 值的單一來源（取代原本 `apps/server.yaml` 的 `helm.parameters`）。
+> `postgres` / `cloudflare-tunnel` / `observability` / `policy-controller` 仍走
+> ArgoCD，未變動。
+
 `deploy/gitops/argocd/` 結構：
 
 ```
 root-app.yaml                    # 入口；指向 deploy/gitops/argocd/apps/
 apps/
   postgres.yaml                  # → deploy/postgres
-  server.yaml                    # → deploy/server
   cloudflare-tunnel.yaml         # → deploy/chart/cloudflare-tunnel
   observability.yaml             # → deploy/gitops/observability (kustomize)
 ```
 
+（`server.yaml` 已移除 — 見上方 tag-driven CD 說明）
+
 每個 child app：
 - `repoURL: https://github.com/wusung/0ops.git`
 - `path: <chart path>`
-- `targetRevision: main`（後續可改 release tag）
+- `targetRevision: main`
 - `destination.namespace: <ns>`
 - `syncPolicy: automated + prune + selfHeal`
 

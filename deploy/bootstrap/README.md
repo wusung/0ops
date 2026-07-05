@@ -75,9 +75,18 @@ up.sh
   ├─ install-sealed-secrets.sh kubectl apply controller，撈 pubkey
   ├─ seal-secrets.sh          .env.prod → 3 個 SealedSecret YAML
   ├─ kubectl apply tmp/sealed/+ root-app.yaml
-  ├─ wait-for-sync.sh         等 ArgoCD 全 Synced+Healthy（5 min timeout）
+  ├─ wait-for-sync.sh         等 ArgoCD 全 Synced+Healthy（postgres/tunnel/observability，5 min timeout）
   └─ smoke.sh                 curl /health → 200
 ```
+
+> **`ops-server` 不再由 ArgoCD 安裝/更新**（tag-driven CD，見
+> `docs/features/production-deployment/spec.md` § 7）。`up.sh` 跑完只代表
+> postgres / cloudflare-tunnel / observability 就緒；`ops-server` 的第一次安裝
+> 需手動跑一次 `helm upgrade --install ops-server deploy/server -n system-0ops
+> --create-namespace -f deploy/server/values-prod.yaml --set image.tag=<tag>
+> --set migrations.image.tag=<tag>`，或直接推一個 release tag 讓
+> `.github/workflows/release.yml` 的 `deploy` job（跑在 self-hosted runner
+> 上）代勞。之後每個 release tag 都會自動重跑這條 `helm upgrade`。
 
 ## 冪等
 
@@ -93,11 +102,13 @@ up.sh
 
 ## 非預設域名 / 非預設 image
 
-`deploy/gitops/argocd/apps/*.yaml` 是 ArgoCD 從 git 直接讀取的 Application 物件；
-ArgoCD 不做 env substitution。若你的域名 / image 不是 `api.jesontech.com` / `ghcr.io/winshare/ops-server`，
-請 fork 本 repo，修：
+`deploy/gitops/argocd/apps/*.yaml` 是 ArgoCD 從 git 直接讀取的 Application 物件
+（postgres / cloudflare-tunnel / observability）；ArgoCD 不做 env substitution。
+`ops-server` 的域名 / image 則由 `helm upgrade` 直接吃 `deploy/server/values-prod.yaml`
+（不經 ArgoCD）。若你的域名 / image 不是 `api.jesontech.com` /
+`ghcr.io/winshare/ops-server`，請 fork 本 repo，修：
 
-- `deploy/gitops/argocd/apps/server.yaml` 的 `helm.parameters`（`ingress.host` / `config.publicURL` / `image.tag` 等）
+- `deploy/server/values-prod.yaml` 的 `ingress.host` / `config.publicURL` / `config.domainBase`
 - `deploy/gitops/argocd/root-app.yaml` 與 `apps/*.yaml` 的 `repoURL` 指向你的 fork
 - `deploy/bootstrap/.env.prod` 的 `ARGOCD_REPO_URL` / `PROD_API_HOST` 對齊
 
