@@ -48,3 +48,4 @@
 `docs/features/sso-saml/release/2026-06-30-oidc-login-and-e2e.md` + 跨切面標準 `docs/features/e2e-testing/spec.md`。
 窄化 deferred：multi-replica HA 之 durable StateStore（spec § 19.2）。
 | MKT.W1 | Build-in-public weekly post from 0002-idempotency-and-compensation.md | Done | 2026-07-05 |
+| MKT.W2 | Build-in-public weekly post from 0015-audit-log-append-only-and-tamper-evidence.md | Done | 2026-07-05 |

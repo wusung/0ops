@@ -13,19 +13,22 @@ zh=$(awk '/^## 中文/{f=1;next} /^## English/{f=0} f' "$post" | tr -d '[:space:
 en=$(awk '/^## English/{f=1;next} f' "$post" | tr -d '[:space:]')
 [[ -n "$zh" ]] || fail G1 "zh empty"; [[ -n "$en" ]] || fail G1 "en empty"
 
-# G2 template structure by cadence
+# G2 promo structure: valid cadence + a headline present in each language section
 cadence=$(sed -n 's/^cadence:[[:space:]]*//p' "$post" | head -1)
-case "$cadence" in
-  weekly)    reqs=("限制" "選項" "取捨") ;;
-  monthly)   reqs=("症狀" "根因" "為何" "制度") ;;
-  quarterly) reqs=("痛點" "設計約束" "決策" "驗證" "失敗模式") ;;
-  *) fail G2 "unknown cadence: '$cadence'" ;;
-esac
-for h in "${reqs[@]}"; do grep -q "$h" "$post" || fail G2 "missing marker: $h"; done
+case "$cadence" in weekly|monthly|quarterly) ;; *) fail G2 "unknown or missing cadence: '$cadence'" ;; esac
+zh_head=$(awk '/^## 中文/{f=1;next} /^## English/{f=0} f&&/^# /{print;exit}' "$post")
+en_head=$(awk '/^## English/{f=1;next} f&&/^# /{print;exit}' "$post")
+[[ -n "$zh_head" ]] || fail G2 "missing '# headline' in 中文 section"
+[[ -n "$en_head" ]] || fail G2 "missing '# headline' in English section"
 
-# G3 engineering anchor
-grep -Eq 'ADR-[0-9]{4}|[A-Za-z0-9_./-]+\.go:[0-9]+|(commit|sha|@)[^0-9a-f]{0,8}[0-9a-f]{7,40}' "$post" \
-  || fail G3 "no verifiable anchor (ADR-XXXX / file.go:line / commit <sha>)"
+# G3 external-safe promo (see docs/marketing/WRITING-PRINCIPLES.md):
+#   (a) no internal jargon leakage — reject ADR-XXXX / file.go:line
+#   (b) must carry a call-to-action — install command or try link
+if grep -Eq 'ADR-[0-9]{4}|[A-Za-z0-9_./-]+\.go:[0-9]+' "$post"; then
+  fail G3 "internal reference leaked into external copy (ADR-XXXX / file.go:line) — WRITING-PRINCIPLES.md rule 2"
+fi
+grep -Eq 'curl |0ops (apps|auth)|https?://' "$post" \
+  || fail G3 "no call-to-action (install command / try link) — WRITING-PRINCIPLES.md rule 6"
 
 # G4 boundary (content tasks only; bootstrap sets MKT_VERIFY_SKIP_G4=1)
 if [[ "${MKT_VERIFY_SKIP_G4:-0}" != "1" ]]; then

@@ -238,3 +238,9 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
 - [ ] front-matter 含 `cadence: weekly`、`source: docs/adrs/0002-idempotency-and-compensation.md`
 - [ ] 通過 `./manage.sh mkt-verify <post>`（G1–G6）
 - [ ] sources-ledger 標 docs/adrs/0002-idempotency-and-compensation.md consumed；editorial-calendar 加列
+
+### MKT.W2 — Build-in-public weekly post from 0015-audit-log-append-only-and-tamper-evidence.md
+- [ ] 讀 `docs/marketing/WRITING-PRINCIPLES.md`（對外推廣、用戶視角、零內部代號、含 CTA），依 `templates/weekly-promo.md` 由種子 docs/adrs/0015-audit-log-append-only-and-tamper-evidence.md 產出 weekly 中英雙語**推廣文案**至 `docs/marketing/posts/`
+- [ ] front-matter 含 `cadence: weekly`、`source: docs/adrs/0015-audit-log-append-only-and-tamper-evidence.md`
+- [ ] 通過 `./manage.sh mkt-verify <post>`（G1–G6；G3 擋內部代號並要求 CTA）
+- [ ] sources-ledger 標 docs/adrs/0015-audit-log-append-only-and-tamper-evidence.md consumed；editorial-calendar 加列

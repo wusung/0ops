@@ -3,8 +3,8 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 v="$here/../verify.sh"
 export MKT_VERIFY_SKIP_G4=1 MKT_LEDGER="$here/fixtures/ledger-consumed.md" MKT_CALENDAR="$here/fixtures/calendar-ok.md"
-bash "$v" "$here/fixtures/post-good.md"      && echo "good ok"      || { echo "FAIL good"; exit 1; }
-bash "$v" "$here/fixtures/post-no-en.md"     && { echo "FAIL no-en"; exit 1; } || echo "no-en rejected"
-bash "$v" "$here/fixtures/post-no-anchor.md" && { echo "FAIL anchor"; exit 1; } || echo "anchor rejected"
-bash "$v" "$here/fixtures/post-deadbeef.md"  && { echo "FAIL deadbeef"; exit 1; } || echo "deadbeef rejected"
+bash "$v" "$here/fixtures/post-good.md"         && echo "good ok"                        || { echo "FAIL good"; exit 1; }
+bash "$v" "$here/fixtures/post-no-en.md"        && { echo "FAIL no-en"; exit 1; }         || echo "no-en rejected"
+bash "$v" "$here/fixtures/post-internal-ref.md" && { echo "FAIL internal-ref"; exit 1; }  || echo "internal-ref rejected"
+bash "$v" "$here/fixtures/post-no-cta.md"       && { echo "FAIL no-cta"; exit 1; }        || echo "no-cta rejected"
 echo "PASS test_verify"
