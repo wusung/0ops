@@ -14,6 +14,10 @@ image:
 
 replicaCount: 3
 
+# Node hostnames to soft-avoid scheduling onto (preferred, not required) —
+# e.g. nodes with known-flaky CoreDNS reachability. Empty by default.
+avoidNodes: []
+
 resources:
   requests:
     cpu: 100m
@@ -22,10 +26,23 @@ resources:
     cpu: 500m
     memory: 256Mi
 
-# Cloudflare Tunnel token. In production, expose via an ExternalSecret /
+# Cloudflare Tunnel token. Only used when tunnel.id is unset (legacy
+# remote-managed mode). In production, expose via an ExternalSecret /
 # SealedSecret pointing at the cloudflared-tunnel-token secret rather than
 # embedding the literal value here.
 tunnelToken: ""
+
+# When set, the connector runs in locally-managed mode (--config, not
+# --token), reading ingress rules from this chart instead of Cloudflare's
+# remote tunnel config. Requires a `cloudflared-tunnel-credentials` Secret
+# (the tunnel's credentials.json from `cloudflared tunnel create`) to exist
+# in this namespace — not managed by this chart, provisioned out of band.
+tunnel:
+  id: ""
+
+ingress:
+  hostname: ""
+  service: "http://traefik.kube-system.svc.cluster.local:80"
 
 # Service backing K3s ingress traffic (cloudflared egress target).
 traefik:
