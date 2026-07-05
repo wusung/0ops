@@ -9,7 +9,11 @@ case "$cadence" in
 esac
 src="$(ledger_next_available "$cadence")"
 [[ -n "$src" ]] || die "no available $cadence source"
-if grep -q "$src" "$TASK_LIST" 2>/dev/null; then echo "noop: $src already registered" >&2; exit 0; fi
+# idempotency: only collide with an existing MKT.* task for this source,
+# not with unrelated tasks (e.g. M9.*) that merely reference the same ADR in their Spec Refs.
+if grep -F "$src" "$TASK_LIST" 2>/dev/null | grep -q 'MKT\.[WMQ]'; then
+  echo "noop: $src already registered as MKT task" >&2; exit 0
+fi
 n=1; while grep -q "| ${prefix}${n} " "$TASK_LIST" 2>/dev/null; do n=$((n+1)); done
 id="${prefix}${n}"
 title="Build-in-public $cadence post from $(basename "$src")"
