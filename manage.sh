@@ -148,6 +148,11 @@ cmd_task_rerun() {
 }
 cmd_task_runner_test() { bash tasks/run/test/run-tests.sh; }
 
+# --- marketing (build-in-public content lane) ---
+cmd_mkt_next()    { bash tasks/mkt/next.sh "$@"; }
+cmd_mkt_verify()  { bash tasks/mkt/verify.sh "$@"; }
+cmd_mkt_publish() { bash tasks/mkt/publish.sh "$@"; }
+
 # ----- help -----
 
 usage() {
@@ -231,6 +236,13 @@ task runner:
   task-rerun <ID>              強制重跑指定 task
   task-runner-test             跑 task runner 自身的 smoke 測試
 
+marketing (build-in-public content lane; docs/features/build-in-public-engine/spec.md):
+  mkt-next <cadence>           節奏產生器：讀 sources-ledger 挑下一個 available 素材、
+                               註冊一筆 content task (cadence: weekly|monthly|quarterly)
+  mkt-verify <post-path>       客觀內容驗收 gate G1–G6 (雙語/模板/工程錨點/邊界/帳本/長度)
+  mkt-publish <queue.yaml>     dry-run 散佈器：印 FB 粉專 / Threads payload；不連網
+                               (--publish 本輪被 guard，真發屬 MKT.2)
+
 misc:
   help, -h, --help             顯示本說明
 EOF
@@ -296,6 +308,10 @@ main() {
     task-run)         cmd_task_run "$@" ;;
     task-rerun)       cmd_task_rerun "$@" ;;
     task-runner-test) cmd_task_runner_test "$@" ;;
+
+    mkt-next)     cmd_mkt_next "$@" ;;
+    mkt-verify)   cmd_mkt_verify "$@" ;;
+    mkt-publish)  cmd_mkt_publish "$@" ;;
 
     *)
       echo "unknown command: $cmd" >&2
