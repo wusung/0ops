@@ -232,3 +232,9 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
 - 做架構決策檢查
 - 做文件同步檢查
 - 做測試完整性檢查
+
+### MKT.W1 — Build-in-public weekly post from 0002-idempotency-and-compensation.md
+- [ ] 依 `docs/features/build-in-public-engine/spec.md` §4 由 docs/adrs/0002-idempotency-and-compensation.md 產出 weekly 中英雙語 canonical 長文至 `docs/marketing/posts/`
+- [ ] front-matter 含 `cadence: weekly`、`source: docs/adrs/0002-idempotency-and-compensation.md`
+- [ ] 通過 `./manage.sh mkt-verify <post>`（G1–G6）
+- [ ] sources-ledger 標 docs/adrs/0002-idempotency-and-compensation.md consumed；editorial-calendar 加列
