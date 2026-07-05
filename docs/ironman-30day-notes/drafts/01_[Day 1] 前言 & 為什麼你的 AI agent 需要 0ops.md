@@ -15,24 +15,21 @@ Agent 可以把功能做到「在我機器上跑得起來」，可是要真正�
 
 未來 30 天的學習筆記
 
-這次的筆記聚焦在「**實際使用 0ops**」——怎麼裝、怎麼用、怎麼部署、怎麼排錯，而不是它內部怎麼實作。整體分為五章：
+這次的筆記聚焦在「**實際使用 0ops**」——怎麼裝、怎麼用、怎麼部署、怎麼排錯，而不是它內部怎麼實作。整體分為四章：
 
-介紹與定位
+介紹與環境架設
 
 - [Day 1] 前言 & 為什麼你的 AI agent 需要 0ops
 - [Day 2] 30 秒 demo：一句話讓 AI 把 repo 部署上線
 - [Day 3] 誰該用 0ops：使用情境與選型
 - [Day 4] agent 出貨的安全網 - preview/confirm 是什麼
-
-解決方案與上手
-
 - [Day 5] 0ops vs Vercel / Railway / 自建 K8s
 - [Day 6] 兩種用法 - CLI 與 MCP 雙入口
 - [Day 7] 三分鐘安裝上手 - 一條 curl 搞定
 - [Day 8] 接上你的 AI CLI - Claude Code / Codex / Copilot
 - [Day 9] 工具授權 - deny-by-default 與 grant
 
-核心操作
+0ops 基礎概念與實作
 
 - [Day 10] 部署第一個 app - 從 GitHub repo 到上線
 - [Day 11] 從本機資料夾部署 - local source
@@ -44,7 +41,7 @@ Agent 可以把功能做到「在我機器上跑得起來」，可是要真正�
 - [Day 17] 管理 app 生命週期 - 列出 / 查詳情 / 安全刪除
 - [Day 18] token 與 CI - 非互動式部署
 
-實務與排錯
+0ops 進階概念與實作
 
 - [Day 19] Demo：讓 Claude Code 從零部署 Next.js 上線
 - [Day 20] preview/confirm 實戰 - 安全地放手讓 agent 寫入
@@ -54,7 +51,7 @@ Agent 可以把功能做到「在我機器上跑得起來」，可是要真正�
 - [Day 24] 排錯（二）- 卡在 deleting 與網址打不開
 - [Day 25] 上手陷阱與 FAQ
 
-進階與自架
+如何管理 0ops
 
 - [Day 26] self-host 你自己的 0ops - 一鍵裝
 - [Day 27] 生產 OAuth 與網域設定

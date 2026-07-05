@@ -43,15 +43,16 @@
 
 **系列索引**：`drafts/index.json`，陣列 `{day, title, href, file}`（欄位對齊 `docs/k8s-30days/index.json`）；`href` 發佈後補。
 
-## 章節結構（30 篇分五章，仿 k8s-30days 的分章導讀）
+## 章節結構（30 篇分四章，仿 k8s-30days 的分章導讀）
+
+章名直接對齊 iThome 鐵人賽慣例（參照 `docs/k8s-30days/`：`介紹與開發環境架設` → `Kubernetes基礎概念與實作` → `Kubernetes進階概念與實作` → `如何管理Kubernetes`），走「介紹+環境 → 基礎概念與實作 → 進階概念與實作 → 如何管理」的學習進程。
 
 | 章 | Day | 主題 |
 |---|---|---|
-| 介紹與定位 | 1–4 | 0ops 是什麼、30 秒價值、誰該用、agent 出貨的安全網 |
-| 解決方案與上手 | 5–9 | vs 其他 PaaS、CLI+MCP 雙路徑、安裝上手、接 AI CLI、工具授權 |
-| 核心操作 | 10–18 | 部署 app、看 log、redeploy、綁網域、團隊、生命週期、CI token |
-| 實務與排錯 | 19–25 | AI 端到端部署、preview/confirm 實戰、push-to-deploy、權限與稽核、排錯 |
-| 進階與自架 | 26–30 | self-host、生產 OAuth/網域、SSO、audit/合規、運維與回顧 |
+| 介紹與環境架設 | 1–9 | 0ops 是什麼、誰該用、安全網、選型、安裝上手、接 AI CLI、工具授權 |
+| 0ops 基礎概念與實作 | 10–18 | 部署 app、看 log、redeploy、綁網域、團隊、生命週期、CI token |
+| 0ops 進階概念與實作 | 19–25 | AI 端到端部署、preview/confirm 實戰、push-to-deploy、權限與稽核、排錯 |
+| 如何管理 0ops | 26–30 | self-host、生產 OAuth/網域、SSO、audit/合規、運維與回顧 |
 
 ## 撰寫約束（正確性為第一）
 

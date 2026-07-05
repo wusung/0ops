@@ -9,7 +9,7 @@
 
 ---
 
-## 介紹 Introduction（Day 1–4）
+## 第一章 介紹與環境架設（Day 1–9）
 
 ### Day 1 — 你的 AI agent 會寫 code，卻不會出貨
 - **你會學到**：0ops 解決什麼問題——AI CLI 能寫能改能測，就是不能自己把成果部署上線；0ops 補上這最後一哩的 `ship`。
@@ -34,10 +34,6 @@
 - **動手內容**：展示一次 create 的 `[y/N]`、一次 delete 要打的 `DELETE <slug>` phrase。
 - **對映來源**：`docs/features/preview-confirm-gate/spec.md`（使用者體驗面）、CLI delete 流程。
 - **產出形式**：使用者會看到/打什麼的實際畫面。
-
----
-
-## 解決方案 Solution（Day 5–9）
 
 ### Day 5 — 0ops vs Vercel / Railway / 自建 K8s：你該選哪個
 - **你會學到**：從使用者需求出發的選型——什麼時候 0ops 勝出、什麼時候別的更適合。
@@ -84,7 +80,7 @@
 
 ---
 
-## 操作 Operation（Day 10–18）
+## 第二章 0ops 基礎概念與實作（Day 10–18）
 
 ### Day 10 — 部署第一個 app：從 GitHub repo 到上線
 - **你會學到**：裝 GitHub App → create → 上線的最短路徑。
@@ -147,7 +143,7 @@
 
 ---
 
-## 實務 Practical（Day 19–25）
+## 第三章 0ops 進階概念與實作（Day 19–25）
 
 ### Day 19 — 真實情境：讓 Claude Code 從零把 Next.js 部署上線
 - **你會學到**：一個完整的 AI 端到端旅程串起前面所有操作。
@@ -193,7 +189,7 @@
 
 ---
 
-## 進階 Advanced（Day 26–30）
+## 第四章 如何管理 0ops（Day 26–30）
 
 ### Day 26 — self-host 你自己的 0ops：一鍵裝
 - **你會學到**：用 `manage.sh` 把整套裝到自己的 K3s。

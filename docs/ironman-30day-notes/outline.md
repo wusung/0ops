@@ -7,7 +7,7 @@
 
 ---
 
-## 介紹 Introduction（Day 1–4）
+## 第一章 介紹與環境架設（Day 1–9）
 
 ### Day 1 — 你的 AI agent 會寫 code，卻不會出貨
 - 開場情境：Claude Code 幫你寫完、測完一個服務，然後你卡在「怎麼上線」。
@@ -36,10 +36,6 @@
 - AI 體驗：agent 必須先展示 side_effects 取得你同意才呼叫 confirm 工具。
 - 這道閘是 backend 強制的，agent 繞不過。
 - **原則**：讓 AI 有權執行、但無權略過人的確認。
-
----
-
-## 解決方案 Solution（Day 5–9）
 
 ### Day 5 — 0ops vs Vercel / Railway / 自建 K8s：你該選哪個
 - 從需求出發的四維對照：AI 原生接入、self-host 能力、計費在地化、學習曲線。
@@ -78,7 +74,7 @@
 
 ---
 
-## 操作 Operation（Day 10–18）
+## 第二章 0ops 基礎概念與實作（Day 10–18）
 
 ### Day 10 — 部署第一個 app：從 GitHub repo 到上線
 - 先裝 GitHub App：`0ops teams github install`（preview→confirm→開瀏覽器授權→輪詢）。
@@ -145,7 +141,7 @@
 
 ---
 
-## 實務 Practical（Day 19–25）
+## 第三章 0ops 進階概念與實作（Day 19–25）
 
 ### Day 19 — 真實情境：讓 Claude Code 從零把 Next.js 部署上線
 - 完整旅程：對話開需求 → agent 建 app → 綁網域 → 邀夥伴 → 看 log。
@@ -198,7 +194,7 @@
 
 ---
 
-## 進階 Advanced（Day 26–30）
+## 第四章 如何管理 0ops（Day 26–30）
 
 ### Day 26 — self-host 你自己的 0ops：一鍵裝
 - 前置清單：K3s host、Cloudflare zone + `*.<domain>` CNAME → tunnel、Cloudflare Tunnel token、GitHub OAuth App、kubeseal。
