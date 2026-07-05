@@ -53,11 +53,13 @@ mkt-next <cadence>  ──►  registry 新增 MKT.X{n}  ──►  task-run MKT
 
 ## 4. content-task 型別與素材映射
 
-| 節奏 | task 前綴 | 素材來源 | 模板 | canonical 結構 |
+文案定位為**對外推廣**（用戶視角、零內部代號、含 CTA），寫作契約見 `docs/marketing/WRITING-PRINCIPLES.md`。素材（ADR/lesson/milestone）只是「本篇推廣哪個能力/故事」的**種子**，不是要被解釋的技術對象。共用結構骨架：鉤子 → 痛/想要 → 0ops 的解法 → 差異化 → CTA。
+
+| 節奏 | task 前綴 | 素材種子 | 模板 | 推廣角度 |
 |---|---|---|---|---|
-| 週更「為什麼這麼做」 | `MKT.W` | 下一個未用 `docs/adrs/00XX-*.md` | `templates/weekly-decision.md` | 限制 → 選項 → 取捨 |
-| 月更「失敗教會什麼」 | `MKT.M` | 下一個未用 `tasks/lessons.md` L0XX / P0 修復 | `templates/monthly-postmortem.md` | 症狀 → 根因 → 為何當初沒看見 → 制度性修正 |
-| 季更「從問題到解法」 | `MKT.Q` | 一個 milestone 端到端切片 | `templates/quarterly-path.md` | 痛點 → 設計約束 → 架構決策鏈 → 實作 → 驗證證據 → 失敗模式 |
+| 週更 | `MKT.W` | 下一個未用 `docs/adrs/00XX-*.md` | `templates/weekly-promo.md` | 把某能力翻成用戶價值 |
+| 月更 | `MKT.M` | 下一個未用 `tasks/lessons.md` L0XX / P0 修復 | `templates/monthly-promo.md` | 把某風險翻成「我們在它傷到你之前就攔下」的信任 |
+| 季更 | `MKT.Q` | 一個 milestone 端到端切片 | `templates/quarterly-promo.md` | 把 milestone 翻成「你的問題 → 現在能怎麼解」成果 |
 
 素材挑選：`sources-ledger.md` 以 `consumed` / `available` 標記每個 ADR / lesson / milestone。產生器挑該節奏下第一個 `available`，寫入 task 後 agent 於完成時將其標為 `consumed`（列為 verify G5）。
 
@@ -66,8 +68,8 @@ mkt-next <cadence>  ──►  registry 新增 MKT.X{n}  ──►  task-run MKT
 輸入 canonical 長文路徑；逐項檢查，任一失敗印出原因並 exit 非零：
 
 - **G1 雙語**：檔內同時存在非空的 zh 與 en 區塊（front-matter `lang` 或 `## 中文` / `## English` 段）。
-- **G2 模板結構**：該節奏 canonical 結構的必填標題全部存在。
-- **G3 工程錨點**：至少一處命中 `ADR-\d{4}` 或 `[\w./-]+\.go:\d+` 或 `\b[0-9a-f]{7,40}\b`（commit sha）——強制內容綁真實工程事實，杜絕空泛行銷語。
+- **G2 結構**：cadence 合法（weekly/monthly/quarterly），且 zh 與 en 段各有一個 `# 標題`。
+- **G3 對外安全**（WRITING-PRINCIPLES.md 原則 2、6）：(a) **禁止內部代號洩漏**——出現 `ADR-\d{4}` 或 `[\w./-]+\.go:\d+` 即 fail；(b) **必須有 CTA**——需含安裝指令或試用連結（`curl ` / `0ops apps|auth` / `https?://`）。取代舊「強制工程錨點」：推廣文案不對外暴露內部決策代號。
 - **G4 邊界**：改動清單（含 untracked）只落在 `docs/marketing/**`；任何一條 path 在外即 fail（防污染規格來源）。**G4 僅適用於內容產出 task（`MKT.W/M/Q{n}`）**；建 lane 的 bootstrap task（MKT.0）額外允許改 `tasks/mkt/**` 與 registry 三檔，其內容產出子步驟仍受 G1–G3、G5 約束。
 - **G5 帳本**：`sources-ledger.md` 已把本次素材標 `consumed`；`editorial-calendar.md` 已有本篇一列。
 - **G6 社群長度**（若已產生 queue 變體）：Threads 變體 ≤ 500 字。
