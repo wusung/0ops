@@ -300,15 +300,15 @@ esac
 for h in "${reqs[@]}"; do grep -q "$h" "$post" || fail G2 "missing marker: $h"; done
 
 # G3 engineering anchor
-grep -Eq 'ADR-[0-9]{4}|[A-Za-z0-9_./-]+\.go:[0-9]+|\b[0-9a-f]{7,40}\b' "$post" \
-  || fail G3 "no verifiable anchor (ADR-XXXX / file.go:line / sha)"
+grep -Eq 'ADR-[0-9]{4}|[A-Za-z0-9_./-]+\.go:[0-9]+|(commit|sha|@)[^0-9a-f]{0,8}[0-9a-f]{7,40}' "$post" \
+  || fail G3 "no verifiable anchor (ADR-XXXX / file.go:line / commit <sha>)"
 
 # G4 boundary (content tasks only; bootstrap sets MKT_VERIFY_SKIP_G4=1)
 if [[ "${MKT_VERIFY_SKIP_G4:-0}" != "1" ]]; then
-  while IFS= read -r p; do
+  while IFS= read -r -d '' p; do
     [[ -z "$p" ]] && continue
     case "$p" in docs/marketing/*) ;; *) fail G4 "change outside docs/marketing/: $p" ;; esac
-  done < <(git -C "$REPO_ROOT" status --porcelain | awk '{print $2}')
+  done < <( { git -C "$REPO_ROOT" diff --name-only --no-renames -z HEAD; git -C "$REPO_ROOT" ls-files --others --exclude-standard -z; } )
 fi
 
 # G5 ledger + calendar
@@ -433,7 +433,7 @@ post_id="$(basename "$item" .yaml)"
 for ch in fb threads; do
   key="$(printf '%s|%s' "$post_id" "$ch" | sha256sum | cut -c1-16)"
   if grep -q "$key" "$PUBLISHED_LEDGER" 2>/dev/null; then echo "skip (already published): $ch $post_id"; continue; fi
-  body="$(awk -v c="$ch:" '$0==c{f=1;next} f&&/^[a-z]+:/{f=0} f' "$item")"
+  body="$(awk -v c="$ch" '$0 ~ "^"c":" {f=1; next} f && /^[a-z_]+:/{f=0} f' "$item" | sed 's/^[[:space:]]*//')"
   echo "=== channel=$ch post=$post_id dedup=$key ==="; printf '%s\n' "$body"
   if [[ "$mode" == "publish" ]]; then
     die "real publish disabled in MKT.1 (needs Meta creds + MKT_PUBLISH_CONFIRMED=1) — spec §9 MKT.2"
