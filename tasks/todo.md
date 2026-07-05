@@ -187,7 +187,21 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
 - [ ] Repo 主機位置最終定案（自建 vs GitHub org）
 - [ ] Copilot CLI / Codex CLI 與官方 Go SDK 相容性矩陣（v1 起手時驗證）
 - [ ] Backend SSE → MCP streaming 評估（官方 Go SDK 若不足則分頁拉取）
-- [ ] 啟動 build-in-public 行銷引擎 go/no-go（每週決策 / 每月失敗 / 每季路徑；gated on §九 團隊 credibility 與 design partner 時機；引擎 bootstrap 見 task `MKT.0`，持續出刊走編輯日曆而非 task runner）
+- [ ] 啟動 build-in-public 行銷引擎 go/no-go（每週決策 / 每月失敗 / 每季路徑；gated on §九 團隊 credibility 與 design partner 時機；引擎 bootstrap 見 task `MKT.0`。決策更新：出刊走既有 task-runner loop（`mkt-next` 觸發 → `task-run` 產出 → `mkt-verify` gate），非人工編輯日曆；排程自動化屬 MKT.2 且 gated）
+
+### MKT.0 — Build-in-public engine bootstrap
+- [ ] `docs/marketing/` scaffold：README、sources-ledger、editorial-calendar、published-ledger、三模板、posts/queue（見 plan Task 1）
+- [ ] `tasks/mkt/{lib,verify,next,publish}.sh` + `tasks/mkt/test/`，`./manage.sh mkt-next/mkt-verify/mkt-publish` 接線（plan Task 2–6）
+- [ ] verify gate G1–G6 有測試佐證（雙語 / 模板結構 / 工程錨點 / 邊界 / 帳本 / Threads 長度）
+- [ ] First proof：`./manage.sh mkt-next weekly` → `task-run MKT.W1` 由 loop 產出 ADR-0002 週更長文，`mkt-verify` PASS（plan Task 8）
+- [ ] 全程改動只落 `docs/marketing/**`、`tasks/mkt/**`、`manage.sh` 與 registry 三檔
+
+### MKT.1 — Social distribution lane (dry-run)
+- [ ] 由 canonical 長文衍生 `docs/marketing/queue/<post>.yaml`（fb + threads 變體，Threads ≤500 字）
+- [ ] `./manage.sh mkt-publish <queue>` dry-run 印 fb/threads 兩通道 payload 且不連網
+- [ ] `--publish` 被 guard 擋下（需 Meta creds + `MKT_PUBLISH_CONFIRMED=1`，本輪不接真 token）
+- [ ] `published-ledger.md` dedup key 冪等：重跑已發項目跳過
+- [ ] 明確不含：真實 Meta API 發文、排程器（屬 MKT.2）
 
 ## Governance Guide
 
@@ -218,3 +232,9 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
 - 做架構決策檢查
 - 做文件同步檢查
 - 做測試完整性檢查
+
+### MKT.W1 — Build-in-public weekly post from 0002-idempotency-and-compensation.md
+- [ ] 依 `docs/features/build-in-public-engine/spec.md` §4 由 docs/adrs/0002-idempotency-and-compensation.md 產出 weekly 中英雙語 canonical 長文至 `docs/marketing/posts/`
+- [ ] front-matter 含 `cadence: weekly`、`source: docs/adrs/0002-idempotency-and-compensation.md`
+- [ ] 通過 `./manage.sh mkt-verify <post>`（G1–G6）
+- [ ] sources-ledger 標 docs/adrs/0002-idempotency-and-compensation.md consumed；editorial-calendar 加列

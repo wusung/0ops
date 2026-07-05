@@ -1,0 +1,4 @@
+fb: |
+  0ops preview→confirm：讓 agent 的寫入操作無法繞過安全閘。為什麼這麼設計 → https://…/preview-confirm-idempotency
+threads: |
+  agent 出貨最怕誤刪。0ops 把 preview→confirm 冪等做在 backend 與 sqlc codegen 層，不是 UI 約定。ADR-0002。
