@@ -40,6 +40,7 @@
 | M9.6  | Audit event notification (outbox webhook)   | Done     | 2026-06-29     |
 | M7    | Web UI (post-v1)                            | Pending  | -              |
 | MKT.0 | Build-in-public engine bootstrap            | Pending  | -              |
+| MKT.1 | Social distribution lane (dry-run)          | Pending  | -              |
 
 [^m95e2e]: e2e 補完 2026-07-01：補 `GET .../sso/{slug}/authorize` OIDC 登入入口 + in-repo mock IdP
 （`cmd/devtools/mock-idp`）+ `compose.e2e.yaml` overlay + `tasks/e2e-sso.sh`（`./manage.sh e2e-sso`）。
