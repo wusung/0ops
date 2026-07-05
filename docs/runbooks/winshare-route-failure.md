@@ -3,7 +3,7 @@
 > 對應 spec：`docs/features/winshare-subdomain-and-tunnel/spec.md`
 > 對應 spec：`docs/features/production-deployment/spec.md`
 > 對應 ADR：ADR-0007（customer-domain TLS）
-> 適用範圍：`<slug>.jesontech.com` 與 `api.jesontech.com` 外部 HTTP 不可達 / 回 4xx 5xx
+> 適用範圍：`<slug>.jesontech.com` 與 `0ops.jesontech.com` 外部 HTTP 不可達 / 回 4xx 5xx
 
 ## 1. 觸發條件
 
@@ -78,7 +78,7 @@ kubectl -n cloudflare-tunnel get secret cloudflared-tunnel-token -o jsonpath='{.
 ### 2.3 K3s ingress (traefik)
 
 ```bash
-# api.jesontech.com 由 ops-server chart ingress 提供
+# 0ops.jesontech.com 由 ops-server chart ingress 提供
 kubectl -n system-0ops get ingress ops-server -o yaml | head -40
 
 # 該 app 對應 ingress（app-* namespace 由 backend 動態建立）

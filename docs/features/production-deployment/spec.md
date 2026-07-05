@@ -3,7 +3,7 @@
 > **狀態**：draft
 > **來源**：`tasks/todo.md` v1 收尾 #1「`nextdemo.jesontech.com` 真實外部 HTTP 200」
 > **適用範圍**：把 0ops backend / Postgres / cloudflared / observability 從現有 chart
-> 一鍵部署到單台 K3s host，使 `api.jesontech.com` 與 `*.jesontech.com` 對外可達。
+> 一鍵部署到單台 K3s host，使 `0ops.jesontech.com` 與 `*.jesontech.com` 對外可達。
 > **對應 Milestone**：M2 驗收基準收尾 + M6 follow-up Q1
 
 ## 1. 結論
@@ -14,7 +14,7 @@
   2. ArgoCD + sealed-secrets controller 安裝
   3. Cloudflare Tunnel token、GitHub OAuth Client、DB password 以 SealedSecret 注入
   4. ArgoCD root app 拉起 postgres → server → cloudflare-tunnel → observability
-  5. smoke 驗 `curl https://api.jesontech.com/health` 與 `curl https://nextdemo.jesontech.com`
+  5. smoke 驗 `curl https://0ops.jesontech.com/health` 與 `curl https://nextdemo.jesontech.com`
      皆回 200
 - 外部資源（Cloudflare zone、tunnel token、GitHub OAuth App、host）由 user 手動準備；
   其餘 100% 由 repo 內 script + chart 收斂，無 ad-hoc kubectl。
@@ -63,7 +63,7 @@ flowchart TB
       ArgoCD
       SS["sealed-secrets ctrl"]
       OpsSrv["ops-server × 2<br/>Service :8080"]
-      OpsIng["Ingress<br/>api.jesontech.com → ops-server:8080"]
+      OpsIng["Ingress<br/>0ops.jesontech.com → ops-server:8080"]
     end
     subgraph PG["ns: postgres"]
       PGMain["pg-main"]
@@ -119,7 +119,7 @@ sequenceDiagram
   L->>H: kubectl apply gitops/argocd/root-app.yaml
   H->>H: ArgoCD sync postgres → server → cloudflare-tunnel → observability
   L->>L: prod-verify（等 reconcile）
-  L->>L: prod-smoke<br/>curl https://api.jesontech.com/health<br/>curl https://nextdemo.jesontech.com
+  L->>L: prod-smoke<br/>curl https://0ops.jesontech.com/health<br/>curl https://nextdemo.jesontech.com
   L-->>U: 全部 200 → done
 ```
 
@@ -143,7 +143,7 @@ PROD_KUBECONFIG_LOCAL=~/.kube/0ops-prod
 
 # === domain ===
 PROD_BASE_DOMAIN=jesontech.com          # base zone
-PROD_API_HOST=api.jesontech.com         # backend
+PROD_API_HOST=0ops.jesontech.com         # backend
 PROD_DEMO_HOST=nextdemo.jesontech.com   # smoke target
 
 # === Cloudflare Tunnel（從 Cloudflare zerotrust dashboard 拿）===
@@ -152,7 +152,7 @@ CF_TUNNEL_TOKEN=<base64-token>
 # === GitHub OAuth App（production，從 https://github.com/settings/developers 註冊）===
 GITHUB_OAUTH_CLIENT_ID=<client-id>
 GITHUB_OAUTH_CLIENT_SECRET=<client-secret>
-GITHUB_OAUTH_REDIRECT_URI=https://api.jesontech.com/v1/auth/oauth2/callback
+GITHUB_OAUTH_REDIRECT_URI=https://0ops.jesontech.com/v1/auth/oauth2/callback
 
 # === image ===
 OPS_IMAGE_TAG=v0.1.1                  # GitHub Release tag

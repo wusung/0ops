@@ -33,7 +33,7 @@ fi
 # 讀 host
 PROD_API_HOST=$(grep -E '^PROD_API_HOST=' "$ENV_FILE" | head -n1 | cut -d= -f2- || true)
 if [ -z "$PROD_API_HOST" ]; then
-  read -r -p "PROD_API_HOST (例 api.jesontech.com): " PROD_API_HOST
+  read -r -p "PROD_API_HOST (例 0ops.jesontech.com): " PROD_API_HOST
   [ -z "$PROD_API_HOST" ] && { echo "PROD_API_HOST required" >&2; exit 1; }
 fi
 

@@ -85,12 +85,12 @@ env: []
 ingress:
   enabled: true
   className: traefik
-  host: ""              # render-time guard：production 必填，如 api.jesontech.com
+  host: ""              # render-time guard：production 必填，如 0ops.jesontech.com
   path: /
   pathType: Prefix
 
 config:
-  publicURL: ""         # render-time guard：production 必填，如 https://api.jesontech.com
+  publicURL: ""         # render-time guard：production 必填，如 https://0ops.jesontech.com
   domainBase: "jesontech.com"
   gitopsRepo: "git@github.com:wusung/0ops-gitops.git"
 

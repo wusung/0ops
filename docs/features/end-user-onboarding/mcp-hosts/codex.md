@@ -25,7 +25,7 @@
 ```toml
 [mcp_servers.0ops]
 command = "/home/<you>/.local/bin/0ops-mcp"
-env = { OPS_HOST = "https://api.jesontech.com" }
+env = { OPS_HOST = "https://0ops.jesontech.com" }
 ```
 
 對應欄位同 claude-code（見 `claude-code.md`）。

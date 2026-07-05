@@ -40,7 +40,7 @@ deploy 層早已預留參數（`deploy/server/templates/configmap.yaml` 之 `OPS
 
 ## 5. Deploy / scripts / docs 切換
 
-- `deploy/gitops/argocd/apps/server.yaml`：ingress.host=api.jesontech.com、publicURL、domainBase
+- `deploy/gitops/argocd/apps/server.yaml`：ingress.host=0ops.jesontech.com、publicURL、domainBase
 - `deploy/server/values.yaml`、`deploy/bootstrap/env.example`、`setup-oauth-app.sh`
 - `deploy/chart/cloudflare-tunnel/Chart.yaml` 描述、`prometheus-alert-rules.yaml`
 - `scripts/install.sh`、`tasks/e2e-create-app.sh`

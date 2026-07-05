@@ -6,8 +6,8 @@
 # image.tag / migrations.image.tag are passed separately via --set at
 # deploy time (the release tag), not hardcoded here.
 ingress:
-  host: api.jesontech.com
+  host: 0ops.jesontech.com
 
 config:
-  publicURL: https://api.jesontech.com
+  publicURL: https://0ops.jesontech.com
   domainBase: jesontech.com
