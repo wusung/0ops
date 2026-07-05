@@ -1,0 +1,9 @@
+post: 2026-07-05-provable-agent-audit-trail
+source: docs/adrs/0015-audit-log-append-only-and-tamper-evidence.md
+fb: |
+  把出貨交給 AI agent，出事時你答得出「這是誰動的」嗎？
+  一般 log 你只能希望它沒被改——有後台權限的人可以悄悄改一行、抹掉痕跡。0ops 把 agent 的每個動作記成一份改不了也刪不掉的紀錄，你隨時能匯出並驗證它沒被動過手腳，連我們也動不了。
+  別家給你「希望沒被改」的 log；0ops 給你「能證明沒被改」的紀錄。
+  五分鐘出貨你的第一個 app → {{canonical_url}}
+threads: |
+  AI agent 幫你出貨很方便，但出事時你能證明「這是誰動的」嗎？一般 log 有後台的人能悄悄改掉、你查不出。0ops 把每個動作記成改不了也刪不掉的紀錄，隨時能匯出驗證沒被竄改，連我們也動不了。能證明，不是只能希望。→ {{canonical_url}}

@@ -1,0 +1,9 @@
+post: 2026-07-05-preview-confirm-idempotency
+source: docs/adrs/0002-idempotency-and-compensation.md
+fb: |
+  你的 AI 會寫 code，為什麼還要你自己部署？把出貨也交給它。
+  0ops 是專為 AI agent 打造的部署平台——agent 直接呼叫，每個動作天生安全：做兩次只發生一次，推 image、綁網域這種收不回的動作絕不重複觸發。
+  Vercel 預設人在點按鈕；0ops 預設 agent 在操作，並讓它的失誤變無害。
+  五分鐘出貨你的第一個 app → {{canonical_url}}
+threads: |
+  你的 AI 會寫 code，幹嘛還自己部署？0ops 讓 agent 直接出貨，而且壞不了事——做兩次只發生一次，推 image／綁網域絕不重複觸發。專為 agent 設計，不是給人點按鈕的。五分鐘上線第一個 app → {{canonical_url}}

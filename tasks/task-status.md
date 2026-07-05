@@ -39,10 +39,13 @@
 | M9.5  | SSO/OIDC + 集中撤權 [^m95e2e]               | Done     | 2026-06-29     |
 | M9.6  | Audit event notification (outbox webhook)   | Done     | 2026-06-29     |
 | M7    | Web UI (post-v1)                            | Pending  | -              |
-| MKT.0 | Build-in-public engine bootstrap            | Pending  | -              |
+| MKT.0 | Build-in-public engine bootstrap            | Done     | 2026-07-05     |
+| MKT.1 | Social distribution lane (dry-run)          | Done     | 2026-07-05     |
 
 [^m95e2e]: e2e 補完 2026-07-01：補 `GET .../sso/{slug}/authorize` OIDC 登入入口 + in-repo mock IdP
 （`cmd/devtools/mock-idp`）+ `compose.e2e.yaml` overlay + `tasks/e2e-sso.sh`（`./manage.sh e2e-sso`）。
 對真 compose 棧跑通完整 OIDC dance + 集中撤權端到端（PASS）。設計：
 `docs/features/sso-saml/release/2026-06-30-oidc-login-and-e2e.md` + 跨切面標準 `docs/features/e2e-testing/spec.md`。
 窄化 deferred：multi-replica HA 之 durable StateStore（spec § 19.2）。
+| MKT.W1 | Build-in-public weekly post from 0002-idempotency-and-compensation.md | Done | 2026-07-05 |
+| MKT.W2 | Build-in-public weekly post from 0015-audit-log-append-only-and-tamper-evidence.md | Done | 2026-07-05 |
