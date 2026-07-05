@@ -30,7 +30,7 @@
     "0ops": {
       "command": "/home/<you>/.local/bin/0ops-mcp",
       "env": {
-        "OPS_HOST": "https://api.jesontech.com"
+        "OPS_HOST": "https://0ops.jesontech.com"
       }
     }
   }

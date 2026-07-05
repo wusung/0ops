@@ -105,7 +105,7 @@ up.sh
 `deploy/gitops/argocd/apps/*.yaml` 是 ArgoCD 從 git 直接讀取的 Application 物件
 （postgres / cloudflare-tunnel / observability）；ArgoCD 不做 env substitution。
 `ops-server` 的域名 / image 則由 `helm upgrade` 直接吃 `deploy/server/values-prod.yaml`
-（不經 ArgoCD）。若你的域名 / image 不是 `api.jesontech.com` /
+（不經 ArgoCD）。若你的域名 / image 不是 `0ops.jesontech.com` /
 `ghcr.io/winshare/ops-server`，請 fork 本 repo，修：
 
 - `deploy/server/values-prod.yaml` 的 `ingress.host` / `config.publicURL` / `config.domainBase`

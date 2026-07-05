@@ -45,8 +45,8 @@ user 在腳本 prompt 貼 Client ID 與 Client Secret
 
    | 欄位 | 值 |
    |---|---|
-   | Application name | `0ops (<your-domain>)` 例：`0ops (api.jesontech.com)` |
-   | Homepage URL | `https://<PROD_API_HOST>` 例：`https://api.jesontech.com` |
+   | Application name | `0ops (<your-domain>)` 例：`0ops (0ops.jesontech.com)` |
+   | Homepage URL | `https://<PROD_API_HOST>` 例：`https://0ops.jesontech.com` |
    | Authorization callback URL | `https://<PROD_API_HOST>/v1/auth/oauth2/callback` |
    | Enable Device Flow | **勾選**（CLI 預設走 device flow） |
 
@@ -57,7 +57,7 @@ user 在腳本 prompt 貼 Client ID 與 Client Secret
    ```bash
    GITHUB_OAUTH_CLIENT_ID=<貼這>
    GITHUB_OAUTH_CLIENT_SECRET=<貼這>
-   GITHUB_OAUTH_REDIRECT_URI=https://api.jesontech.com/v1/auth/oauth2/callback
+   GITHUB_OAUTH_REDIRECT_URI=https://0ops.jesontech.com/v1/auth/oauth2/callback
    ```
 
 ## 4. 驗證（強烈建議在 prod-up 之前跑）
