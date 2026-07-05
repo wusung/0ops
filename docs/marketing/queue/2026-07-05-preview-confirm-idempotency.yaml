@@ -1,0 +1,12 @@
+post: 2026-07-05-preview-confirm-idempotency
+source: docs/adrs/0002-idempotency-and-compensation.md
+fb: |
+  An LLM will retry your write endpoint blindly. It will skip your "call preview first" convention. So we stopped treating that as a convention.
+
+  In 0ops, preview_id IS the idempotency key (ADR-0002). Confirm locks the preview row FOR UPDATE, and one guard at internal/server/services/createapp/service.go:178 rejects any cross-team or wrong-actor preview as a 404 that leaks nothing. Consumed previews replay last_result; side effects run exactly once.
+
+  That's the moat for agent-native safe writes: we don't ask the agent to be careful, we make it structurally unable to get it wrong.
+
+  Read the build-in-public breakdown → {{canonical_url}}
+threads: |
+  LLMs retry writes blindly and skip your "preview first" rule. So we made it structural, not convention. In 0ops preview_id IS the idempotency key (ADR-0002): confirm locks the row FOR UPDATE and one guard rejects cross-team previews as a leak-free 404. Side effects run exactly once. That's the agent-native safe-writes moat. → {{canonical_url}}

@@ -4,3 +4,4 @@
 
 | date | cadence | post | status |
 |---|---|---|---|
+| 2026-07-05 | weekly | 2026-07-05-preview-confirm-idempotency.md | drafted |
