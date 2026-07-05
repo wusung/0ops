@@ -18,6 +18,8 @@ spec:
       ports:
         - protocol: TCP
           port: 7844
+        - protocol: UDP
+          port: 7844
         - protocol: TCP
           port: 443
     - to:
@@ -27,3 +29,13 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.traefik.port }}
+    # cloudflared resolves region/feature endpoints (cfd-features.argotunnel.com,
+    # region1.v2.argotunnel.com) via cluster DNS before falling back — without
+    # this, every pod blocks on a DNS timeout it can never recover from.
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

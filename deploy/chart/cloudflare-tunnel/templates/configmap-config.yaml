@@ -1,0 +1,18 @@
+{{- if .Values.tunnel.id }}
+{{- if not .Values.ingress.hostname }}
+{{- fail "ingress.hostname is required when tunnel.id is set" }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudflared-config
+  namespace: {{ .Values.namespace | quote }}
+data:
+  config.yaml: |
+    tunnel: {{ .Values.tunnel.id }}
+    credentials-file: /etc/cloudflared/creds/credentials.json
+    ingress:
+      - hostname: {{ .Values.ingress.hostname | quote }}
+        service: {{ .Values.ingress.service | quote }}
+      - service: http_status:404
+{{- end }}

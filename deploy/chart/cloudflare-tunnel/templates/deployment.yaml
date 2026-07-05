@@ -28,22 +28,49 @@ spec:
                   matchLabels:
                     app: cloudflared
                 topologyKey: kubernetes.io/hostname
+{{- if .Values.avoidNodes }}
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values:
+{{- range .Values.avoidNodes }}
+                      - {{ . | quote }}
+{{- end }}
+{{- end }}
       containers:
         - name: cloudflared
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
+{{- if .Values.tunnel.id }}
             - tunnel
             - --no-autoupdate
+            - --metrics
+            - 0.0.0.0:2000
+            - --config
+            - /etc/cloudflared/config.yaml
+            - run
+{{- else }}
+            - tunnel
+            - --no-autoupdate
+            - --metrics
+            - 0.0.0.0:2000
             - run
             - --token
             - $(TUNNEL_TOKEN)
+{{- end }}
+{{- if not .Values.tunnel.id }}
           env:
             - name: TUNNEL_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: cloudflared-tunnel-token
                   key: token
+{{- end }}
           ports:
             - name: metrics
               containerPort: 2000
@@ -54,6 +81,7 @@ spec:
               port: metrics
             initialDelaySeconds: 5
             periodSeconds: 10
+            failureThreshold: 12
           resources:
             requests:
               cpu: {{ .Values.resources.requests.cpu }}
@@ -65,6 +93,26 @@ spec:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             runAsNonRoot: true
+            runAsUser: 65532
+            seccompProfile:
+              type: RuntimeDefault
             capabilities:
               drop:
                 - ALL
+{{- if .Values.tunnel.id }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/cloudflared/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: creds
+              mountPath: /etc/cloudflared/creds
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: cloudflared-config
+        - name: creds
+          secret:
+            secretName: cloudflared-tunnel-credentials
+{{- end }}
