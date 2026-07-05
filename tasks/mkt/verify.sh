@@ -24,15 +24,15 @@ esac
 for h in "${reqs[@]}"; do grep -q "$h" "$post" || fail G2 "missing marker: $h"; done
 
 # G3 engineering anchor
-grep -Eq 'ADR-[0-9]{4}|[A-Za-z0-9_./-]+\.go:[0-9]+|\b[0-9a-f]{7,40}\b' "$post" \
-  || fail G3 "no verifiable anchor (ADR-XXXX / file.go:line / sha)"
+grep -Eq 'ADR-[0-9]{4}|[A-Za-z0-9_./-]+\.go:[0-9]+|(commit|sha|@)[^0-9a-f]{0,8}[0-9a-f]{7,40}' "$post" \
+  || fail G3 "no verifiable anchor (ADR-XXXX / file.go:line / commit <sha>)"
 
 # G4 boundary (content tasks only; bootstrap sets MKT_VERIFY_SKIP_G4=1)
 if [[ "${MKT_VERIFY_SKIP_G4:-0}" != "1" ]]; then
-  while IFS= read -r p; do
+  while IFS= read -r -d '' p; do
     [[ -z "$p" ]] && continue
     case "$p" in docs/marketing/*) ;; *) fail G4 "change outside docs/marketing/: $p" ;; esac
-  done < <(git -C "$REPO_ROOT" status --porcelain | awk '{print $2}')
+  done < <( { git -C "$REPO_ROOT" diff --name-only --no-renames -z HEAD; git -C "$REPO_ROOT" ls-files --others --exclude-standard -z; } )
 fi
 
 # G5 ledger + calendar

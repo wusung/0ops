@@ -6,4 +6,5 @@ export MKT_VERIFY_SKIP_G4=1 MKT_LEDGER="$here/fixtures/ledger-consumed.md" MKT_C
 bash "$v" "$here/fixtures/post-good.md"      && echo "good ok"      || { echo "FAIL good"; exit 1; }
 bash "$v" "$here/fixtures/post-no-en.md"     && { echo "FAIL no-en"; exit 1; } || echo "no-en rejected"
 bash "$v" "$here/fixtures/post-no-anchor.md" && { echo "FAIL anchor"; exit 1; } || echo "anchor rejected"
+bash "$v" "$here/fixtures/post-deadbeef.md"  && { echo "FAIL deadbeef"; exit 1; } || echo "deadbeef rejected"
 echo "PASS test_verify"
