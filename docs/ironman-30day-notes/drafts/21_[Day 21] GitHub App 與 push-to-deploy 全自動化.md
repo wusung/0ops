@@ -7,11 +7,11 @@
 
 前言
 
-Day 18 我們用 token + GitHub Actions 走了一條「自訂邏輯」的 CI 部署路徑，Day 19 讓 Claude Code 端到端把 Next.js 部署上線，Day 20 練會了怎麼審 preview、安全地放手。這三天累積下來，你手上已經有好幾種把 app 部署／更新的方法了。
+Day 18 筆者用 token + GitHub Actions 帶大家走了一條「自訂邏輯」的 CI 部署路徑，Day 19 讓 Claude Code 端到端把 Next.js 部署上線，Day 20 一起練會了怎麼審 preview、安全地放手。這三天累積下來，你手上已經有好幾種把 app 部署／更新的方法了。
 
 但這些方法都還有一個共通點：**每次要更新，你（或你的 agent、你的 CI 腳本）都得主動觸發**。今天要裝上最後一塊自動化拼圖——**GitHub App**：裝好之後，你只要 `git push`，0ops 就自動幫你 redeploy 上線，中間不用打任何指令、不用寫任何 workflow。
 
-不過，全自動是把雙面刃。所以今天除了教你開它，也要認真教你「關它的後果」。今天會做三件事：
+不過，全自動是把雙面刃。所以今天筆者除了跟大家分享怎麼開它，也要認真談「關它的後果」。今天會做三件事：
 
 1. 用 `0ops teams github install` 裝好團隊的 GitHub App（preview→confirm→瀏覽器授權→輪詢）。
 2. push 一個 commit，驗證自動 redeploy。
@@ -51,7 +51,7 @@ push 一個 commit，看它自動上線
 
 裝好之後，push-to-deploy 就活了。它的觸發條件很明確：**當你 push 到某個 app 的 `repo_url` + `ref`（例如 `main`），webhook 就會觸發那個 app 的 redeploy**。
 
-實際驗證一次。改一行、commit、push：
+筆者實際帶大家驗證一次。改一行、commit、push：
 
 ```sh
 $ git commit -am "chore: tweak homepage copy"
@@ -109,7 +109,7 @@ installation: 上次 push 事件 2026-07-06T05:12:44Z
 
 謹慎：uninstall 會暫停該團隊「所有」app
 
-最後這段最重要，也是今天的原則所在。移除 GitHub App 不是一個局部動作——**`uninstall` 會暫停該團隊底下的「所有」app，不只是某一個**。
+最後這段筆者覺得最重要，也是今天的原則所在。移除 GitHub App 不是一個局部動作——**`uninstall` 會暫停該團隊底下的「所有」app，不只是某一個**。
 
 ```sh
 $ 0ops teams github uninstall
@@ -127,11 +127,11 @@ WARNING: Uninstalling the GitHub App will suspend ALL apps in team "acme".
 
 今天裝上了自動化的最後一塊：`0ops teams github install` 接好 GitHub App，之後 `git push` 就由 webhook（actor `system:github_webhook`）自動觸發 redeploy 上線；用 `0ops teams github status` 查狀態，並認清 `uninstall` 會暫停**整個團隊**所有 app 的重量。核心原則——**push-to-deploy 讓常態部署零摩擦，但開它之前，先確認你懂得關它的後果**。
 
-到這裡，你已經把 0ops 從「一句話部署」一路練到「push 就自動上線」。明天 [Day 22] 我們轉向另一個維度：**團隊權限與稽核**——誰能做什麼、以及誰做了什麼。當多人與多個 agent 共用一個團隊，「system:github_webhook 觸發的部署」這種紀錄要怎麼查、怎麼追，就是下一篇的主題。
+到這裡，你已經跟著筆者把 0ops 從「一句話部署」一路練到「push 就自動上線」。明天 [Day 22] 筆者要帶大家轉向另一個維度：**團隊權限與稽核**——誰能做什麼、以及誰做了什麼。當多人與多個 agent 共用一個團隊，「system:github_webhook 觸發的部署」這種紀錄要怎麼查、怎麼追，就是下一篇的主題。
 
 Q&A
 
-你會讓所有 repo 都走 push-to-deploy，還是只開給特定幾個？對 `uninstall` 的「團隊級」影響範圍有疑慮，歡迎留言討論 : )
+筆者自己是只把 push-to-deploy 開給幾個穩定的 repo，你會讓所有 repo 都走這條路嗎？對 `uninstall` 的「團隊級」影響範圍有任何疑慮或想法，非常歡迎留言給我唷 : )
 
 參考連結
 

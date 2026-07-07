@@ -7,9 +7,9 @@
 
 前言
 
-歡迎來到第三章。前面兩章我們把零件一個一個磨亮了：Day 7 到 9 裝好 0ops、接上 AI CLI、設定工具授權；Day 10 到 18 學會建 app、看狀態、看 log、redeploy、綁網域、邀成員、管生命週期、發 CI token。每一個指令你都會了——但真正上線一次專案，不是照著指令清單一條一條打，而是在一個連貫的情境裡，讓這些零件彼此接上。
+歡迎來到第三章。前面兩章筆者跟大家把零件一個一個磨亮了：Day 7 到 9 裝好 0ops、接上 AI CLI、設定工具授權；Day 10 到 18 學會建 app、看狀態、看 log、redeploy、綁網域、邀成員、管生命週期、發 CI token。每一個指令你都會了——但筆者自己的體會是，真正上線一次專案，不是照著指令清單一條一條打，而是在一個連貫的情境裡，讓這些零件彼此接上。
 
-今天就做這件事：**開一個 Claude Code 對話，從一句話開始，把一個 Next.js 專案從零部署到 `nextdemo.jesontech.com` 上線**。我會把整段對話、agent 背後呼叫的 MCP 工具、以及每個決策點「你做了什麼、agent 做了什麼」都攤開來。
+今天就來做這件事：**開一個 Claude Code 對話，從一句話開始，把一個 Next.js 專案從零部署到 `nextdemo.jesontech.com` 上線**。筆者會把整段對話、agent 背後呼叫的 MCP 工具、以及每個決策點「你做了什麼、agent 做了什麼」都攤開來跟大家看。
 
 今天會走完一條完整旅程：
 
@@ -19,7 +19,7 @@
 
 前置：確認 agent 看得到 0ops
 
-開始前假設你已經照 Day 8 把 0ops 接上 Claude Code（`0ops mcp setup claude-code` 後重啟過），也照 Day 21 會講的方式裝好了團隊的 GitHub App（讓 0ops 讀得到你的 repo）。最快的確認方式，是在對話裡先問一句無害的：
+開始前，筆者假設你已經照 Day 8 把 0ops 接上 Claude Code（`0ops mcp setup claude-code` 後重啟過），也照 Day 21 會講的方式裝好了團隊的 GitHub App（讓 0ops 讀得到你的 repo）。筆者自己最常用的確認方式，是在對話裡先問一句無害的：
 
 > 你：列一下我 0ops 團隊底下有哪些 app。
 
@@ -66,7 +66,7 @@ expires_at: 2026-07-06T04:15:00Z
 
 > 你：可以，建吧。
 
-你點頭這一步，就是 0ops 整套安全設計的支點。怎麼「審」得專業一點（哪些該批准、哪些該擋下），明天 Day 20 會給你一張 checklist。今天先把 happy path 走完。
+你點頭這一步，就是 0ops 整套安全設計的支點。怎麼「審」得專業一點（哪些該批准、哪些該擋下），筆者明天 Day 20 會給大家一張 checklist。今天先把 happy path 走完。
 
 第三步：agent 帶 preview_id 執行建立
 
@@ -98,7 +98,7 @@ app 記錄建好了，首次部署也開跑了。注意此刻它還沒 `live`—
 [agent → get_deploy_status]  status: live   ✅
 ```
 
-狀態一路從 `building` → `syncing` → `live`。這幾個狀態的細節與失敗訊號我們 Day 13 講過；如果中途卡在 `building` 或 `syncing`，別急著介入——reconciler 會自己收斂，這是 Day 23 排錯篇的主題。今天它順利轉 `live`。
+狀態一路從 `building` → `syncing` → `live`。這幾個狀態的細節與失敗訊號筆者 Day 13 講過；如果中途卡在 `building` 或 `syncing`，別急著介入——reconciler 會自己收斂，這是 Day 23 排錯篇的主題。今天它順利轉 `live`。
 
 ```mermaid
 sequenceDiagram
@@ -153,7 +153,7 @@ $ 0ops members invite --preview-id prev_...
 Invitation sent to "teammate" (role: member).
 ```
 
-想換成自己的網域？Day 15 講過：DNS 加 CNAME + `_0ops-verify.<host>` TXT 記錄，後端每 30s 輪詢驗證，之後用 `0ops domains list nextdemo` 查驗證狀態。這裡再標一次紅線——CLI 目前**只有 `domains list`**，新增與驗證走的是 API/spec 面，還沒 CLI 化，所以你不會看到 `apps add-domain` 這種指令。
+想換成自己的網域？Day 15 講過：DNS 加 CNAME + `_0ops-verify.<host>` TXT 記錄，後端每 30s 輪詢驗證，之後用 `0ops domains list nextdemo` 查驗證狀態。這裡筆者再標一次紅線——CLI 目前**只有 `domains list`**，新增與驗證走的是 API/spec 面，還沒 CLI 化，所以你不會看到 `apps add-domain` 這種指令。
 
 ```sh
 $ 0ops domains list nextdemo
@@ -174,11 +174,11 @@ nextdemo.example.com  custom   true       2026-07-06T04:40:12Z
 
 今天把 Day 10 到 18 的零件，串成一趟從「一句話」到「`curl` 拿到 200」的完整旅程：`inspect_repo` 探勘 → `create_app_preview` 攤開代價 → 你點頭 → `create_app` 執行 → 輪詢到 `live` → 驗證 → 綁網域、邀夥伴收尾。端到端跑一次，勝過分開學十個指令——你現在對「agent 幫你出貨」這件事，應該有了完整的體感。
 
-明天 [Day 20]，我們把鏡頭停在最關鍵的那一步——**你點頭之前，到底該看什麼**。preview/confirm 實戰：怎麼審 `action_summary` 與 `side_effects`、哪些該批准、哪些該擋下，還有 delete 那個容易踩的 `confirmation_phrase_mismatch`。
+明天 [Day 20]，筆者要把鏡頭停在最關鍵的那一步——**你點頭之前，到底該看什麼**。preview/confirm 實戰：怎麼審 `action_summary` 與 `side_effects`、哪些該批准、哪些該擋下，還有 delete 那個容易踩的 `confirmation_phrase_mismatch`。
 
 Q&A
 
-你第一次讓 agent 幫你部署時，最不放心的是哪一步？是怕它亂建、還是怕它繞過你？歡迎留言，明天正好接著談「怎麼審才安全」: )
+筆者自己第一次讓 agent 幫忙部署時，最不放心的是「怕它繞過我直接動手」那一刻。你最不放心的是哪一步呢？歡迎留言給我唷，明天正好接著談「怎麼審才安全」: )
 
 參考連結
 

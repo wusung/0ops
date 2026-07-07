@@ -7,9 +7,9 @@
 
 前言
 
-前面幾天，我們用 CLI（[Day 10]、[Day 11]）和自然語言（[Day 12]）把 app 部署上線。不論走哪條路，部署都不是按下去就瞬間完成——後端要 build image、推 registry、跑 GitOps sync，這中間 app 會經過好幾個狀態。今天的主題就是**可觀測性的第一步：知道現在到哪、卡在哪**。
+前面幾天，筆者帶大家用 CLI（[Day 10]、[Day 11]）和自然語言（[Day 12]）把 app 部署上線。不論走哪條路，部署都不是按下去就瞬間完成——後端要 build image、推 registry、跑 GitOps sync，這中間 app 會經過好幾個狀態。筆者剛上手時最焦慮的就是這段空窗：按了指令之後盯著畫面，不知道它到底在忙什麼、還是已經卡住了。所以今天想先補上**可觀測性的第一步：知道現在到哪、卡在哪**。
 
-今天要做的三件事：
+今天筆者想跟大家一起做三件事：
 
 - 用 `0ops deploys status` 查一次部署的當前狀態與關鍵欄位；
 - 用 `0ops deploys logs --follow` 即時串流建置與執行日誌；
@@ -97,7 +97,7 @@ stateDiagram-v2
 - `live`：對外可用，可以打開 `subdomain_url` 了。
 - `failed`：這時第一件事就是看 `error_summary`。它會直接告訴你失敗類型，例如 `build failed: no Dockerfile found` 或 sync 逾時。
 
-要提醒的是，0ops 的 reconciler 會自動收斂——`building` 有 30 分鐘、`syncing` 有 15 分鐘的逾時保護，逾時後約 30 秒內會收斂成 `live` 或 `failed`。所以看到卡住時，**先等一個收斂週期再動手**，別急著介入。真的卡住怎麼逐級排查，留到 [Day 23] 專門講。
+要提醒的是，0ops 的 reconciler 會自動收斂——`building` 有 30 分鐘、`syncing` 有 15 分鐘的逾時保護，逾時後約 30 秒內會收斂成 `live` 或 `failed`。筆者以前性子急，一看到卡住就想手動介入，後來才學乖：**先等一個收斂週期再動手**，別急著介入。真的卡住怎麼逐級排查，留到 [Day 23] 專門講。
 
 總結
 
@@ -105,7 +105,7 @@ stateDiagram-v2
 
 Q&A
 
-你查部署狀態習慣用 table 還是 json 輸出？有沒有遇過看不懂的 status 卡住？歡迎留言，我們一起拆解。
+筆者自己 debug 時多半直接看 table，塞進腳本才切 json。你查部署狀態習慣用 table 還是 json 輸出呢？有沒有遇過看不懂的 status 卡住？歡迎留言給我唷 : )
 
 參考連結
 

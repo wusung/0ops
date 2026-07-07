@@ -7,15 +7,15 @@
 
 前言
 
-[Day 26] 我們用 `./manage.sh prod-bootstrap-all` 把一整套 0ops 裝到自己的 K3s 上，也點出了 self-host 真正的門檻不在那條指令，而在外部前置資源——Cloudflare zone、Tunnel token、GitHub OAuth App。今天要處理的，正是那些前置資源裡最容易卡住新手的一塊：**登入用的 GitHub OAuth**，以及讓 app 對外可達的**網域**設定。
+[Day 26] 筆者用 `./manage.sh prod-bootstrap-all` 把一整套 0ops 裝到自己的 K3s 上，也點出了 self-host 真正的門檻不在那條指令，而在外部前置資源——Cloudflare zone、Tunnel token、GitHub OAuth App。今天要處理的，正是那些前置資源裡最容易卡住新手的一塊：**登入用的 GitHub OAuth**，以及讓 app 對外可達的**網域**設定。
 
-self-host 裝完之後，最常見的第一個「怎麼登不進去」的問題，九成不是 0ops 本身壞掉，而是 OAuth App 的 callback URL 填錯，或者忘了勾 Device Flow。這一篇就把生產 OAuth 從註冊、寫入設定、驗證，到「換了 secret 之後怎麼熱更新」整條路走一遍。今天你會做到三件事：
+老實說，筆者自己第一次 self-host 裝完，最先撞上的就是「怎麼登不進去」——後來才發現九成不是 0ops 本身壞掉，而是 OAuth App 的 callback URL 填錯，或者忘了勾 Device Flow。這一篇就把生產 OAuth 從註冊、寫入設定、驗證，到「換了 secret 之後怎麼熱更新」整條路走一遍。今天你會做到三件事：
 
 1. 用 `./manage.sh prod-setup-oauth` 互動式註冊 GitHub OAuth App 並寫進 `.env.prod`；
 2. 用 `prod-verify-oauth` 確認 Client ID 與 Device Flow 都就緒；
 3. 換 Client ID / Secret 後，用 sealed-secrets 熱更新 `ops-server`，不用整組重裝。
 
-這一篇的權威來源是 repo 裡的 `docs/runbooks/production-oauth-setup.md`，指令我都對過。
+這一篇的權威來源是 repo 裡的 `docs/runbooks/production-oauth-setup.md`，裡頭每一條指令筆者都對過。
 
 為什麼 self-host 一定要自己弄 OAuth
 
@@ -152,13 +152,13 @@ app.mycompany.com      cname   true      2026-07-06T09:12:03Z
 
 總結
 
-今天我們把 self-host 的登入這關收乾淨了：`prod-setup-oauth` 互動註冊並寫入 `.env.prod`、`prod-verify-oauth` 驗證 Client ID 與 Device Flow、換 secret 走 seal → apply → rollout restart → verify 的熱更新四步；網域則靠 Cloudflare Tunnel 的 wildcard 涵蓋平台子網域，自訂網域沿用 [Day 15] 的 TXT 驗證。記住那條經驗法則：**OAuth 出問題，九成是 callback URL 或 Device Flow 開關，先查這兩個。**
+今天筆者陪你把 self-host 的登入這關收乾淨了：`prod-setup-oauth` 互動註冊並寫入 `.env.prod`、`prod-verify-oauth` 驗證 Client ID 與 Device Flow、換 secret 走 seal → apply → rollout restart → verify 的熱更新四步；網域則靠 Cloudflare Tunnel 的 wildcard 涵蓋平台子網域，自訂網域沿用 [Day 15] 的 TXT 驗證。記住那條經驗法則：**OAuth 出問題，九成是 callback URL 或 Device Flow 開關，先查這兩個。**
 
-明天 [Day 28]，我們往企業場景再進一步：當團隊不想每個人各自用 GitHub 登入，而要接公司自己的身分供應商時，0ops 的 per-team OIDC SSO 怎麼設、離職或資安事件要一鍵撤掉一個人的所有存取時又怎麼做。
+明天 [Day 28]，筆者想往企業場景再進一步：當團隊不想每個人各自用 GitHub 登入，而要接公司自己的身分供應商時，0ops 的 per-team OIDC SSO 怎麼設、離職或資安事件要一鍵撤掉一個人的所有存取時又怎麼做。
 
 Q&A
 
-你在 self-host 時卡過哪一種 OAuth 錯誤？是 callback、Device Flow，還是別的？歡迎留言分享你的排查過程，我們一起補齊這份卡點清單 : )
+你在 self-host 時卡過哪一種 OAuth 錯誤？是 callback、Device Flow，還是別的？筆者自己也還在補齊這份卡點清單，非常歡迎留言分享你的排查過程給我唷 : )
 
 參考連結
 

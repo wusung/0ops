@@ -7,9 +7,9 @@
 
 前言
 
-第一章我們把地基打好了：裝 0ops、登入（Day 7）、接上 AI CLI（Day 8）、搞懂工具授權（Day 9）。今天進入第二章第一篇，也是整個系列最關鍵的一步——**真的把一個 app 部署上線**。
+第一章我們把地基打好了：裝 0ops、登入（Day 7）、接上 AI CLI（Day 8）、搞懂工具授權（Day 9）。今天進入第二章第一篇，對筆者來說也是整個系列最關鍵、最有成就感的一步——**真的把一個 app 部署上線**。
 
-我們走最經典的路徑：從一個 GitHub repo 開始。這條路要先讓 0ops 有權讀你的 repo（裝 GitHub App），再建立 app、讓它 build 並部署，最後查結果確認上線。今天三件事：
+我們走筆者覺得最經典的路徑：從一個 GitHub repo 開始。這條路要先讓 0ops 有權讀你的 repo（裝 GitHub App），再建立 app、讓它 build 並部署，最後查結果確認上線。今天一起做三件事：
 
 1. 裝 GitHub App：`0ops teams github install`，走一遍 preview → confirm → 瀏覽器授權 → 輪詢；
 2. 建 app：`0ops apps create --slug nextdemo --source <github-url>`；
@@ -64,7 +64,7 @@ subdomain_url:  https://nextdemo.jesontech.com
 initial_deploy: started
 ```
 
-幾個欄位值得記住：`subdomain_url` 是你 app 上線後的預設網址（`<slug>.jesontech.com`）；`deploy_run_id` 是這次部署的執行 ID；`trace_id` 之後排錯、查稽核時可以拿來串整條軌跡。`initial_deploy: started` 代表第一次部署已經在跑了——但「started」不等於「live」，得等 build 和部署完成。
+幾個欄位筆者覺得值得記住：`subdomain_url` 是你 app 上線後的預設網址（`<slug>.jesontech.com`）；`deploy_run_id` 是這次部署的執行 ID；`trace_id` 之後排錯、查稽核時可以拿來串整條軌跡。`initial_deploy: started` 代表第一次部署已經在跑了——但「started」不等於「live」，得等 build 和部署完成。
 
 查結果：從 building 到 live
 
@@ -95,7 +95,7 @@ status:     live
 subdomain_url: https://nextdemo.jesontech.com
 ```
 
-看到 `live`，代表 app 真的上線了，打開 `subdomain_url` 就能訪問。如果它卡在 `building` 或 `syncing` 好一陣子先別慌——reconciler 會自己收斂，這類卡住的排查是 Day 23 的主題。查即時部署狀態與 log（`0ops deploys status` / `0ops deploys logs`）則是 Day 13 會細講。
+看到 `live`，代表 app 真的上線了，打開 `subdomain_url` 就能訪問——筆者第一次看到自己的 app 從 `building` 翻成 `live` 時，還是有點小感動。如果它卡在 `building` 或 `syncing` 好一陣子先別慌——reconciler 會自己收斂，這類卡住的排查是 Day 23 的主題。查即時部署狀態與 log（`0ops deploys status` / `0ops deploys logs`）則是 Day 13 會細講。
 
 一條最短路徑的心智圖
 

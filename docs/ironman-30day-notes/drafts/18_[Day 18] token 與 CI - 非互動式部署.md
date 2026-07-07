@@ -7,9 +7,9 @@
 
 前言
 
-到 Day 17 為止，我們用 0ops 做的每一件事，背後都靠著同一個東西：**你的個人登入態**。Day 7 一行 curl 裝好、走 device flow 登入之後，token 就存在 `~/.config/0ops/auth.json`，之後每個子指令都自動附帶它。這在你自己的終端機上很方便——但一放到 CI 就行不通了。
+到 Day 17 為止，筆者跟大家用 0ops 做的每一件事，背後都靠著同一個東西：**你的個人登入態**。Day 7 一行 curl 裝好、走 device flow 登入之後，token 就存在 `~/.config/0ops/auth.json`，之後每個子指令都自動附帶它。這在你自己的終端機上很方便——但筆者第一次想把它搬進 CI 時，就發現這條路行不通了。
 
-想像 GitHub Actions 跑到一半，跳出 `Delete app "..."? [y/N]:` 等你按鍵；或是它需要你的個人 device flow 授權才能動。無人值守的自動化，不能靠一個人的登入態，更不能停下來等互動。今天就來解決這件事。
+想像 GitHub Actions 跑到一半，跳出 `Delete app "..."? [y/N]:` 等你按鍵；或是它需要你的個人 device flow 授權才能動。無人值守的自動化，不能靠一個人的登入態，更不能停下來等互動。今天就來一起解決這件事。
 
 今天會做三件事：
 
@@ -19,7 +19,7 @@
 
 為什麼 CI 不能用你的個人登入態
 
-先講清楚動機，你才知道 token 在解決什麼。用個人登入態跑 CI 有三個問題：
+筆者先講清楚動機，你才知道 token 在解決什麼。用個人登入態跑 CI 有三個問題：
 
 - **權限過大**：你的個人帳號可能是 owner，能刪 app、改團隊。CI 只需要「redeploy 某個 app」，卻繼承了你的全部權限——一旦 CI 環境外洩，等於把你整個帳號交出去。
 - **無法輪替**：個人 token 綁著你這個人，你不會為了換 CI 憑證去把自己登出。
@@ -99,7 +99,7 @@ $ OPS_OUTPUT=json 0ops deploys redeploy nextdemo \
 }
 ```
 
-這裡再標一次紅線：重新部署的 verb 是 **`0ops deploys redeploy`**，不是 `0ops redeploy`。`--yes` 在這裡跳過 redeploy 的 `[y/N]` 確認（redeploy 不是不可逆操作，可以整段跳過），讓它在 CI 裡不卡住。
+這裡筆者再標一次紅線：重新部署的 verb 是 **`0ops deploys redeploy`**，不是 `0ops redeploy`。`--yes` 在這裡跳過 redeploy 的 `[y/N]` 確認（redeploy 不是不可逆操作，可以整段跳過），讓它在 CI 裡不卡住。
 
 放進 GitHub Actions
 
@@ -146,17 +146,17 @@ flowchart LR
     D --> E[nextdemo 重新部署上線]
 ```
 
-一個誠實的提醒：如果你只是想「push 就自動部署」，其實還有**更省事**的路——直接裝 0ops 的 GitHub App，讓 webhook 幫你觸發 redeploy，連 workflow 都不用寫。那條路我們 Day 21 專門講。今天的 token 路徑，適合你需要**在 CI 裡自訂邏輯**（跑完測試才部署、部署前做額外檢查、或部署非當前 repo 的 app）的情境。
+筆者這裡誠實提醒一句：如果你只是想「push 就自動部署」，其實還有**更省事**的路——直接裝 0ops 的 GitHub App，讓 webhook 幫你觸發 redeploy，連 workflow 都不用寫。那條路筆者 Day 21 會專門講。今天的 token 路徑，適合你需要**在 CI 裡自訂邏輯**（跑完測試才部署、部署前做額外檢查、或部署非當前 repo 的 app）的情境。
 
 總結
 
 今天把 0ops 從「一個人在終端機前操作」帶進了「無人值守的自動化」：用 `tokens create` 發一張短期、限範圍的機器 token，用 `list` / `revoke` 管它的生命週期，再靠 `--host` / `--token` / `OPS_OUTPUT=json` 在 CI 裡完全非互動地部署。核心原則是——**自動化用短期、限範圍的 token，絕不用個人登入態**。
 
-到這裡，第二章「基礎概念與實作」就告一段落了。明天 [Day 19] 我們進入第三章，把前面 Day 10 到 18 學到的所有零件串成一個連貫的實戰案例：**讓 Claude Code 從一句話開始，把一個 Next.js 專案從零部署上線**。分開學十個指令，不如端到端跑一次。
+到這裡，第二章「基礎概念與實作」就告一段落了。明天 [Day 19] 筆者要帶大家進入第三章，把前面 Day 10 到 18 學到的所有零件串成一個連貫的實戰案例：**讓 Claude Code 從一句話開始，把一個 Next.js 專案從零部署上線**。分開學十個指令，不如端到端跑一次。
 
 Q&A
 
-你的 CI 目前是怎麼觸發部署的？打算走 token 這條自訂路徑，還是等 Day 21 的 GitHub App 全自動路徑？對 scope 該給多細有疑問，歡迎留言討論 : )
+筆者自己也還在摸索 scope 到底該給多細才最剛好，你的 CI 目前是怎麼觸發部署的？打算走 token 這條自訂路徑，還是等 Day 21 的 GitHub App 全自動路徑？有任何想法或疑問，非常歡迎留言給我唷 : )
 
 參考連結
 

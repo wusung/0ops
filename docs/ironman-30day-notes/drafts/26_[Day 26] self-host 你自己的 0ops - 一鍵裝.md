@@ -7,9 +7,9 @@
 
 前言
 
-前面 25 天，我們都是站在「使用者」的位置：裝好 CLI、接上 AI、部署 app、綁網域、排錯。但 0ops 從第一天就強調一件事——它是**可自架**的。對有資料落地、合規、或單純想完全掌控自己那套平台的團隊來說，代管版之外還有一條路：把整套 0ops 裝在你自己的機器上。今天進入最後一章「如何管理 0ops」，第一步就是 self-host。
+前面 25 天，筆者陪大家都是站在「使用者」的位置：裝好 CLI、接上 AI、部署 app、綁網域、排錯。但 0ops 從第一天就強調一件事——它是**可自架**的。筆者自己也蠻喜歡這一點，對有資料落地、合規、或單純想完全掌控自己那套平台的團隊來說，代管版之外還有一條路：把整套 0ops 裝在你自己的機器上。今天筆者要帶大家進入最後一章「如何管理 0ops」，第一步就是 self-host。
 
-先破除一個誤會：self-host 的難點**不在裝的指令**。裝的指令幾乎就是一行 `./manage.sh prod-bootstrap-all`。真正的門檻在**外部前置資源**——K3s host、Cloudflare zone、tunnel token、GitHub OAuth App 這些得你自己先備妥。把前置備齊，剩下的一鍵腳本會替你跑完。
+先幫大家破除一個筆者自己一開始也有的誤會：self-host 的難點**不在裝的指令**。裝的指令幾乎就是一行 `./manage.sh prod-bootstrap-all`。真正的門檻在**外部前置資源**——K3s host、Cloudflare zone、tunnel token、GitHub OAuth App 這些得你自己先備妥。把前置備齊，剩下的一鍵腳本會替你跑完。
 
 今天要建立三件事：
 
@@ -113,11 +113,11 @@ $ ./manage.sh prod-down
 
 今天把 self-host 的第一步走完了。核心觀念是：**self-host 的門檻在外部前置資源（K3s、Cloudflare、tunnel、OAuth App、kubeseal），不在裝的指令。** 前置備齊、填好 `.env.prod`，一行 `./manage.sh prod-bootstrap-all` 就把整套平台拉起來——而且冪等、失敗即停、可用 `--resume-from` 續跑，不怕中途卡住。
 
-不過你有沒有發現，一鍵流程的第一步是 OAuth，而 OAuth 也是 self-host 最容易卡的地方？明天 [Day 27] 就專門攻這一關——生產環境的 OAuth 與網域設定，包括那個 99% 的人第一次都會設錯的 callback URL，以及「Enable Device Flow」那個一定要勾的選項。
+不過你有沒有發現，一鍵流程的第一步是 OAuth，而 OAuth 也是 self-host 最容易卡的地方？明天 [Day 27]，筆者要專門攻這一關——生產環境的 OAuth 與網域設定，包括那個 99% 的人第一次都會設錯的 callback URL（筆者自己第一次就設錯了），以及「Enable Device Flow」那個一定要勾的選項。
 
 Q&A
 
-你有考慮過把 0ops self-host 嗎？前置清單裡哪一項對你來說最麻煩——K3s、Cloudflare、還是 OAuth App？留言聊聊你的環境 : )
+你有考慮過把 0ops self-host 嗎？前置清單裡哪一項對你來說最麻煩——K3s、Cloudflare、還是 OAuth App？筆者自己也還在把這套 self-host 流程摸熟，很歡迎你留言聊聊你的環境給我唷 : )
 
 參考連結
 

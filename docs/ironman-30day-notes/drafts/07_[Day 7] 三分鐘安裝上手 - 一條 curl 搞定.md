@@ -7,19 +7,19 @@
 
 前言
 
-前面六天我們一直在講「為什麼」——為什麼 AI agent 需要一隻 `ship` 的手（Day 1）、招牌的 30 秒 demo 長怎樣（Day 2）、誰該用（Day 3）、preview/confirm 這道安全網怎麼運作（Day 4）、跟 Vercel / Railway / 自建 K8s 怎麼選（Day 5），還有「人用 CLI、AI 用 MCP」這個雙入口模型（Day 6）。
+前面六天筆者一直在跟大家聊「為什麼」——為什麼 AI agent 需要一隻 `ship` 的手（Day 1）、招牌的 30 秒 demo 長怎樣（Day 2）、誰該用（Day 3）、preview/confirm 這道安全網怎麼運作（Day 4）、跟 Vercel / Railway / 自建 K8s 怎麼選（Day 5），還有「人用 CLI、AI 用 MCP」這個雙入口模型（Day 6）。
 
-講了這麼多，今天終於要動手了。這一篇的目標很單純：**讓你在三分鐘內真的把 0ops 裝到自己的機器上**。我們會做完三件事：
+講了這麼多，筆者自己也覺得該動手了。今天這一篇的目標很單純：**讓你在三分鐘內真的把 0ops 裝到自己的機器上**。我們會一起做完三件事：
 
 1. 用一條 `curl` 指令，一次搞定「裝 binary + device flow 登入 + 自動接上你的 AI CLI」；
 2. 走一遍 device flow 授權，看看你會在畫面上看到什麼；
 3. 用三個指令驗證裝好了、也登入了。
 
-順帶把安裝腳本的幾個實用變體（只裝不登入、乾跑、指定版本）也一起講掉。
+順帶把安裝腳本的幾個實用變體（只裝不登入、乾跑、指定版本）也一起講掉，這些都是筆者自己踩過之後覺得值得先知道的。
 
 一條 curl 全搞定
 
-先看主角。安裝就這一行：
+先看主角。筆者第一次跑的時候也有點半信半疑，但安裝真的就這一行：
 
 ```sh
 $ OPS_HOST=https://api.<your-0ops> \
@@ -108,7 +108,7 @@ $ OPS_VERSION=v0.1.1 INSTALL_DIR=$HOME/bin \
 - `OPS_VERSION`：釘住特定版本，避免每次安裝都拉到最新。
 - `INSTALL_DIR`：預設會裝到腳本選的目錄；想放在 `$HOME/bin` 這種你自己 PATH 裡的路徑就用它。
 
-如果裝完 `0ops --version` 找不到指令，通常是 `INSTALL_DIR` 沒在你的 PATH 上——腳本結束時會印一行建議加進 shell rc 的設定，把那行貼進 `~/.bashrc` 或 `~/.config/fish/config.fish` 再重開終端機就好。這個上手陷阱我們 Day 25 還會再系統性整理一次。
+如果裝完 `0ops --version` 找不到指令，通常是 `INSTALL_DIR` 沒在你的 PATH 上——這點筆者自己第一次也卡了一下。腳本結束時會印一行建議加進 shell rc 的設定，把那行貼進 `~/.bashrc` 或 `~/.config/fish/config.fish` 再重開終端機就好。這個上手陷阱我們 Day 25 還會再系統性整理一次。
 
 總結
 
