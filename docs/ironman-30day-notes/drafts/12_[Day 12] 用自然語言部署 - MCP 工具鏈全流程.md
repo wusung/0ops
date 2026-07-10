@@ -7,9 +7,9 @@
 
 前言
 
-過去兩天，我們用 CLI 親手把 app 部署上線：[Day 10] 從 GitHub repo 建立 app，[Day 11] 直接從本機資料夾打包上傳。這兩條路你都得自己敲 `0ops apps create`，自己看輸出。今天換個開法——**完全不碰 CLI**，只在 Claude Code 裡打一句話，讓 AI agent 幫你把整條部署流程跑完。
+過去兩天，筆者帶大家用 CLI 親手把 app 部署上線：[Day 10] 從 GitHub repo 建立 app，[Day 11] 直接從本機資料夾打包上傳。這兩條路都得自己敲 `0ops apps create`、自己看輸出。老實說筆者一開始也是這樣一步步敲慣了，直到某天偷懶，乾脆在 Claude Code 裡打一句話試試看——結果 agent 真的把整條流程跑完了。今天就換個開法跟大家分享：**完全不碰 CLI**，只丟一句話給 AI agent。
 
-這正是 [Day 6] 講的第二個入口：人用 CLI，AI 用 MCP，共用同一個後端。今天要做的三件事：
+這正是 [Day 6] 提過的第二個入口：人用 CLI，AI 用 MCP，共用同一個後端。今天筆者想跟大家一起看清楚三件事：
 
 - 拆解 agent 收到「幫我部署」這句話後，背後串了哪幾個 MCP 工具；
 - 看清楚流程裡**唯一需要你動腦**的那一步：審 `side_effects`、點頭；
@@ -17,7 +17,7 @@
 
 一句話觸發整條工具鏈
 
-假設你已經照 [Day 8] 把 0ops 接上 Claude Code、重啟過 AI CLI，agent 現在看得到 0ops 的 24 個 MCP 工具。你在對話框打：
+假設你已經照 [Day 8] 把 0ops 接上 Claude Code、重啟過 AI CLI，agent 現在看得到 0ops 的 24 個 MCP 工具。這時在對話框打：
 
 ```
 把這個 repo 部署到 0ops，app 叫 nextdemo
@@ -42,7 +42,7 @@ sequenceDiagram
     A->>M: get_deploy_status（輪詢到 live）
 ```
 
-前兩步 `list_teams`、`inspect_repo` 都是唯讀工具，agent 用它們搞清楚「要部署到哪個 team、這個 repo 的預設分支跟 builder 是什麼」，不會對系統造成任何改變。
+前兩步 `list_teams`、`inspect_repo` 都是唯讀工具，agent 用它們搞清楚「要部署到哪個 team、這個 repo 的預設分支跟 builder 是什麼」，不會對系統造成任何改變。筆者第一次看到 agent 自己跑這段偵察時還蠻驚訝的——它其實比人還謹慎，沒把資訊湊齊之前不會亂動。
 
 關鍵一步：審 side_effects 再點頭
 
@@ -94,7 +94,7 @@ subdomain_url: https://nextdemo.jesontech.com
 error_summary: build failed: no Dockerfile found and buildpack detection failed
 ```
 
-這時你就知道問題出在哪——這個 repo 沒有 Dockerfile，builder 也偵測不出語言。你可以請 agent 補個 Dockerfile 再重新部署，或改用別的 builder。重點是：**agent 把錯誤原文交給你，決策權還在你手上。**
+這時你就知道問題出在哪——這個 repo 沒有 Dockerfile，builder 也偵測不出語言。你可以請 agent 補個 Dockerfile 再重新部署，或改用別的 builder。筆者覺得這點最讓人安心：**agent 把錯誤原文交給你，決策權還在你手上。**
 
 總結
 
@@ -102,7 +102,7 @@ error_summary: build failed: no Dockerfile found and buildpack detection failed
 
 Q&A
 
-你都讓 AI agent 幫你部署，還是習慣自己敲 CLI？在審 side_effects 時最在意哪一項？歡迎留言聊聊。
+筆者自己還在調整「哪些交給 agent、哪些自己敲」的分寸，你都讓 AI agent 幫你部署，還是習慣自己敲 CLI 呢？審 side_effects 時最在意哪一項？歡迎留言給我唷 : )
 
 參考連結
 

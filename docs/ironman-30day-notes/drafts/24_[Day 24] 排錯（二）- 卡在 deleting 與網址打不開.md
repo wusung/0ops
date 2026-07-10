@@ -7,12 +7,12 @@
 
 前言
 
-[Day 23] 我們處理了 app 卡在 `building` / `syncing` 的狀況，心法是「先等一個收斂週期再動手」。今天接著講兩種更棘手、也更讓人焦躁的卡關：
+[Day 23] 筆者陪大家處理了 app 卡在 `building` / `syncing` 的狀況，心法是「先等一個收斂週期再動手」。今天接著，筆者想聊兩種更棘手、也更讓人焦躁的卡關：
 
 - app 卡在 `deleting`——你下了刪除，它卻遲遲不消失；
 - 部署明明成功、狀態是 `live`，**網址卻打不開**（4xx / 5xx / 直接連不上）。
 
-這兩種問題的共通點是：它們牽動的是 0ops 底層的 K8s / GitOps / 網路這幾層。好消息是，0ops 給了你冪等的復原指令；而網址打不開這種分層系統的故障，只要照著「從外到內」逐層定位，多半能自己找到卡在哪。
+筆者發現這兩種問題有個共通點：它們牽動的是 0ops 底層的 K8s / GitOps / 網路這幾層。好消息是，0ops 給了你冪等的復原指令；而網址打不開這種分層系統的故障，筆者自己的經驗是，只要照著「從外到內」逐層定位，多半能自己找到卡在哪。
 
 今天要建立三件事：
 
@@ -103,11 +103,11 @@ $ kubectl -n cloudflare-tunnel rollout restart deploy/cloudflared
 
 今天收掉排錯篇的兩個硬骨頭。卡在 `deleting`：先用冪等的 `0ops admin retry-delete` 重跑，多按幾次都安全；真卡在 finalizer / ArgoCD，就 `kubectl` / `argocd` 清完再 retry。網址打不開：照 **Cloudflare → tunnel → ingress → pod `/health` → ArgoCD** 從外到內逐層定位，別跳層猜——定位到層就定位到修法。
 
-排錯篇到這裡告一段落。明天 [Day 25] 我們把散落各處的上手陷阱與 FAQ 一次收齊——`asset not found`、PATH 沒加、device flow timeout、AI 工具回 `unauthorized`、MCP 看不到工具——這些「第一天最容易卡」的問題，一篇查完。
+排錯篇到這裡告一段落。明天 [Day 25]，筆者想把散落各處的上手陷阱與 FAQ 一次收齊——`asset not found`、PATH 沒加、device flow timeout、AI 工具回 `unauthorized`、MCP 看不到工具——這些「第一天最容易卡」的問題，一篇查完。
 
 Q&A
 
-你踩過「狀態 live 但網址打不開」的坑嗎？最後查到是哪一層出問題？留言告訴我你的分層排查心得 : )
+你踩過「狀態 live 但網址打不開」的坑嗎？最後查到是哪一層出問題？筆者自己每次遇到都還是得乖乖從外到內查一遍，很歡迎你留言告訴我你的分層排查心得唷 : )
 
 參考連結
 

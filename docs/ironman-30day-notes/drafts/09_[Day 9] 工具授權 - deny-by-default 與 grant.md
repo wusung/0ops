@@ -7,17 +7,17 @@
 
 前言
 
-昨天 [Day 8] 我們把 0ops 接上了 AI CLI，也驗證 agent 能呼叫 `list_teams`。但這裡留了一個沒回答的問題：接上之後，agent 到底能碰**哪些**工具？24 個全開嗎？
+昨天 [Day 8] 我們把 0ops 接上了 AI CLI，也驗證 agent 能呼叫 `list_teams`。但這裡留了一個筆者當時也很在意、卻還沒回答的問題：接上之後，agent 到底能碰**哪些**工具？24 個全開嗎？
 
-答案是——**預設什麼都不開**。今天要講的就是 0ops 的授權模型：deny-by-default，能力預設關閉，你要哪個工具、就逐項打開哪個。這呼應 Day 4「讓 AI 有權執行、但無權略過人」的精神，只是這次管的是「有沒有權執行」這件事本身。
+答案是——**預設什麼都不開**。今天想跟大家聊的就是 0ops 的授權模型：deny-by-default，能力預設關閉，你要哪個工具、就逐項打開哪個。這呼應 Day 4「讓 AI 有權執行、但無權略過人」的精神，只是這次管的是「有沒有權執行」這件事本身。
 
-今天三件事：
+今天筆者想帶大家看三件事：
 
 1. 搞懂兩層權限——GitHub OAuth scope 加上 per-user 的 MCP tool grant；
 2. 看未授權時 agent 會撞到什麼（`tool_not_permitted`），以及登入時怎麼授權；
 3. 事後怎麼用 `0ops auth grant` / `revoke` 調整。
 
-過程中我會誠實標出：這套模型裡有一部分（token claim 編碼、invocation-time enforcement）在 spec 裡還是 TODO，屬規劃中，不能當成已經完全落地。
+過程中筆者會誠實標出：這套模型裡有一部分（token claim 編碼、invocation-time enforcement）在 spec 裡還是 TODO，屬規劃中，不能當成已經完全落地。
 
 兩層權限：OAuth scope + tool grant
 
@@ -72,7 +72,7 @@ Revoked: create_app_preview
 
 規劃中的部分：先講清楚狀態
 
-這裡必須誠實交代——授權模型不是每一塊都已經完全落地。spec 裡標了兩件事仍是 TODO：
+這裡筆者必須誠實跟大家交代——授權模型不是每一塊都已經完全落地。spec 裡標了兩件事仍是 TODO：
 
 - **token claim 編碼**：把 grant 過的工具清單編碼進 token claim 這件事，還沒完全實作；
 - **invocation-time enforcement**：在「工具真正被呼叫的那一刻」由後端強制檢查授權，這層 enforcement 在 spec 裡標為 TODO。

@@ -7,9 +7,9 @@
 
 前言
 
-昨天 [Day 7] 我們用一條 `curl` 把 0ops 裝好、登入，也驗證了 `0ops teams list` 能回東西。那條安裝指令其實已經順手把 0ops 接上偵測到的 AI CLI 了——但「接線」到底做了什麼、寫到哪裡，值得單獨拆開講。因為 Day 6 講過，0ops 的另一個入口是 **MCP**：讓 Claude Code、Codex 這類 agent 直接呼叫 0ops 的部署工具。這條線沒接好，你在對話裡說「幫我部署」時，agent 根本看不到那些工具。
+昨天 [Day 7] 我們用一條 `curl` 把 0ops 裝好、登入，也驗證了 `0ops teams list` 能回東西。那條安裝指令其實已經順手把 0ops 接上偵測到的 AI CLI 了——但「接線」到底做了什麼、寫到哪裡，筆者覺得值得單獨拆開講。因為 Day 6 聊過，0ops 的另一個入口是 **MCP**：讓 Claude Code、Codex 這類 agent 直接呼叫 0ops 的部署工具。這條線沒接好，你在對話裡說「幫我部署」時，agent 根本看不到那些工具——這也是筆者一開始最容易忽略的地方。
 
-今天要做三件事：
+今天筆者想跟大家一起做三件事：
 
 1. 手動把 0ops 接到 Claude Code / Codex / Copilot（如果安裝時沒接、或你想重接）；
 2. 搞懂設定寫到哪個檔、`--print-only` 怎麼先預覽再決定；
@@ -27,7 +27,7 @@ $ 0ops mcp setup codex           # 寫進 ~/.codex/config.toml 的 [mcp_servers.
 $ 0ops mcp setup copilot-cli     # 只印手動步驟，不自動寫檔
 ```
 
-三者的差異值得記一下：
+三者的差異筆者覺得值得記一下：
 
 - **claude-code**：把一個名為 `0ops` 的 MCP server 條目寫進 `~/.claude.json` 的 `mcpServers`。
 - **codex**：寫進 `~/.codex/config.toml`，section 是 `[mcp_servers.0ops]`（TOML 格式）。
@@ -48,7 +48,7 @@ Done. Restart Claude Code for the change to take effect.
 
 先預覽不寫檔：--print-only
 
-如果你不放心讓它直接動你的設定檔，先用 `--print-only` 看它「打算寫什麼」，但不真的落地：
+如果你不放心讓它直接動你的設定檔，筆者自己也偏好先用 `--print-only` 看它「打算寫什麼」，但不真的落地：
 
 ```sh
 $ 0ops mcp setup claude-code --print-only

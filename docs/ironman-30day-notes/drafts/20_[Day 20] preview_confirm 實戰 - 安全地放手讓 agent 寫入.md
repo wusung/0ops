@@ -7,9 +7,9 @@
 
 前言
 
-Day 4 我們第一次介紹 preview/confirm 這道安全網，Day 19 又在實戰裡看到 agent 怎麼把 `side_effects` 攤給你、停下來等你點頭。但那時候你點頭得有點快——因為 happy path 一切正常，看起來就是該批准。
+Day 4 筆者第一次跟大家介紹 preview/confirm 這道安全網，Day 19 又在實戰裡看到 agent 怎麼把 `side_effects` 攤給你、停下來等你點頭。但那時候你點頭得有點快——因為 happy path 一切正常，看起來就是該批准。
 
-問題是：**真實情境不會每次都是 happy path**。有時候 agent 產生的 preview，會透露出「它理解錯了你的意圖」。如果你把 confirm 當成橡皮圖章，看都不看就蓋下去，那這道安全網等於形同虛設。今天要練的，就是**怎麼審**——讓你在真正放手讓 agent 寫入時，看得懂、擋得住。
+問題是：**真實情境不會每次都是 happy path**。筆者自己就遇過幾次，agent 產生的 preview 會透露出「它理解錯了我的意圖」。如果你把 confirm 當成橡皮圖章，看都不看就蓋下去，那這道安全網等於形同虛設。今天要一起練的，就是**怎麼審**——讓你在真正放手讓 agent 寫入時，看得懂、擋得住。
 
 今天會做三件事：
 
@@ -24,7 +24,7 @@ preview/confirm 在 CLI 和 MCP 兩個入口，長得不太一樣，但本質是
 - **CLI（你手動）**：create／redeploy 會印出計畫摘要後問 `[y/N]`；`--yes` 可跳過、`--dry-run` 只 preview 不執行。delete 更嚴——side-effects 警告 → 打 app slug（須完全相符）→ 高風險再打 `required_phrase`（如 `DELETE nextdemo`）→ 最後 `[y/N]`。
 - **MCP（AI agent）**：寫入工具都是兩階段。agent 先呼叫 `*_preview` 拿到 `action_summary` + 完整 `side_effects` + `expires_at`，**必須把這些展示給你、取得明確同意**，才能帶著 `preview_id` 呼叫對應的 confirm 工具。
 
-今天的重點放在 MCP 入口——因為那才是「放手讓 agent 寫入」真正需要判斷力的地方。
+今天筆者把重點放在 MCP 入口——因為那才是「放手讓 agent 寫入」真正需要判斷力的地方。
 
 怎麼審 action_summary：看「意圖」
 
@@ -69,13 +69,13 @@ side_effects:
   - 重新建立 app 記錄與部署
 ```
 
-停。你要的是「redeploy」，agent 卻理解成「delete + recreate」。這裡有一個致命項：**永久刪除 Persistent Volume**——你的資料會沒掉。方向錯了（redeploy 不該碰資料）、代價不可逆。這種 preview 就是要**擋下**的：不要 confirm，回頭跟 agent 說「我要的是重新部署，不要刪除，用 redeploy」。
+停。你要的是「redeploy」，agent 卻理解成「delete + recreate」。這裡有一個致命項：**永久刪除 Persistent Volume**——你的資料會沒掉。方向錯了（redeploy 不該碰資料）、代價不可逆。筆者遇到這種 preview 一定會**擋下**：不要 confirm，回頭跟 agent 說「我要的是重新部署，不要刪除，用 redeploy」。
 
 這就是為什麼 preview 不能當橡皮圖章——**同樣一句「幫我更新一下」，agent 可能走 redeploy，也可能走 delete+recreate，只有 side_effects 會誠實告訴你它選了哪條路**。
 
 一張審閱 checklist
 
-放手前，對著 preview 過一遍：
+筆者自己放手前，都會對著 preview 過一遍這五點：
 
 1. **意圖對齊**：`action_summary` 是不是我要的那件事？團隊／app／來源／分支對不對？
 2. **範圍收斂**：`side_effects` 有沒有動到我沒提到的其他 app 或資源？
@@ -125,11 +125,11 @@ error: confirmation_phrase_mismatch
 
 今天把「放手讓 agent 寫入」從一句口號，變成可操作的審閱能力：`action_summary` 看意圖方向、`side_effects` 逐條看代價、對照範例練「該批准 vs 該擋下」、delete 另外盯緊 `confirmation_phrase` 與 `confirmation_phrase_mismatch`。核心原則——**preview 不是儀式，是你最後一次看清代價的機會**。
 
-明天 [Day 21]，我們回到自動化：**GitHub App 與 push-to-deploy**。裝好之後，你 push 一個 commit 就自動 redeploy 上線，連指令都不用打。但在按下那個「全自動」開關前，我會先帶你確認一件事——關掉它的後果，你清楚嗎？
+明天 [Day 21]，筆者要帶大家回到自動化：**GitHub App 與 push-to-deploy**。裝好之後，你 push 一個 commit 就自動 redeploy 上線，連指令都不用打。但在按下那個「全自動」開關前，筆者會先帶你確認一件事——關掉它的後果，你清楚嗎？
 
 Q&A
 
-你有沒有遇過 agent「理解錯意圖」的時候？當時是 preview 幫你擋下來的，還是你事後才發現？歡迎留言分享你的審閱心得 : )
+筆者自己也還在磨這套審閱的直覺，你有沒有遇過 agent「理解錯意圖」的時候？當時是 preview 幫你擋下來的，還是事後才發現的呢？非常歡迎留言分享你的審閱心得給我唷 : )
 
 參考連結
 

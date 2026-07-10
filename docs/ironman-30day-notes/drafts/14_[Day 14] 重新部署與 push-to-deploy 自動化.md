@@ -7,9 +7,9 @@
 
 前言
 
-到目前為止，我們會建立 app（[Day 10]、[Day 11]、[Day 12]），也會查狀態、看 log（[Day 13]）。但真實開發是持續的——你會一直改 code、一直要把新版本推上去。今天就來解決「**部署第二次、第三次、第 N 次**」這件事，而且要讓它盡量自動。
+到目前為止，我們會建立 app（[Day 10]、[Day 11]、[Day 12]），也會查狀態、看 log（[Day 13]）。但真實開發是持續的——你會一直改 code、一直要把新版本推上去。筆者早期最累的就是這個環節：每改一版就手動重跑一次部署，敲到手軟。今天就來解決「**部署第二次、第三次、第 N 次**」這件事，而且要讓它盡量自動。
 
-今天要做的三件事：
+今天筆者想跟大家一起做三件事：
 
 - 用 `0ops deploys redeploy` 手動重新部署指定的 `ref` 或 `commit`；
 - 設定 push-to-deploy，讓 push 到 GitHub 自動觸發 redeploy；
@@ -17,7 +17,7 @@
 
 手動重新部署：deploys redeploy
 
-先講手動路徑。注意這裡的正確 verb 是 `0ops deploys redeploy`（**不是** `0ops redeploy`）：
+先講手動路徑。這裡筆者要特別提醒一個當初自己踩過的雷：正確的 verb 是 `0ops deploys redeploy`（**不是** `0ops redeploy`）：
 
 ```sh
 $ 0ops deploys redeploy nextdemo --ref main
@@ -44,7 +44,7 @@ $ 0ops deploys redeploy nextdemo --commit-sha d4e5f6a
 
 自動部署：push-to-deploy
 
-手動 redeploy 適合例外情況（例如回滾到某個 commit），但日常開發你不會想每次都手動敲一次。0ops 支援 push-to-deploy：只要 push 到 app 綁定的 `repo_url` + `ref`，webhook 就會自動觸發一次 redeploy。
+手動 redeploy 適合例外情況（例如回滾到某個 commit），但日常開發你不會想每次都手動敲一次——這也是筆者前面說「敲到手軟」的痛點。好在 0ops 支援 push-to-deploy：只要 push 到 app 綁定的 `repo_url` + `ref`，webhook 就會自動觸發一次 redeploy。
 
 前提是這個 team 已經裝好 GitHub App（`0ops teams github install`，preview→confirm→開瀏覽器授權→輪詢完成，這步 [Day 21] 會詳談）。裝好之後，流程變成：
 
@@ -102,7 +102,7 @@ AI 端對應的是兩階段寫入工具 `redeploy_preview` → `redeploy`（接�
 
 Q&A
 
-你的專案偏好每次 push 都自動上線，還是保留手動關卡？回滾時你都怎麼指定要退回哪個 commit？歡迎留言。
+筆者自己現在幾乎全交給 push-to-deploy，只在回滾時才動手動 redeploy。你的專案偏好每次 push 都自動上線，還是保留手動關卡呢？回滾時你都怎麼指定要退回哪個 commit？歡迎留言給我唷 : )
 
 參考連結
 
