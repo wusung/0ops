@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"fmt"
 	"html/template"
+	"path"
 	"regexp"
 	"strings"
 
@@ -179,6 +180,23 @@ func slugFromFilename(filename string) string {
 	base = fileExtRe.ReplaceAllString(base, "")
 	base = datePrefixRe.ReplaceAllString(base, "")
 	return base
+}
+
+// safeSlug rejects any slug that would escape the blog/ output directory when
+// used as a filename (e.g. `../evil`, `a/b`, an absolute path). It returns the
+// cleaned single-segment slug or an error; the slug must not contain a path
+// separator or `..` after cleaning.
+func safeSlug(slug string) (string, error) {
+	if slug == "" {
+		return "", fmt.Errorf("empty slug")
+	}
+	if strings.ContainsRune(slug, '/') || strings.Contains(slug, "..") {
+		return "", fmt.Errorf("unsafe slug %q: must not contain %q or %q", slug, "/", "..")
+	}
+	if base := path.Base(slug); base != slug {
+		return "", fmt.Errorf("unsafe slug %q: does not equal its path.Base %q", slug, base)
+	}
+	return slug, nil
 }
 
 // canonicalURL builds the canonical blog URL for a slug, normalizing trailing

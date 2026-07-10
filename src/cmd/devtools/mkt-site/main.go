@@ -107,10 +107,15 @@ func run(c config) error {
 		return err
 	}
 
-	// Each post (blog/<slug>.html).
+	// Each post (blog/<slug>.html). Sanitize the slug so a malicious or
+	// malformed slug (e.g. `../evil`, `a/b`) can never escape blog/.
 	for _, p := range posts {
+		slug, err := safeSlug(p.Slug)
+		if err != nil {
+			return fmt.Errorf("post %q: %w", p.Title, err)
+		}
 		page := p.toPage(c.baseURL)
-		out := filepath.Join(c.outDir, "blog", p.Slug+".html")
+		out := filepath.Join(c.outDir, "blog", slug+".html")
 		if err := writePage(out, postTmpl, "blog-post", page); err != nil {
 			return err
 		}

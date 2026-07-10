@@ -143,6 +143,34 @@ func TestRenderPost_NoPlaceholdersAndBilingual(t *testing.T) {
 	}
 }
 
+func TestSafeSlug_RejectsPathEscape(t *testing.T) {
+	// A slug must never escape the blog/ output directory when used as a filename.
+	for _, bad := range []string{"../evil", "..", "a/b", "/abs", "foo/../bar", ""} {
+		if got, err := safeSlug(bad); err == nil {
+			t.Errorf("safeSlug(%q) = %q, nil; want rejection", bad, got)
+		}
+	}
+	// A clean single-segment slug passes through unchanged.
+	for _, ok := range []string{"ship-with-ai-agent-safely", "provable-agent-audit-trail"} {
+		got, err := safeSlug(ok)
+		if err != nil {
+			t.Errorf("safeSlug(%q) unexpected error: %v", ok, err)
+		}
+		if got != ok {
+			t.Errorf("safeSlug(%q) = %q, want unchanged", ok, got)
+		}
+	}
+}
+
+func TestRenderMarkdown_EscapesRawHTMLScript(t *testing.T) {
+	// goldmark's default (safe) mode escapes/omits raw HTML; lock that property so
+	// a future unsafe renderer swap can't silently ship an XSS vector.
+	html := renderMarkdown("A line then <script>alert(1)</script> end.")
+	if strings.Contains(html, "<script>alert(1)</script>") {
+		t.Errorf("raw <script> survived rendering (unsafe HTML):\n%s", html)
+	}
+}
+
 func TestToPage_CanonicalWired(t *testing.T) {
 	p, _, err := parsePost("post.md", []byte(sampleWithSlug))
 	if err != nil {
