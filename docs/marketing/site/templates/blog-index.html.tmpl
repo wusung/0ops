@@ -1,0 +1,17 @@
+{{ define "blog-index" }}{{ template "layout" . }}{{ end }}
+{{ define "content" }}
+<section class="wrap blog-index">
+  <h1>Build in public / 公開開發</h1>
+  <p class="muted">How we build a deploy platform for AI agents — one capability at a time.<br>我們如何一次一個能力，打造給 AI agent 用的部署平台。</p>
+  <ul class="post-list">
+    {{ range .Posts }}
+    <li class="post-item">
+      <a class="post-link" href="{{ $.RootPath }}blog/{{ .Slug }}.html">{{ .Title }}</a>
+      {{ if .Cadence }}<span class="badge">{{ .Cadence }}</span>{{ end }}
+    </li>
+    {{ else }}
+    <li class="muted">No posts yet.</li>
+    {{ end }}
+  </ul>
+</section>
+{{ end }}

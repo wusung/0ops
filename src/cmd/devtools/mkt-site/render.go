@@ -30,14 +30,25 @@ type Post struct {
 	ENMarkdown string
 }
 
-// Page is the template data model for a rendered blog post.
-type Page struct {
+// View holds the layout-level fields every page shares. RootPath is the
+// relative path from the current page back to the site root (e.g. "" for
+// index.html, "../" for blog/index.html, "../" for blog/<slug>.html), and
+// AssetPath points at the assets/ directory the same way.
+type View struct {
 	Site         SiteMeta
 	Title        string
-	Slug         string
+	Description  string
 	CanonicalURL string
-	ZHHTML       template.HTML
-	ENHTML       template.HTML
+	RootPath     string
+	AssetPath    string
+}
+
+// Page is the template data model for a rendered blog post.
+type Page struct {
+	View
+	Slug   string
+	ZHHTML template.HTML
+	ENHTML template.HTML
 }
 
 // SiteMeta carries site-wide values shared across every page.
@@ -192,12 +203,16 @@ func renderMarkdown(md string) string {
 // from base + slug and rendering both language sections to HTML.
 func (p Post) toPage(base string) Page {
 	return Page{
-		Site:         SiteMeta{Name: "0ops", BaseURL: strings.TrimRight(base, "/")},
-		Title:        p.Title,
-		Slug:         p.Slug,
-		CanonicalURL: canonicalURL(base, p.Slug),
-		ZHHTML:       template.HTML(renderMarkdown(p.ZHMarkdown)),
-		ENHTML:       template.HTML(renderMarkdown(p.ENMarkdown)),
+		View: View{
+			Site:         SiteMeta{Name: "0ops", BaseURL: strings.TrimRight(base, "/")},
+			Title:        p.Title,
+			CanonicalURL: canonicalURL(base, p.Slug),
+			RootPath:     "../",
+			AssetPath:    "../assets/",
+		},
+		Slug:   p.Slug,
+		ZHHTML: template.HTML(renderMarkdown(p.ZHMarkdown)),
+		ENHTML: template.HTML(renderMarkdown(p.ENMarkdown)),
 	}
 }
 
