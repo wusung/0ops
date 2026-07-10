@@ -153,6 +153,16 @@ cmd_mkt_next()    { bash tasks/mkt/next.sh "$@"; }
 cmd_mkt_verify()  { bash tasks/mkt/verify.sh "$@"; }
 cmd_mkt_publish() { bash tasks/mkt/publish.sh "$@"; }
 
+# --- marketing landing site (docs/features/marketing-landing-site/spec.md) ---
+cmd_mkt_site_build() { ( cd src && go run ./cmd/devtools/mkt-site "$@" ); }
+cmd_mkt_site_serve() {
+  local dir="docs/marketing/site/dist" port="${MKT_SITE_PORT:-8080}"
+  [ -d "$dir" ] || die "no dist/ — run './manage.sh mkt-site-build' first"
+  echo "serving $dir at http://localhost:$port (Ctrl-C to stop)"
+  python3 -m http.server "$port" --directory "$dir"
+}
+cmd_mkt_site_deploy() { bash tasks/mkt/deploy-site.sh "$@"; }
+
 # ----- help -----
 
 usage() {
@@ -243,6 +253,13 @@ marketing (build-in-public content lane; docs/features/build-in-public-engine/sp
   mkt-publish <queue.yaml>     dry-run 散佈器：印 FB 粉專 / Threads payload；不連網
                                (--publish 本輪被 guard，真發屬 MKT.2)
 
+marketing landing site (docs/features/marketing-landing-site/spec.md):
+  mkt-site-build [flags]       渲染 posts + landing → docs/marketing/site/dist/
+                               (flags 透傳 renderer；例: -base-url https://0ops.sh)
+  mkt-site-serve               本地靜態預覽 dist/ (MKT_SITE_PORT，預設 8080)
+  mkt-site-deploy              部署 dry-run：印 wrangler pages deploy 指令；不連網
+                               (--deploy 被 guard，需 CF_API_TOKEN + MKT_SITE_DEPLOY_CONFIRMED=1 → MKT.4)
+
 misc:
   help, -h, --help             顯示本說明
 EOF
@@ -312,6 +329,10 @@ main() {
     mkt-next)     cmd_mkt_next "$@" ;;
     mkt-verify)   cmd_mkt_verify "$@" ;;
     mkt-publish)  cmd_mkt_publish "$@" ;;
+
+    mkt-site-build)  cmd_mkt_site_build "$@" ;;
+    mkt-site-serve)  cmd_mkt_site_serve "$@" ;;
+    mkt-site-deploy) cmd_mkt_site_deploy "$@" ;;
 
     *)
       echo "unknown command: $cmd" >&2

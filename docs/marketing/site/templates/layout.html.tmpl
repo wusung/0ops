@@ -1,0 +1,33 @@
+{{ define "layout" -}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ if .Title }}{{ .Title }} · {{ end }}{{ .Site.Name }}</title>
+  {{ if .CanonicalURL }}<link rel="canonical" href="{{ .CanonicalURL }}">{{ end }}
+  {{ if .Description }}<meta name="description" content="{{ .Description }}">{{ end }}
+  <link rel="stylesheet" href="{{ .AssetPath }}styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="{{ .RootPath }}">0ops</a>
+      <nav class="nav">
+        <a href="{{ .RootPath }}">Product</a>
+        <a href="{{ .RootPath }}blog/">Blog</a>
+      </nav>
+    </div>
+  </header>
+  <main class="site-main">
+    {{ block "content" . }}{{ end }}
+  </main>
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>The deploy platform built for AI agents. 為 AI agent 打造的部署平台。</p>
+      <p class="muted">{{ .Site.Name }} · <code>curl -fsSL https://0ops.sh/install | sh</code></p>
+    </div>
+  </footer>
+</body>
+</html>
+{{- end }}

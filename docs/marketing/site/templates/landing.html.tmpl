@@ -1,0 +1,47 @@
+{{ define "landing" }}{{ template "layout" . }}{{ end }}
+{{ define "content" }}
+<section class="hero">
+  <div class="wrap">
+    <p class="eyebrow">The deploy platform built for AI agents</p>
+    <h1 class="hero-title">{{ .Hero.ZHHeadline }}</h1>
+    <h2 class="hero-title-en">{{ .Hero.ENHeadline }}</h2>
+    <p class="hero-sub">{{ .Hero.ZHSub }}</p>
+    <p class="hero-sub muted">{{ .Hero.ENSub }}</p>
+
+    <div class="cta">
+      <pre class="cta-code"><code>curl -fsSL https://0ops.sh/install | sh
+0ops apps create</code></pre>
+      <p class="cta-note">{{ .Hero.ZHCTANote }} · {{ .Hero.ENCTANote }}</p>
+    </div>
+  </div>
+</section>
+
+<section class="wrap capabilities">
+  <h2>{{ .CapabilitiesTitle }}</h2>
+  <div class="cap-grid">
+    {{ range .Capabilities }}
+    <div class="cap-card">
+      <h3>{{ .ZHTitle }}</h3>
+      <p>{{ .ZHBody }}</p>
+      <h3 class="en">{{ .ENTitle }}</h3>
+      <p class="muted">{{ .ENBody }}</p>
+    </div>
+    {{ end }}
+  </div>
+</section>
+
+<section class="wrap latest">
+  <h2>Latest posts / 最新文章</h2>
+  <ul class="post-list">
+    {{ range .Posts }}
+    <li class="post-item">
+      <a class="post-link" href="{{ $.RootPath }}blog/{{ .Slug }}.html">{{ .Title }}</a>
+      {{ if .Cadence }}<span class="badge">{{ .Cadence }}</span>{{ end }}
+    </li>
+    {{ else }}
+    <li class="muted">No posts yet.</li>
+    {{ end }}
+  </ul>
+  <p><a class="more" href="{{ .RootPath }}blog/">All posts / 所有文章 →</a></p>
+</section>
+{{ end }}
