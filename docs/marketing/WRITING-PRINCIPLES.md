@@ -29,3 +29,18 @@ ledger 的 ADR／lesson／milestone 只是「本篇推廣哪個能力／故事�
 - **weekly**：把某個能力翻成用戶價值。
 - **monthly**：把某個修掉的風險翻成「我們在它傷到你之前就攔下」的安全信任。
 - **quarterly**：把某個 milestone 翻成「你有的問題 → 現在能怎麼解」的成果故事。
+
+## landing 文案
+
+landing page（`docs/marketing/site/landing.md`）與 blog 頁一樣是對外推廣文字，
+受本檔同一契約管理，不另立標準：
+
+- **同七原則**：用戶視角、零內部代號（原則 2）、價值先行、具體場景、一句差異化、
+  必有 CTA（原則 6）、中英雙語精簡。任何內部代號（`ADR-XXXX`、`檔名.go:行號`、
+  內部 package／spec／欄位名）都不得出現在 landing 或 blog 輸出（gate S5 二次強制）。
+- **hero 一句價值**：首屏頂端一句話講清「你會得到什麼」，不從架構或決策切入，
+  不塞技術名詞。這一句是全站最重要的文案。
+- **CTA 必達**：landing 至少一個明確安裝／試用下一步（`curl … | 0ops apps create`
+  或試用連結），與 social 變體回鏈的 `{{canonical_url}}` 落點一致。
+- **blog 回鏈**：social 變體的 `{{canonical_url}}` 解析為 `<base>/blog/<slug>`，
+  必須指向真實存在的 blog 頁（gate S2／S4：無死鏈、無殘留佔位符）。

@@ -42,3 +42,5 @@
 | MKT.1 | Social distribution lane (derive + dry-run publish to FB Page/Threads) | MKT.0 | docs/features/build-in-public-engine/spec.md §6 | `docs/marketing/**`, `tasks/mkt/**`                                                          |
 | MKT.W1 | Build-in-public weekly post from 0002-idempotency-and-compensation.md | - | docs/features/build-in-public-engine/spec.md, docs/adrs/0002-idempotency-and-compensation.md | `docs/marketing/**` |
 | MKT.W2 | Build-in-public weekly post from 0015-audit-log-append-only-and-tamper-evidence.md | - | docs/features/build-in-public-engine/spec.md, docs/adrs/0015-audit-log-append-only-and-tamper-evidence.md | `docs/marketing/**` |
+| MKT.3 | Social landing site + build-in-public blog (render + canonical wiring + deploy dry-run) | MKT.1 | docs/features/marketing-landing-site/spec.md, docs/features/marketing-landing-site/plan.md | `docs/marketing/site/**`, `src/cmd/devtools/mkt-site/**`, `manage.sh`, `tasks/mkt/**` |
+| MKT.4 | Real Cloudflare Pages deploy (gated: CF project + token) | MKT.3 | docs/features/marketing-landing-site/spec.md §7 | `docs/marketing/site/**`, `tasks/mkt/deploy-site.sh` |

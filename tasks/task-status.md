@@ -49,3 +49,5 @@
 窄化 deferred：multi-replica HA 之 durable StateStore（spec § 19.2）。
 | MKT.W1 | Build-in-public weekly post from 0002-idempotency-and-compensation.md | Done | 2026-07-05 |
 | MKT.W2 | Build-in-public weekly post from 0015-audit-log-append-only-and-tamper-evidence.md | Done | 2026-07-05 |
+| MKT.3 | Social landing site + build-in-public blog | Done | 2026-07-10 |
+| MKT.4 | Real Cloudflare Pages deploy (gated) | Pending | - |

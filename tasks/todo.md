@@ -203,6 +203,21 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
 - [ ] `published-ledger.md` dedup key 冪等：重跑已發項目跳過
 - [ ] 明確不含：真實 Meta API 發文、排程器（屬 MKT.2）
 
+### MKT.3 — Social landing site + build-in-public blog
+- [ ] `./manage.sh mkt-site-build -base-url https://0ops.sh` 成功產出 `docs/marketing/site/dist/`（S1）
+- [ ] 每個 `docs/marketing/posts/*.md` 都有對應 `blog/<slug>.html`，另有 `index.html`、`blog/index.html`（S2）
+- [ ] 每篇 blog 頁中英雙語皆非空（S3）
+- [ ] dist 內無殘留 `{{…}}` 佔位符 / 死鏈（S4）；無內部代號 `ADR-XXXX` / `file.go:line`（S5）
+- [ ] `publish.sh` dry-run 把 `{{canonical_url}}` 換成 `<base>/blog/<slug>`（`MKT_SITE_BASE_URL` 預設 `https://0ops.sh`）
+- [ ] `cd src && go test ./cmd/devtools/mkt-site/...` 綠 + `bash tasks/mkt/test/run-tests.sh` 綠（S6）
+- [ ] `tasks/mkt/deploy-site.sh` dry-run 印 `wrangler pages deploy` 指令且不連網
+- [ ] `dist/` 由 `docs/marketing/site/.gitignore` 排除，不進版控
+
+### MKT.4 — Real Cloudflare Pages deploy (gated)
+- [ ] 真實 `wrangler pages deploy`：需 CF Pages 專案 + `CF_API_TOKEN` + `MKT_SITE_DEPLOY_CONFIRMED=1`（本輪不接）
+- [ ] 網域 `0ops.sh` 綁定（CF DNS，與產品同帳號）
+- [ ] 依賴 MKT.3 完成；屬對外動作，gated
+
 ## Governance Guide
 
 > 本區不是進度追蹤，不用 checkbox。
