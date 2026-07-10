@@ -1,4 +1,4 @@
-slug: preview-confirm-idempotency
+post: queue-item
 fb: |
   0ops preview→confirm：讓 agent 的寫入操作無法繞過安全閘。為什麼這麼設計 → {{canonical_url}}
 threads: |

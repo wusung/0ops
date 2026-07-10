@@ -72,5 +72,6 @@ docs/marketing/posts/*.md  ──►  mkt-site (Go: goldmark + html/template)  �
 ## 7. Future（MKT.4，gated）
 
 - 真實 `wrangler pages deploy`：需 CF Pages 專案 ＋ API token（env／sealed-secrets，不進 repo）。
+- Cloudflare Pages 必須以 clean URLs 服務，讓 `/blog/<slug>` 對應到 `<slug>.html`（渲染器產出的 canonical 連結為無副檔名形式）。
 - 網域 `0ops.sh` 綁定（CF DNS，與產品同帳號）。
 - production 路徑轉綠後，把本站自架到 0ops 上——旗艦 dogfood ＋ 季更「從問題到解法」素材。
