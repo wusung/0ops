@@ -153,3 +153,62 @@ hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
   .hero-title-en { font-size: 1.15rem; }
   .cap-grid { grid-template-columns: 1fr; }
 }
+
+/* ---- hero: two-column + terminal demo (polish) ---- */
+.hero .wrap.hero-grid {
+  max-width: 1040px;
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 44px;
+  align-items: center;
+}
+.hero-copy { min-width: 0; }
+.terminal {
+  background: var(--bg-code);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.4);
+}
+.term-bar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 13px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+}
+.term-bar i { width: 11px; height: 11px; border-radius: 50%; background: #39414f; }
+.term-bar i:nth-child(1) { background: #ff5f56; }
+.term-bar i:nth-child(2) { background: #ffbd2e; }
+.term-bar i:nth-child(3) { background: #27c93f; }
+.term-title { margin-left: 8px; color: var(--fg-muted); font-size: 0.76rem; font-family: var(--mono); }
+.term-body {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  padding: 16px 18px;
+  font-size: 0.83rem;
+  line-height: 1.75;
+  white-space: pre-wrap;
+}
+.term-body .c-prompt { color: var(--accent-dim); }
+.term-body .c-ok { color: var(--accent); }
+.term-body .c-dim { color: var(--fg-muted); }
+.term-body .c-link { color: var(--link); }
+
+/* ---- blog: no-JS language toggle (radio hack; content stays in DOM) ---- */
+.lang-radio { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.lang-switch label { cursor: pointer; color: var(--fg-muted); padding: 2px 3px; }
+.lang-switch label:hover { color: var(--fg); }
+#lang-zh:checked ~ .lang-switch label[for="lang-zh"],
+#lang-en:checked ~ .lang-switch label[for="lang-en"] { color: var(--accent); font-weight: 600; }
+.post-lang { display: none; }
+#lang-zh:checked ~ #zh,
+#lang-en:checked ~ #en { display: block; }
+
+@media (max-width: 820px) {
+  .hero .wrap.hero-grid { grid-template-columns: 1fr; gap: 28px; }
+  .terminal { order: 2; }
+}

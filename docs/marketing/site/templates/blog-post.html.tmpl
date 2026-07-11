@@ -1,13 +1,13 @@
 {{ define "blog-post" }}{{ template "layout" . }}{{ end }}
 {{ define "content" }}
 <article class="post wrap">
-  <p class="lang-switch"><a href="#zh">中文</a> · <a href="#en">English</a></p>
+  <input type="radio" name="lang" id="lang-zh" class="lang-radio" checked>
+  <input type="radio" name="lang" id="lang-en" class="lang-radio">
+  <p class="lang-switch"><label for="lang-zh">中文</label> · <label for="lang-en">English</label></p>
 
   <section id="zh" class="post-lang" lang="zh-Hant">
     {{ .ZHHTML }}
   </section>
-
-  <hr class="lang-divider">
 
   <section id="en" class="post-lang" lang="en">
     {{ .ENHTML }}
