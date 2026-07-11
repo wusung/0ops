@@ -1,18 +1,32 @@
 {{ define "landing" }}{{ template "layout" . }}{{ end }}
 {{ define "content" }}
 <section class="hero">
-  <div class="wrap">
-    <p class="eyebrow">The deploy platform built for AI agents</p>
-    <h1 class="hero-title">{{ .Hero.ZHHeadline }}</h1>
-    <h2 class="hero-title-en">{{ .Hero.ENHeadline }}</h2>
-    <p class="hero-sub">{{ .Hero.ZHSub }}</p>
-    <p class="hero-sub muted">{{ .Hero.ENSub }}</p>
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <p class="eyebrow">The deploy platform built for AI agents</p>
+      <h1 class="hero-title">{{ .Hero.ZHHeadline }}</h1>
+      <h2 class="hero-title-en">{{ .Hero.ENHeadline }}</h2>
+      <p class="hero-sub">{{ .Hero.ZHSub }}</p>
+      <p class="hero-sub muted">{{ .Hero.ENSub }}</p>
 
-    <div class="cta">
-      <pre class="cta-code"><code>curl -fsSL https://0ops.sh/install | sh
+      <div class="cta">
+        <pre class="cta-code"><code>curl -fsSL https://0ops.sh/install | sh
 0ops apps create</code></pre>
-      <p class="cta-note">{{ .Hero.ZHCTANote }} · {{ .Hero.ENCTANote }}</p>
+        <p class="cta-note">{{ .Hero.ZHCTANote }} · {{ .Hero.ENCTANote }}</p>
+      </div>
     </div>
+
+    <aside class="terminal" aria-hidden="true">
+      <div class="term-bar"><i></i><i></i><i></i><span class="term-title">agent · 0ops</span></div>
+      <pre class="term-body"><code><span class="c-prompt">$</span> 0ops apps create
+<span class="c-dim">preview →</span> deploy nextdemo from ./
+  build · sign · push · bind nextdemo.0ops.app
+<span class="c-dim">confirm?</span> y
+<span class="c-ok">✓</span> live · <span class="c-link">https://nextdemo.0ops.app</span> · 41s
+
+<span class="c-prompt">$</span> 0ops apps create   <span class="c-dim"># agent retried by mistake</span>
+<span class="c-ok">✓</span> already done · nothing double-shipped</code></pre>
+    </aside>
   </div>
 </section>
 
