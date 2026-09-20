@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	serverpkg "github.com/winshare/zeroops/internal/server"
-	"github.com/winshare/zeroops/internal/server/db"
+	serverpkg "github.com/wusung/0ops/internal/server"
+	"github.com/wusung/0ops/internal/server/db"
 )
 
 // newDeleteCapableStore returns a CLI fake store whose default token has

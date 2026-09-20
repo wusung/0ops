@@ -12,7 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 
-	"github.com/winshare/zeroops/internal/server/services/audit"
+	"github.com/wusung/0ops/internal/server/services/audit"
 )
 
 // Middleware resolves an inbound trace id from X-Trace-ID → X-Request-ID →

@@ -11,7 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/winshare/zeroops/internal/server/services/audit"
+	"github.com/wusung/0ops/internal/server/services/audit"
 )
 
 // recomputeChain re-derives the whole stored chain and fails on any mismatch,

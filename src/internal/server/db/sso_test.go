@@ -8,8 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	dbpkg "github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/shared/token"
+	dbpkg "github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/shared/token"
 )
 
 func seedIdPConfig(ctx context.Context, t *testing.T, repo *dbpkg.Repository, teamID string) dbpkg.IdPConfig {

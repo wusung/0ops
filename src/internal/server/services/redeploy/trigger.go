@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/winshare/zeroops/internal/server/db"
-	workflowdispatch "github.com/winshare/zeroops/internal/server/services/workflowdispatch"
-	opsruntime "github.com/winshare/zeroops/internal/shared/runtime"
+	"github.com/wusung/0ops/internal/server/db"
+	workflowdispatch "github.com/wusung/0ops/internal/server/services/workflowdispatch"
+	opsruntime "github.com/wusung/0ops/internal/shared/runtime"
 )
 
 // Source identifies who caused the deploy_run row to exist. Mirrors the

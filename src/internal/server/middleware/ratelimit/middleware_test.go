@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/winshare/zeroops/internal/server/auth"
+	"github.com/wusung/0ops/internal/server/auth"
 )
 
 func newReq(method, path, tokenID, teamID, plan string) *http.Request {

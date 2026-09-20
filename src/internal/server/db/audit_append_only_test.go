@@ -10,7 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/winshare/zeroops/internal/server/services/audit"
+	"github.com/wusung/0ops/internal/server/services/audit"
 )
 
 // TestAuditLogAppendOnlyRoleDeniesMutation is the slice-b2 integration test for

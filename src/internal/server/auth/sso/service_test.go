@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/winshare/zeroops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/db"
 )
 
 func strp(s string) *string { return &s }

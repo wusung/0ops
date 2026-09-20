@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/winshare/zeroops/internal/shared"
+	"github.com/wusung/0ops/internal/shared"
 )
 
 func TestNewRootCommandVersionFlag(t *testing.T) {

@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/shared/backendclient"
-	"github.com/winshare/zeroops/internal/shared/dto"
+	"github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/shared/backendclient"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 func TestAdminRetryDeleteSuccess(t *testing.T) {

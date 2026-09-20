@@ -25,7 +25,7 @@ if [ -f .env ]; then
 fi
 
 VERSION="${VERSION:-dev}"
-LDFLAGS="-s -w -X github.com/winshare/zeroops/internal/shared.Version=${VERSION}"
+LDFLAGS="-s -w -X github.com/wusung/0ops/internal/shared.Version=${VERSION}"
 SQLC_IMAGE="${SQLC_IMAGE:-docker.io/sqlc/sqlc:1.31.1}"
 
 # ----- command groups -----

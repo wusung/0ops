@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/winshare/zeroops/internal/server/services/audit"
+	"github.com/wusung/0ops/internal/server/services/audit"
 )
 
 func TestCreatePreviewPersistsTraceIDFromContext(t *testing.T) {

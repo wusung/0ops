@@ -8,7 +8,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/winshare/zeroops/internal/mcp/lint"
+	"github.com/wusung/0ops/internal/mcp/lint"
 )
 
 // Registry captures the lint-relevant metadata of every tool registered with

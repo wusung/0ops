@@ -11,7 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/winshare/zeroops/internal/shared/dto"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 // newAuditExportCommand wires `0ops audit export` — the forensic extraction

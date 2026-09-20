@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/winshare/zeroops/internal/shared/dto"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 func TestAuditListRendersTableAndForwardsFilters(t *testing.T) {

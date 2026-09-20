@@ -11,7 +11,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/winshare/zeroops/internal/shared/dto"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 const (

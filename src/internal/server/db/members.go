@@ -12,8 +12,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/winshare/zeroops/internal/server/security"
-	"github.com/winshare/zeroops/internal/server/services/audit"
+	"github.com/wusung/0ops/internal/server/security"
+	"github.com/wusung/0ops/internal/server/services/audit"
 )
 
 var (

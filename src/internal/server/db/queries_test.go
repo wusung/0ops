@@ -9,8 +9,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/winshare/zeroops/internal/server/auth"
-	dbpkg "github.com/winshare/zeroops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/auth"
+	dbpkg "github.com/wusung/0ops/internal/server/db"
 )
 
 func TestNewPoolAndRepositorySmoke(t *testing.T) {

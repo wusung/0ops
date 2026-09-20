@@ -18,9 +18,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/winshare/zeroops/internal/shared/authconfig"
-	"github.com/winshare/zeroops/internal/shared/backendclient"
-	"github.com/winshare/zeroops/internal/shared/dto"
+	"github.com/wusung/0ops/internal/shared/authconfig"
+	"github.com/wusung/0ops/internal/shared/backendclient"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 func newAuthCommand() *cobra.Command {

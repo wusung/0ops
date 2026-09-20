@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/shared/rbac"
+	"github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/shared/rbac"
 )
 
 // MockStore implements auth.Store for testing

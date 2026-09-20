@@ -10,11 +10,11 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	appmcp "github.com/winshare/zeroops/internal/mcp"
-	"github.com/winshare/zeroops/internal/shared"
-	"github.com/winshare/zeroops/internal/shared/authconfig"
-	"github.com/winshare/zeroops/internal/shared/backendclient"
-	"github.com/winshare/zeroops/internal/shared/dto"
+	appmcp "github.com/wusung/0ops/internal/mcp"
+	"github.com/wusung/0ops/internal/shared"
+	"github.com/wusung/0ops/internal/shared/authconfig"
+	"github.com/wusung/0ops/internal/shared/backendclient"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 // Implementation returns the MCP server metadata.

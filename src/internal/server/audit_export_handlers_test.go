@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/winshare/zeroops/internal/server/services/audit"
-	"github.com/winshare/zeroops/internal/shared/dto"
+	"github.com/wusung/0ops/internal/server/services/audit"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 // stubExportService implements both the query and export surfaces so the router

@@ -6,9 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/server/services/cloudflare"
-	"github.com/winshare/zeroops/internal/server/services/k3s"
+	"github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/services/cloudflare"
+	"github.com/wusung/0ops/internal/server/services/k3s"
 )
 
 // mockK3sClient implements infraK3sClient for testing.

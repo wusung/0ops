@@ -6,7 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
-	dbpkg "github.com/winshare/zeroops/internal/server/db"
+	dbpkg "github.com/wusung/0ops/internal/server/db"
 )
 
 // TestApplyDeployCallbackWritesImageDigest proves the supply-chain-security

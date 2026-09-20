@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/winshare/zeroops/internal/shared/backendclient"
+	"github.com/wusung/0ops/internal/shared/backendclient"
 )
 
 const (

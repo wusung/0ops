@@ -14,7 +14,7 @@ COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=linux \
-    go build -trimpath -ldflags="-s -w -X github.com/winshare/zeroops/internal/shared.Version=${VERSION}" \
+    go build -trimpath -ldflags="-s -w -X github.com/wusung/0ops/internal/shared.Version=${VERSION}" \
     -o /out/0ops-mcp ./cmd/mcp
 
 FROM gcr.io/distroless/static-debian12:nonroot AS runtime

@@ -9,7 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	serverpkg "github.com/winshare/zeroops/internal/server"
+	serverpkg "github.com/wusung/0ops/internal/server"
 )
 
 func TestListTeamsToolRoundTrip(t *testing.T) {

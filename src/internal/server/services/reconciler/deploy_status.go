@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/winshare/zeroops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/db"
 )
 
 // BuildingTimeout is the spec § 8.1 threshold: deploy_run rows that

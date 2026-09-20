@@ -3,8 +3,8 @@ package deleteapp
 import (
 	"context"
 
-	"github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/server/services/reconciler"
+	"github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/services/reconciler"
 )
 
 // ResidueJobKind is the reconciliation_job.kind the delete-app saga enqueues

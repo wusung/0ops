@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	tracemw "github.com/winshare/zeroops/internal/server/middleware/trace"
-	"github.com/winshare/zeroops/internal/server/services/redeploy"
-	workflowdispatch "github.com/winshare/zeroops/internal/server/services/workflowdispatch"
+	tracemw "github.com/wusung/0ops/internal/server/middleware/trace"
+	"github.com/wusung/0ops/internal/server/services/redeploy"
+	workflowdispatch "github.com/wusung/0ops/internal/server/services/workflowdispatch"
 )
 
 // recordingTraceDispatcher captures the workflow_dispatch payload Trigger

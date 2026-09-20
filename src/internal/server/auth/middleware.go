@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/winshare/zeroops/internal/server/apperror"
-	"github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/shared/rbac"
+	"github.com/wusung/0ops/internal/server/apperror"
+	"github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/shared/rbac"
 )
 
 // Store is the auth/store contract needed by the middleware chain.

@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	dbpkg "github.com/winshare/zeroops/internal/server/db"
+	dbpkg "github.com/wusung/0ops/internal/server/db"
 )
 
 func TestUploadRepository_InsertAndGet(t *testing.T) {

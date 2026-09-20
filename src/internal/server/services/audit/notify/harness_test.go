@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	dbpkg "github.com/winshare/zeroops/internal/server/db"
+	dbpkg "github.com/wusung/0ops/internal/server/db"
 )
 
 // resolveTestDatabaseURL mirrors the db package test harness: TEST_DATABASE_URL

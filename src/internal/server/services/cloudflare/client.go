@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	opsruntime "github.com/winshare/zeroops/internal/shared/runtime"
+	opsruntime "github.com/wusung/0ops/internal/shared/runtime"
 )
 
 const defaultAPIBaseURL = "https://api.cloudflare.com/client/v4"

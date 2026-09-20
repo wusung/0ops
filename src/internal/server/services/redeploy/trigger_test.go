@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/winshare/zeroops/internal/server/services/redeploy"
+	"github.com/wusung/0ops/internal/server/services/redeploy"
 )
 
 func TestTriggerInsertsAndDispatches(t *testing.T) {

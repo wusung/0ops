@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/winshare/zeroops/internal/server/services/workflowdispatch"
+	"github.com/wusung/0ops/internal/server/services/workflowdispatch"
 )
 
 // RepoURLLookup resolves an app's stored repo_url for dispatcher routing.

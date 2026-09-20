@@ -12,10 +12,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	serverpkg "github.com/winshare/zeroops/internal/server"
-	"github.com/winshare/zeroops/internal/server/auth"
-	"github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/shared"
+	serverpkg "github.com/wusung/0ops/internal/server"
+	"github.com/wusung/0ops/internal/server/auth"
+	"github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/shared"
 )
 
 func TestImplementationUsesSharedVersion(t *testing.T) {

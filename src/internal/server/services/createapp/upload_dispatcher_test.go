@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/winshare/zeroops/internal/server/services/workflowdispatch"
+	"github.com/wusung/0ops/internal/server/services/workflowdispatch"
 )
 
 // fakeEventDispatcher records DispatchEvent calls for assertion in tests.

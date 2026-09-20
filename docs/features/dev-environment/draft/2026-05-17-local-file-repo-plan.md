@@ -223,7 +223,7 @@ Expected: PASS
 Modify `cmd/server/main.go` after env load, before chi router init:
 
 ```go
-import "github.com/winshare/zeroops/internal/shared/runtime"
+import "github.com/wusung/0ops/internal/shared/runtime"
 // ...
 runtime.AssertProductionSafe()
 ```
@@ -1012,7 +1012,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/winshare/zeroops/internal/server/services/workflowdispatch"
+	"github.com/wusung/0ops/internal/server/services/workflowdispatch"
 )
 
 type recCallback struct {
@@ -1134,7 +1134,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/winshare/zeroops/internal/server/services/workflowdispatch"
+	"github.com/wusung/0ops/internal/server/services/workflowdispatch"
 )
 
 // CallbackSender abstracts the HTTP callback so tests can inject a recorder.
@@ -1347,7 +1347,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/winshare/zeroops/internal/server/services/workflowdispatch"
+	"github.com/wusung/0ops/internal/server/services/workflowdispatch"
 )
 
 type recDispatcher struct{ called string }
@@ -1423,7 +1423,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/winshare/zeroops/internal/server/services/workflowdispatch"
+	"github.com/wusung/0ops/internal/server/services/workflowdispatch"
 )
 
 // RepoURLLookup resolves an app's repo_url for routing.

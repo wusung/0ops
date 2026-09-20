@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/winshare/zeroops/internal/server/middleware/ratelimit"
+	"github.com/wusung/0ops/internal/server/middleware/ratelimit"
 )
 
 // UploadQuotaTier captures the team-level upload caps for one plan tier.

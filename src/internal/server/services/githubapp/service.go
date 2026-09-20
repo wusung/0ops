@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/winshare/zeroops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/db"
 )
 
 // Canonical action identifiers (github-app-install-flow spec § 4).

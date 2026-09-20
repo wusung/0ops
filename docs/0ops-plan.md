@@ -220,7 +220,7 @@ PlanPreview 物件結構（所有 `*:preview` 回傳一致）：
 工作名稱 `0ops`（已定）。獨立 git repo，下列路徑均相對於 repo root。
 
 > **Go naming 約束**：Go module path / package name 不能以數字開頭，但 binary 輸出檔名不受限。約定：
-> - Module path：`github.com/winshare/zeroops`（或私有 path）
+> - Module path：`github.com/wusung/0ops`（或私有 path）
 > - 內部 package：`server`, `cli`, `mcp`, `shared`（不帶數字前綴）
 > - Binary 輸出：`go build -o 0ops ./cmd/cli`、`-o 0ops-mcp ./cmd/mcp`、`-o 0ops-server ./cmd/server`
 > - GoReleaser 在 `.goreleaser.yaml` 固定產出 `0ops`、`0ops-mcp`、`0ops-server` 三個檔名
@@ -230,7 +230,7 @@ PlanPreview 物件結構（所有 `*:preview` 回傳一致）：
 ```
 0ops/
 ├── README.md
-├── go.mod                          # module github.com/winshare/zeroops
+├── go.mod                          # module github.com/wusung/0ops
 ├── go.sum
 ├── .golangci.yml
 ├── .goreleaser.yaml

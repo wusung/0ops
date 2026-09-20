@@ -19,7 +19,7 @@
    - ADR-0001..0008 已全部定稿，作為各 spec 之不可變前提
    - 待補上游 ADR：migrations image 策略（dev-environment spec §12 待解項）、CLI 套件分發策略、plan tier→capability 矩陣
 2. 起 `M0` scaffold：
-   - `go mod init github.com/winshare/zeroops`
+   - `go mod init github.com/wusung/0ops`
    - 建立 `cmd/server/main.go`、`cmd/cli/main.go`、`cmd/mcp/main.go`
    - `.golangci.yml`、`.goreleaser.yaml`、`manage.sh`、`.dockerignore`、`.env.example`
    - `compose.yaml`（root）起 db + migrate + server；三 binary 各自之 `cmd/{server,cli,mcp}/Dockerfile`；詳見 `docs/features/dev-environment/spec.md`
@@ -38,7 +38,7 @@
 - Backend 是否需要 SSE → MCP streaming（官方 Go SDK 若支援不足，則改分頁拉取）
 > 已從 TBD 移除（上游已決議）：
 > - 專案名稱：`0ops`（agents-guide §2、dev-environment spec）
-> - Module path：`github.com/winshare/zeroops`（agents-guide §3.2）
+> - Module path：`github.com/wusung/0ops`（agents-guide §3.2）
 > - K3s 長期定位：stopgap-acceptable（ADR-0004 第 6 點）
 > - Go 版本：1.25（dev-environment spec §6.1；M0 scaffold 期由 1.23 上修為 1.25 以符 MCP go-sdk v1.6 之最低版本）
 > - DB 存取層：`sqlc + pgx`（agents-guide §3.1）

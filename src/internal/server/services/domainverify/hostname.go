@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	opsruntime "github.com/winshare/zeroops/internal/shared/runtime"
+	opsruntime "github.com/wusung/0ops/internal/shared/runtime"
 )
 
 // ErrInvalidHostname is returned when a hostname fails RFC 1035 / length checks.

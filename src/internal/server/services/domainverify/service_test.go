@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	opsruntime "github.com/winshare/zeroops/internal/shared/runtime"
+	opsruntime "github.com/wusung/0ops/internal/shared/runtime"
 )
 
 type fakeStore struct {

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/winshare/zeroops/internal/server/services/workflowdispatch"
+	"github.com/wusung/0ops/internal/server/services/workflowdispatch"
 )
 
 type recDispatcher struct{ called string }

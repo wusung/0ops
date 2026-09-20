@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/winshare/zeroops/internal/server/leader"
-	"github.com/winshare/zeroops/internal/server/observability"
-	"github.com/winshare/zeroops/internal/server/services/reconciler"
+	"github.com/wusung/0ops/internal/server/leader"
+	"github.com/wusung/0ops/internal/server/observability"
+	"github.com/wusung/0ops/internal/server/services/reconciler"
 )
 
 func TestBuildLeaderAlwaysModeReturnsAlwaysLeader(t *testing.T) {

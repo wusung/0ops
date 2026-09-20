@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/winshare/zeroops/internal/shared/authconfig"
+	"github.com/wusung/0ops/internal/shared/authconfig"
 )
 
 func newMcpCommand() *cobra.Command {

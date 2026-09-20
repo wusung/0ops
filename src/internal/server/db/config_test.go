@@ -3,7 +3,7 @@ package db_test
 import (
 	"testing"
 
-	dbpkg "github.com/winshare/zeroops/internal/server/db"
+	dbpkg "github.com/wusung/0ops/internal/server/db"
 )
 
 // TestConfigFromEnvPrefersAppDatabaseURL pins the slice-b2 connection switch

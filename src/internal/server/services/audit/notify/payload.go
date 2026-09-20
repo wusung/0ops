@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/winshare/zeroops/internal/shared/dto"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 // NotifyEvent is the enqueue-time projection of an audit row, carrying only the

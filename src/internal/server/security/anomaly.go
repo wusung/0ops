@@ -1,6 +1,6 @@
 package security
 
-import "github.com/winshare/zeroops/internal/server/services/audit"
+import "github.com/wusung/0ops/internal/server/services/audit"
 
 // AbuseDetectedAction is the audit action emitted when a token anomaly
 // reaction fires (spec § 6.2). It reuses the existing abuse_detected

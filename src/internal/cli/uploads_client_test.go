@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/winshare/zeroops/internal/shared/dto"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 // handCraftedUploadResponse returns a dto.UploadResponse with deterministic

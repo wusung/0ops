@@ -9,13 +9,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/winshare/zeroops/internal/server/apperror"
-	"github.com/winshare/zeroops/internal/server/auth"
-	"github.com/winshare/zeroops/internal/server/services/audit"
-	"github.com/winshare/zeroops/internal/server/services/githubwebhook"
-	"github.com/winshare/zeroops/internal/server/services/redeploy"
-	workflowdispatch "github.com/winshare/zeroops/internal/server/services/workflowdispatch"
-	"github.com/winshare/zeroops/internal/shared/dto"
+	"github.com/wusung/0ops/internal/server/apperror"
+	"github.com/wusung/0ops/internal/server/auth"
+	"github.com/wusung/0ops/internal/server/services/audit"
+	"github.com/wusung/0ops/internal/server/services/githubwebhook"
+	"github.com/wusung/0ops/internal/server/services/redeploy"
+	workflowdispatch "github.com/wusung/0ops/internal/server/services/workflowdispatch"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 // redeployStore is the union of dependencies needed by the redeploy

@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/shared/dto"
+	"github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 // PreviewAction is the action string persisted in the preview row.

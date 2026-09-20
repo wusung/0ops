@@ -1,4 +1,4 @@
-module github.com/winshare/zeroops
+module github.com/wusung/0ops
 
 go 1.26.4
 

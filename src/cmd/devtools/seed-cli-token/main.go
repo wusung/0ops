@@ -32,7 +32,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	sharedtoken "github.com/winshare/zeroops/internal/shared/token"
+	sharedtoken "github.com/wusung/0ops/internal/shared/token"
 )
 
 func main() {

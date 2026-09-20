@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/winshare/zeroops/internal/server/apperror"
-	"github.com/winshare/zeroops/internal/server/auth"
+	"github.com/wusung/0ops/internal/server/apperror"
+	"github.com/wusung/0ops/internal/server/auth"
 )
 
 // Middleware enforces per-token + per-team rate limits via a chi-compatible

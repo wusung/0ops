@@ -17,8 +17,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/winshare/zeroops/internal/server/services/githubapp"
-	"github.com/winshare/zeroops/internal/shared/backendclient"
+	"github.com/wusung/0ops/internal/server/services/githubapp"
+	"github.com/wusung/0ops/internal/shared/backendclient"
 )
 
 // fakeGitHubService implements githubAppService for handler tests so we can

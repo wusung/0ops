@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/winshare/zeroops/internal/server/services/githubapp"
+	"github.com/wusung/0ops/internal/server/services/githubapp"
 )
 
 // GitHubWebhookEventHeader is the GitHub-provided event-type header.

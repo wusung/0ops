@@ -9,9 +9,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	sqlcgen "github.com/winshare/zeroops/internal/server/db/sqlc"
-	opsruntime "github.com/winshare/zeroops/internal/shared/runtime"
-	sharedtoken "github.com/winshare/zeroops/internal/shared/token"
+	sqlcgen "github.com/wusung/0ops/internal/server/db/sqlc"
+	opsruntime "github.com/wusung/0ops/internal/shared/runtime"
+	sharedtoken "github.com/wusung/0ops/internal/shared/token"
 )
 
 // App describes a team app record.

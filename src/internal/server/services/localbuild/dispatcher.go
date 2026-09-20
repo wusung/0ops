@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/winshare/zeroops/internal/server/services/workflowdispatch"
+	"github.com/wusung/0ops/internal/server/services/workflowdispatch"
 )
 
 // CallbackSender abstracts the HTTP callback so tests can inject a recorder

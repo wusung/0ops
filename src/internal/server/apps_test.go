@@ -18,14 +18,14 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/winshare/zeroops/internal/server/auth"
-	"github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/server/security"
-	"github.com/winshare/zeroops/internal/server/services/githuboauth"
-	k3ssvc "github.com/winshare/zeroops/internal/server/services/k3s"
-	workflowdispatch "github.com/winshare/zeroops/internal/server/services/workflowdispatch"
-	"github.com/winshare/zeroops/internal/shared/backendclient"
-	"github.com/winshare/zeroops/internal/shared/dto"
+	"github.com/wusung/0ops/internal/server/auth"
+	"github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/security"
+	"github.com/wusung/0ops/internal/server/services/githuboauth"
+	k3ssvc "github.com/wusung/0ops/internal/server/services/k3s"
+	workflowdispatch "github.com/wusung/0ops/internal/server/services/workflowdispatch"
+	"github.com/wusung/0ops/internal/shared/backendclient"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 type fakeStore struct {

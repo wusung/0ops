@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/winshare/zeroops/internal/server/services/workflowdispatch"
+	"github.com/wusung/0ops/internal/server/services/workflowdispatch"
 )
 
 type recCallback struct {

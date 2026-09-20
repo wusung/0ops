@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	opsruntime "github.com/winshare/zeroops/internal/shared/runtime"
+	opsruntime "github.com/wusung/0ops/internal/shared/runtime"
 )
 
 var (

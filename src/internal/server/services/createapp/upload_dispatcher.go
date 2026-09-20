@@ -3,7 +3,7 @@ package createapp
 import (
 	"context"
 
-	"github.com/winshare/zeroops/internal/server/services/workflowdispatch"
+	"github.com/wusung/0ops/internal/server/services/workflowdispatch"
 )
 
 // uploadGHAEventType is the GHA repository_dispatch event_type for the

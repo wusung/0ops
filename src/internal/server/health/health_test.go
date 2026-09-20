@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/winshare/zeroops/internal/shared"
+	"github.com/wusung/0ops/internal/shared"
 )
 
 func TestHandlerReturnsStatusAndVersion(t *testing.T) {

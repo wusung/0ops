@@ -1,6 +1,6 @@
 package auth
 
-import sharedtoken "github.com/winshare/zeroops/internal/shared/token"
+import sharedtoken "github.com/wusung/0ops/internal/shared/token"
 
 //nolint:revive // exported for public API
 type ParsedBearerToken = sharedtoken.ParsedBearerToken
