@@ -54,6 +54,7 @@ cmd_build() {
   ( cd src && CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o ../bin/0ops-server ./cmd/server )
   ( cd src && CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o ../bin/0ops        ./cmd/cli )
   ( cd src && CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o ../bin/0ops-mcp    ./cmd/mcp )
+  ( cd src && CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o ../bin/0ops-audit-rollover ./cmd/audit-rollover )
 }
 
 # --- lint / test ---

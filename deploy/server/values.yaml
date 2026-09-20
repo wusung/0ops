@@ -81,6 +81,16 @@ podAntiAffinityWeight: 100
 
 env: []
 
+# audit_log partition rollover CronJob. Runs under the privileged DATABASE_URL
+# because creating partitions is DDL and migration 00014 forbids doing it as
+# "0ops_app" — the role the server connects as. audit.Rollover is idempotent,
+# so a daily schedule is a cheap guard rather than a monthly single point of
+# failure. lookaheadMonths matches audit.Rollover's [now-1, now+N] window.
+auditRollover:
+  enabled: true
+  schedule: "0 3 * * *"
+  lookaheadMonths: 3
+
 # production-deployment spec § 6 — ingress / config / secretRef
 ingress:
   enabled: true

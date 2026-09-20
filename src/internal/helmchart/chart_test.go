@@ -35,6 +35,9 @@ var requiredSubstrings = map[string][]string{
 		// Lease metadata defaults
 		"leaseName: 0ops-backend-leader",
 		"namespace: system-0ops",
+		// audit_log 分割輪替 CronJob 的開關與視窗長度
+		"auditRollover:",
+		"lookaheadMonths:",
 	},
 	"templates/deployment.yaml": {
 		"kind: Deployment",
@@ -109,6 +112,20 @@ var requiredSubstrings = map[string][]string{
 		// DATABASE_URL 一律取自 sealed secret，不渲明文
 		"secretKeyRef:",
 		"key: DATABASE_URL",
+		"runAsNonRoot: true",
+	},
+	// audit_log partition rollover：00007 的固定視窗在 2026-09-01 用盡、
+	// 稽核寫入全數失敗，因為 audit.Rollover 從未被呼叫。本 CronJob 是那個
+	// 缺席的呼叫者。
+	"templates/cronjob-audit-rollover.yaml": {
+		"kind: CronJob",
+		// DDL 必須用 privileged 憑證；migration 00014 明令不可用 "0ops_app"。
+		"key: DATABASE_URL",
+		"secretKeyRef:",
+		// 與 server 共用映像，故 CronJob 必須覆寫 command，否則會跑起 server。
+		"command: [\"/usr/local/bin/0ops-audit-rollover\"]",
+		// 重疊執行會讓兩個 CREATE 互撞。
+		"concurrencyPolicy: Forbid",
 		"runAsNonRoot: true",
 	},
 }

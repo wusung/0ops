@@ -1,0 +1,76 @@
+{{- /* audit_log partition rollover.
+
+Migration 00007 seeded a fixed partition window and relied on a rollover job
+that was never wired up, so the window ran out on 2026-09-01 and every audit
+write failed with "no partition of relation audit_log found for row" until
+00019 bootstrapped a new one. This CronJob is that missing job.
+
+It runs as a separate workload, not as a reconciler loop, because creating
+partitions is DDL and migration 00014 requires rollover to run "under a
+privileged role, not 0ops_app" — the role the server itself connects as. The
+server keeps watching the window read-only (reconciler.AuditPartitionScanner)
+so a CronJob that stops running is visible before writes start failing.
+
+Daily rather than monthly on purpose: audit.Rollover is idempotent, so a daily
+run costs nothing and means a single failed execution cannot consume the whole
+remaining window. */ -}}
+{{- if .Values.auditRollover.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ops-audit-rollover
+  namespace: {{ .Values.namespace | quote }}
+  labels:
+    app: ops-audit-rollover
+    app.0ops.io/managed-by: 0ops
+spec:
+  schedule: {{ .Values.auditRollover.schedule | quote }}
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  # A missed window (node drain, cluster down) should still run once the
+  # cluster is back rather than being skipped silently.
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            app: ops-audit-rollover
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: audit-rollover
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["/usr/local/bin/0ops-audit-rollover"]
+              args:
+                - "-lookahead-months"
+                - {{ .Values.auditRollover.lookaheadMonths | quote }}
+              env:
+                # Privileged credentials: the binary reads DATABASE_URL and
+                # refuses to fall back to APP_DATABASE_URL, whose "0ops_app"
+                # role cannot execute DDL (migration 00014).
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.secretRef.name | quote }}
+                      key: DATABASE_URL
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 128Mi
+{{- end }}

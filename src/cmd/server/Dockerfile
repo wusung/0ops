@@ -18,7 +18,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=linux \
     go build -trimpath -ldflags="-s -w -X github.com/wusung/0ops/internal/shared.Version=${VERSION}" \
-    -o /out/0ops-server ./cmd/server
+    -o /out/0ops-server ./cmd/server \
+    && go build -trimpath -ldflags="-s -w -X github.com/wusung/0ops/internal/shared.Version=${VERSION}" \
+    -o /out/0ops-audit-rollover ./cmd/audit-rollover
 
 # --- dev：熱重載（air），bind-mount source via compose ---
 FROM golang:1.26-alpine AS dev
@@ -39,6 +41,10 @@ CMD ["air", "-c", ".air.toml"]
 # --- runtime：distroless 靜態 binary ---
 FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 COPY --from=builder /out/0ops-server /usr/local/bin/0ops-server
+# audit-rollover ships in the same image so the CronJob reuses this image's
+# tag, scan and signature instead of adding a second publish/sign pipeline.
+# ENTRYPOINT stays the server; the CronJob overrides command.
+COPY --from=builder /out/0ops-audit-rollover /usr/local/bin/0ops-audit-rollover
 USER nonroot:nonroot
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/0ops-server"]
