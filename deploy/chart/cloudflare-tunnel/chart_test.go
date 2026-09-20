@@ -21,12 +21,17 @@ var requiredSubstrings = map[string][]string{
 		"replicaCount: 3",
 		"tag: \"2025.1.0\"",
 		"namespace: cloudflare-tunnel",
+		"protocol: http2",
 	},
 	"templates/deployment.yaml": {
 		"replicas: {{ .Values.replicaCount }}",
 		"--no-autoupdate",
 		"secretKeyRef",
 		"runAsNonRoot: true",
+		"{{ .Values.protocol | quote }}",
+	},
+	"templates/configmap-config.yaml": {
+		"protocol: {{ .Values.protocol }}",
 	},
 	"templates/networkpolicy.yaml": {
 		"policyTypes:",
