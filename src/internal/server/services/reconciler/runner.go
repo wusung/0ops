@@ -15,22 +15,24 @@ import (
 // the spec § 8 cadence (deploy_status 30s / argo_sync 30s / jobs 5s /
 // metrics 30s) when zero.
 type Config struct {
-	Leader              Leader
-	Store               Store
-	Logger              *slog.Logger
-	Observer            Observer
-	Incidents           *IncidentService
-	Handlers            *HandlerRegistry
-	DeployStatusScanner *DeployStatusScanner
-	ArgoSyncScanner     *ArgoSyncScanner
-	UploadGCScanner     *UploadGCScanner
+	Leader                Leader
+	Store                 Store
+	Logger                *slog.Logger
+	Observer              Observer
+	Incidents             *IncidentService
+	Handlers              *HandlerRegistry
+	DeployStatusScanner   *DeployStatusScanner
+	ArgoSyncScanner       *ArgoSyncScanner
+	UploadGCScanner       *UploadGCScanner
+	AuditPartitionScanner *AuditPartitionScanner
 
-	DeployStatusInterval time.Duration
-	ArgoSyncInterval     time.Duration
-	JobQueueInterval     time.Duration
-	MetricsInterval      time.Duration
-	UploadGCInterval     time.Duration
-	JobBatchSize         int
+	DeployStatusInterval   time.Duration
+	ArgoSyncInterval       time.Duration
+	JobQueueInterval       time.Duration
+	MetricsInterval        time.Duration
+	UploadGCInterval       time.Duration
+	AuditPartitionInterval time.Duration
+	JobBatchSize           int
 }
 
 // Runner orchestrates the four reconciler loops. Start kicks off the
@@ -69,6 +71,12 @@ func New(cfg Config) *Runner {
 	if cfg.UploadGCInterval <= 0 {
 		cfg.UploadGCInterval = 30 * time.Minute
 	}
+	if cfg.AuditPartitionInterval <= 0 {
+		// The window shrinks a month at a time; six hours is frequent enough
+		// to raise the alarm days before it runs out and cheap enough (one
+		// catalog SELECT) to leave running everywhere.
+		cfg.AuditPartitionInterval = 6 * time.Hour
+	}
 	return &Runner{cfg: cfg}
 }
 
@@ -97,6 +105,11 @@ func (r *Runner) Start(ctx context.Context) {
 	if r.cfg.UploadGCScanner != nil {
 		r.spawn("upload_gc", r.cfg.UploadGCInterval, func(ctx context.Context) {
 			r.runUploadGC(ctx)
+		}, ctx)
+	}
+	if r.cfg.AuditPartitionScanner != nil {
+		r.spawn("audit_partition", r.cfg.AuditPartitionInterval, func(ctx context.Context) {
+			r.runAuditPartition(ctx)
 		}, ctx)
 	}
 }
@@ -279,6 +292,39 @@ func (r *Runner) runUploadGC(ctx context.Context) {
 	if processed > 0 || failed > 0 {
 		r.cfg.Logger.Info("upload_gc tick complete",
 			"processed", processed, "failed", failed)
+	}
+}
+
+// runAuditPartition reports how far ahead audit_log is partitioned. It never
+// creates partitions: the server connects as the append-only "0ops_app" role
+// (migration 00014) and holds no DDL privileges by design — the audit-rollover
+// CronJob does the creating under migrate credentials. This loop is the
+// early-warning half of that split, so a CronJob that silently stops running
+// surfaces here instead of at the moment audit writes start failing.
+func (r *Runner) runAuditPartition(ctx context.Context) {
+	if !r.cfg.Leader.IsLeader() {
+		r.cfg.Observer.ObserveTick("audit_partition", "skipped_not_leader")
+		return
+	}
+	future, err := r.cfg.AuditPartitionScanner.Tick(ctx, time.Now())
+	if err != nil {
+		r.cfg.Observer.ObserveTick("audit_partition", "error")
+		r.cfg.Logger.Error("audit_partition tick failed", "err", err)
+		return
+	}
+
+	switch {
+	case future == 0:
+		r.cfg.Observer.ObserveTick("audit_partition", "exhausted")
+		r.cfg.Logger.Error("audit_log has no partition for the current month; audit writes are failing",
+			"future_months", future)
+	case future < r.cfg.AuditPartitionScanner.minFutureMonths():
+		r.cfg.Observer.ObserveTick("audit_partition", "window_low")
+		r.cfg.Logger.Warn("audit_log partition window is running out; check the audit-rollover CronJob",
+			"future_months", future,
+			"min_future_months", r.cfg.AuditPartitionScanner.minFutureMonths())
+	default:
+		r.cfg.Observer.ObserveTick("audit_partition", "ok")
 	}
 }
 

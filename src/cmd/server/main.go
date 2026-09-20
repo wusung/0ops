@@ -136,7 +136,7 @@ func main() {
 	ingestStore := &ingestion.Store{
 		Root:            ingestRoot,
 		MaxArchiveBytes: appserver.DefaultUploadMaxArchiveBytes, // 100 MiB
-		MaxEntryBytes:   50 << 20,  // 50 MB
+		MaxEntryBytes:   50 << 20,                               // 50 MB
 		MaxEntries:      10000,
 	}
 
@@ -274,7 +274,9 @@ func newReconcilerObserver(m *observability.Metrics) reconciler.Observer {
 	return &reconcilerObserver{m: m}
 }
 
-func (o *reconcilerObserver) ObserveTick(kind, outcome string)      { o.m.ObserveReconcilerTick(kind, outcome) }
+func (o *reconcilerObserver) ObserveTick(kind, outcome string) {
+	o.m.ObserveReconcilerTick(kind, outcome)
+}
 func (o *reconcilerObserver) ObserveJobTerminal(kind, outcome string) {
 	o.m.ObserveReconcilerJobTerminal(kind, outcome)
 }
@@ -317,17 +319,25 @@ func startReconciler(ctx context.Context, logger *slog.Logger, repo *db.Reposito
 	handlers := reconciler.NewHandlerRegistry()
 	appserver.RegisterReconcilerHandlers(handlers, repo)
 
+	// Read-only watch on the audit_log partition window. The ops-audit-rollover
+	// CronJob does the creating under privileged credentials (migration 00014
+	// forbids DDL as the "0ops_app" role this process connects as); this loop
+	// only reports, so a CronJob that stops running is visible before audit
+	// writes start failing.
+	auditPartitions := &reconciler.AuditPartitionScanner{Store: repo, Logger: logger}
+
 	cfg := reconciler.Config{
-		Leader:              reconcilerLeaderGate{l: ldr},
-		Store:               repo,
-		Logger:              logger,
-		Observer:            observer,
-		Incidents:           incidentSvc,
-		Handlers:            handlers,
-		DeployStatusScanner: scanners.deploy,
-		ArgoSyncScanner:     scanners.argo,
-		UploadGCScanner:     uploadGC,
-		UploadGCInterval:    30 * time.Minute,
+		Leader:                reconcilerLeaderGate{l: ldr},
+		Store:                 repo,
+		Logger:                logger,
+		Observer:              observer,
+		Incidents:             incidentSvc,
+		Handlers:              handlers,
+		DeployStatusScanner:   scanners.deploy,
+		ArgoSyncScanner:       scanners.argo,
+		UploadGCScanner:       uploadGC,
+		UploadGCInterval:      30 * time.Minute,
+		AuditPartitionScanner: auditPartitions,
 	}
 	runner := reconciler.New(cfg)
 	runner.Start(ctx)
