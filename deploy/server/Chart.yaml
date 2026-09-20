@@ -4,7 +4,7 @@ description: 0ops backend (HTTP API + reconciler) with K8s Lease leader election
 type: application
 version: 0.1.0
 appVersion: "0.5.5"
-home: https://github.com/winshare/zeroops
+home: https://github.com/wusung/0ops
 keywords:
   - 0ops
   - backend

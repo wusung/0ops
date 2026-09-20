@@ -11,7 +11,7 @@ keywords:
   - 0ops
 home: https://0ops.tw
 sources:
-  - https://github.com/winshare/zeroops
+  - https://github.com/wusung/0ops
 maintainers:
   - name: 0ops
     email: ops@jesontech.com
