@@ -102,7 +102,14 @@ func main() {
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
+	// middleware.RealIP is deliberately NOT installed: chi deprecated it in
+	// v5.3.0 (GO-2026-5774 / -5775 / -5777) because it rewrites r.RemoteAddr
+	// from True-Client-IP / X-Real-IP / X-Forwarded-For whether or not the
+	// infrastructure sets them, so any reader of RemoteAddr gets an
+	// attacker-controlled value. Nothing in this repo reads RemoteAddr, so
+	// removing it changes no behaviour and closes the trap. If a client IP is
+	// ever needed, use middleware.ClientIPFromXFFTrustedProxies scoped to the
+	// Cloudflare edge ranges and read it with middleware.GetClientIP.
 	r.Use(tracemw.Middleware(logger))
 	r.Use(middleware.Recoverer)
 	r.Use(metrics.Middleware(routeLabel))
