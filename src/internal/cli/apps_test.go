@@ -12,12 +12,12 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	serverpkg "github.com/winshare/zeroops/internal/server"
-	"github.com/winshare/zeroops/internal/server/auth"
-	"github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/server/security"
-	"github.com/winshare/zeroops/internal/server/services/githuboauth"
-	"github.com/winshare/zeroops/internal/shared/authconfig"
+	serverpkg "github.com/wusung/0ops/internal/server"
+	"github.com/wusung/0ops/internal/server/auth"
+	"github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/security"
+	"github.com/wusung/0ops/internal/server/services/githuboauth"
+	"github.com/wusung/0ops/internal/shared/authconfig"
 )
 
 type cliFakeStore struct {

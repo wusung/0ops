@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/winshare/zeroops/internal/shared/authconfig"
-	"github.com/winshare/zeroops/internal/shared/dto"
+	"github.com/wusung/0ops/internal/shared/authconfig"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 func TestIncidentsListRendersTable(t *testing.T) {

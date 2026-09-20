@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"text/template"
 
-	opsruntime "github.com/winshare/zeroops/internal/shared/runtime"
+	opsruntime "github.com/wusung/0ops/internal/shared/runtime"
 )
 
 //go:embed templates/*.tmpl

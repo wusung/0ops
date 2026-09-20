@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/winshare/zeroops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/db"
 )
 
 // Store is the persistence boundary the reconciler service depends on.

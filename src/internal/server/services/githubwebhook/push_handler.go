@@ -7,8 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/server/services/redeploy"
+	"github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/services/redeploy"
 )
 
 // PushHandlerStore captures every DB call the push handler makes. Subset of

@@ -10,10 +10,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/server/services/createapp/ingestion"
-	"github.com/winshare/zeroops/internal/server/services/workflowdispatch"
-	"github.com/winshare/zeroops/internal/shared/dto"
+	"github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/services/createapp/ingestion"
+	"github.com/wusung/0ops/internal/server/services/workflowdispatch"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 type fakePinCall struct {

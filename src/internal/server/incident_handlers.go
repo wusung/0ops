@@ -13,11 +13,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/winshare/zeroops/internal/server/apperror"
-	"github.com/winshare/zeroops/internal/server/auth"
-	"github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/server/services/reconciler"
-	"github.com/winshare/zeroops/internal/shared/dto"
+	"github.com/wusung/0ops/internal/server/apperror"
+	"github.com/wusung/0ops/internal/server/auth"
+	"github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/services/reconciler"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 // incidentService is the dependency surface exposed to the HTTP handlers.

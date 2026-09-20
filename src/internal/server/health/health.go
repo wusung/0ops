@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/winshare/zeroops/internal/shared"
+	"github.com/wusung/0ops/internal/shared"
 )
 
 // Handler returns the health check handler.

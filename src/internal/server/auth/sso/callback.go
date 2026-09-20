@@ -6,10 +6,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/winshare/zeroops/internal/server/apperror"
-	"github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/server/services/audit"
-	"github.com/winshare/zeroops/internal/shared/dto"
+	"github.com/wusung/0ops/internal/server/apperror"
+	"github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/services/audit"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 // Callback handles GET /v1/auth/sso/{team_slug}/callback. It is unauthenticated

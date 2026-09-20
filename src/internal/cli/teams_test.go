@@ -10,7 +10,7 @@ import (
 
 	"net/http/httptest"
 
-	serverpkg "github.com/winshare/zeroops/internal/server"
+	serverpkg "github.com/wusung/0ops/internal/server"
 )
 
 func TestTeamsListCommand(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	ratelimit "github.com/winshare/zeroops/internal/server/middleware/ratelimit"
+	ratelimit "github.com/wusung/0ops/internal/server/middleware/ratelimit"
 )
 
 // TestRouterEnforcesPerTokenRateLimit wires NewRouterWithRateLimit with a

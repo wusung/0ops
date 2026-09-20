@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/winshare/zeroops/internal/server/services/githubapp"
+	"github.com/wusung/0ops/internal/server/services/githubapp"
 )
 
 var ErrMissingRepository = errors.New("missing GitHub repository")

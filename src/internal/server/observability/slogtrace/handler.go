@@ -12,7 +12,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/winshare/zeroops/internal/server/services/audit"
+	"github.com/wusung/0ops/internal/server/services/audit"
 )
 
 // NewHandler returns a slog.Handler that adds a trace_id attribute on every

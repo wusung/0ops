@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	dbpkg "github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/server/services/audit"
+	dbpkg "github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/services/audit"
 )
 
 // TestExportAuditLogYieldsVerifiableChain is the slice-c persistence test:

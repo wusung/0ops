@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/winshare/zeroops/internal/server/middleware/ratelimit"
+	"github.com/wusung/0ops/internal/server/middleware/ratelimit"
 )
 
 // --- fakeQuotaStore: in-memory stub for uploadQuotaStore ---

@@ -13,9 +13,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/winshare/zeroops/internal/server/services/githubapp"
-	"github.com/winshare/zeroops/internal/shared/backendclient"
-	"github.com/winshare/zeroops/internal/shared/dto"
+	"github.com/wusung/0ops/internal/server/services/githubapp"
+	"github.com/wusung/0ops/internal/shared/backendclient"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 // TestPreviewRedeployHTTPHappyPath drives the full HTTP path from CLI

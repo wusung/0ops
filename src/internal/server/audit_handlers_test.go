@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/server/services/audit"
-	"github.com/winshare/zeroops/internal/shared/backendclient"
+	"github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/services/audit"
+	"github.com/wusung/0ops/internal/shared/backendclient"
 )
 
 // stubAuditService captures the most recent filter the handler forwarded

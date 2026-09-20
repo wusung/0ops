@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/server/services/reconciler"
+	"github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/services/reconciler"
 )
 
 type stubIncidentService struct {

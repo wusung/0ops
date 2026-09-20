@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/winshare/zeroops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/db"
 )
 
 // Config bundles the runner inputs. All Interval* values default to

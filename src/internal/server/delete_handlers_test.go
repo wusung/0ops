@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/shared/backendclient"
-	"github.com/winshare/zeroops/internal/shared/dto"
+	"github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/shared/backendclient"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 // helper: seed a fakeStore that's RBAC-ready for delete_app — admin role

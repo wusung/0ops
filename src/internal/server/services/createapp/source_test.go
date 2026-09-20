@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/winshare/zeroops/internal/shared/dto"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 func TestSourceToInspectURL_GitHub(t *testing.T) {

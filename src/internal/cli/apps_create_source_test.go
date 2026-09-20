@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/winshare/zeroops/internal/shared/dto"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 // sourceTestServer builds an httptest.Server that handles:

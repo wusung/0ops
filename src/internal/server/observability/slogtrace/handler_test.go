@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/winshare/zeroops/internal/server/observability/slogtrace"
-	"github.com/winshare/zeroops/internal/server/services/audit"
+	"github.com/wusung/0ops/internal/server/observability/slogtrace"
+	"github.com/wusung/0ops/internal/server/services/audit"
 )
 
 func newLogger(buf *bytes.Buffer) *slog.Logger {

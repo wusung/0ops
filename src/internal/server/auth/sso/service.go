@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/server/services/audit"
-	"github.com/winshare/zeroops/internal/shared/rbac"
+	"github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/services/audit"
+	"github.com/wusung/0ops/internal/shared/rbac"
 )
 
 // Audit actions for SSO (sso-saml spec § 9.1). IdP-initiated rows

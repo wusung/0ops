@@ -18,12 +18,12 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/klauspost/compress/zstd"
 
-	"github.com/winshare/zeroops/internal/server/apperror"
-	"github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/server/middleware/ratelimit"
-	"github.com/winshare/zeroops/internal/server/services/audit"
-	"github.com/winshare/zeroops/internal/server/services/createapp/ingestion"
-	"github.com/winshare/zeroops/internal/shared/dto"
+	"github.com/wusung/0ops/internal/server/apperror"
+	"github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/middleware/ratelimit"
+	"github.com/wusung/0ops/internal/server/services/audit"
+	"github.com/wusung/0ops/internal/server/services/createapp/ingestion"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 // --- fakeIngest: in-memory substitute for ingestion.Store ---

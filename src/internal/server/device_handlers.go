@@ -7,8 +7,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/winshare/zeroops/internal/server/apperror"
-	"github.com/winshare/zeroops/internal/server/auth"
+	"github.com/wusung/0ops/internal/server/apperror"
+	"github.com/wusung/0ops/internal/server/auth"
 )
 
 // DeviceFlowStartRequest is the request body for starting device flow

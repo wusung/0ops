@@ -7,8 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	dbpkg "github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/server/services/audit"
+	dbpkg "github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/services/audit"
 )
 
 // auditRepo wires a db.Repository with the notify enqueuer installed.

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/winshare/zeroops/internal/cli"
+	"github.com/wusung/0ops/internal/cli"
 )
 
 func main() {

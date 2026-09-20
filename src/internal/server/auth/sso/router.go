@@ -5,8 +5,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/winshare/zeroops/internal/server/auth"
-	"github.com/winshare/zeroops/internal/shared/rbac"
+	"github.com/wusung/0ops/internal/server/auth"
+	"github.com/wusung/0ops/internal/shared/rbac"
 )
 
 // RegisterTeamRoutes mounts the team-scoped SSO endpoints onto a chi.Router that

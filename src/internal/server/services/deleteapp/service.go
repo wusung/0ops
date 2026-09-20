@@ -10,10 +10,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/server/security"
-	gitopssvc "github.com/winshare/zeroops/internal/server/services/gitops"
-	"github.com/winshare/zeroops/internal/shared/dto"
+	"github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/security"
+	gitopssvc "github.com/wusung/0ops/internal/server/services/gitops"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 // Store captures the db operations required by the delete_app saga.

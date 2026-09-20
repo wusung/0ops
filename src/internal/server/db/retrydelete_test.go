@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-	dbpkg "github.com/winshare/zeroops/internal/server/db"
+	dbpkg "github.com/wusung/0ops/internal/server/db"
 )
 
 // seedAppRow inserts an app row in the given status and returns its id.

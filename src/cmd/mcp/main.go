@@ -12,9 +12,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/winshare/zeroops/internal/mcp/lint"
-	mcpserver "github.com/winshare/zeroops/internal/mcp/server"
-	"github.com/winshare/zeroops/internal/shared"
+	"github.com/wusung/0ops/internal/mcp/lint"
+	mcpserver "github.com/wusung/0ops/internal/mcp/server"
+	"github.com/wusung/0ops/internal/shared"
 )
 
 // exitCodeLintFailed signals that the startup tool-description lint contract

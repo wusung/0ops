@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	sqlcgen "github.com/winshare/zeroops/internal/server/db/sqlc"
+	sqlcgen "github.com/wusung/0ops/internal/server/db/sqlc"
 )
 
 // TX matches the sqlc DB interface used by the repository.

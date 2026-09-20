@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	mcpserver "github.com/winshare/zeroops/internal/mcp/server"
-	"github.com/winshare/zeroops/internal/shared/authconfig"
+	mcpserver "github.com/wusung/0ops/internal/mcp/server"
+	"github.com/wusung/0ops/internal/shared/authconfig"
 )
 
 // TestContractDeviceFlowToTokenCache tests the full flow from device flow to token caching

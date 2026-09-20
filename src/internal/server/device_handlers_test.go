@@ -10,8 +10,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/winshare/zeroops/internal/server/auth"
-	"github.com/winshare/zeroops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/auth"
+	"github.com/wusung/0ops/internal/server/db"
 )
 
 type mockToolGrantsStore struct {

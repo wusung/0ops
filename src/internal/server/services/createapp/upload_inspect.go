@@ -6,9 +6,9 @@ import (
 	"io"
 	"strings"
 
-	"github.com/winshare/zeroops/internal/server/auth"
-	"github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/server/services/createapp/ingestion"
+	"github.com/wusung/0ops/internal/server/auth"
+	"github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/services/createapp/ingestion"
 )
 
 // maxUploadFileReadBytes caps any single file read from an ingest tree.

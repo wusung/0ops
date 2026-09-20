@@ -25,7 +25,7 @@ superseded-by: []
 採用以下六項組合決策：
 
 1. **主路徑**：`goreleaser` 預編 binary，發佈至 GitHub Release；支援 linux/amd64、linux/arm64、darwin/amd64、darwin/arm64、windows/amd64 五平台。
-2. **次路徑**：`go install github.com/winshare/zeroops/cmd/cli@latest` 與 `@<version>` 並行支援；無平台限制（凡 Go toolchain）。
+2. **次路徑**：`go install github.com/wusung/0ops/cmd/cli@latest` 與 `@<version>` 並行支援；無平台限制（凡 Go toolchain）。
 3. **Homebrew tap**：`winshare/0ops`（自管 tap repo）；goreleaser 自動產生 formula 並 PR；用戶 `brew install winshare/0ops/0ops`。
 4. **Windows / Linux package manager**：v1 暫不（Scoop / apt / yum 為 v1.1 評估）；用戶 v1 用 `go install` 或下載 release artifact。
 5. **自更新通知**：`0ops version` 與 `0ops` 任意命令啟動時，背景查 GitHub Release latest tag；版本落後即印一行 hint（不阻擋）。每 24h 至多查一次（cache `~/.config/0ops/version-check`）。
@@ -107,9 +107,9 @@ Plan 已標 `goreleaser` + `go install` + Homebrew tap 為候選；本 ADR 把�
    * goreleaser `brews:` 區塊自動產生 formula 並 commit + push
    * 用戶：`brew tap winshare/0ops` + `brew install 0ops`
 4. **`go install` 並行**：
-   * `go install github.com/winshare/zeroops/cmd/cli@latest` 取最新；`@v0.5.0` 取特定版
+   * `go install github.com/wusung/0ops/cmd/cli@latest` 取最新；`@v0.5.0` 取特定版
    * binary 名稱 = `cli`（go install 之預設）；user 需自行改名為 `0ops`（README 註明）
-   * MCP：`go install github.com/winshare/zeroops/cmd/mcp@latest` 同樣
+   * MCP：`go install github.com/wusung/0ops/cmd/mcp@latest` 同樣
 5. **自更新通知（E1）**：
    * 任一 `0ops` 命令啟動時，主流程結束**後**背景 goroutine 查 GitHub API `GET /repos/winshare/zeroops/releases/latest`
    * 比對 `latest_tag` vs `main.Version`；不同即印一行至 stderr：`新版本 v0.5.1 已發佈：brew upgrade 0ops`

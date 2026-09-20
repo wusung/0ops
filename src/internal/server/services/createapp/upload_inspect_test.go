@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/winshare/zeroops/internal/server/auth"
-	"github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/server/services/createapp/ingestion"
+	"github.com/wusung/0ops/internal/server/auth"
+	"github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/services/createapp/ingestion"
 )
 
 // fakeUploadStore satisfies uploadInspectStore using an in-memory map.

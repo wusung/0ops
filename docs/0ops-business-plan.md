@@ -405,7 +405,7 @@
 
 ### 技術面（本季）
 依 `docs/0ops-plan.md` 的 M0 計畫執行：
-1. `go mod init github.com/winshare/zeroops`
+1. `go mod init github.com/wusung/0ops`
 2. 建立 `cmd/{server,cli,mcp}` 三 binary scaffold
 3. CI / lint / release pipeline（GitHub Actions + goreleaser）
 4. 第一條 read-only chain：`GET /v1/apps` → `0ops apps list` → MCP `list_apps`

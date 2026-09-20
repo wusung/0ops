@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/winshare/zeroops/internal/shared/dto"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 // Client calls the 0ops backend.

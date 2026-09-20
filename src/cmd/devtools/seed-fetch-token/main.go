@@ -20,7 +20,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/winshare/zeroops/internal/server/services/createapp/ingestion"
+	"github.com/wusung/0ops/internal/server/services/createapp/ingestion"
 )
 
 func main() {

@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/server/services/deleteapp"
+	"github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/services/deleteapp"
 )
 
 // TestResidueJobKindMatchesEnqueue guards the producer/consumer contract: the

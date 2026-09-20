@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/winshare/zeroops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/db"
 )
 
 // SyncingTimeout is the spec § 8.2 threshold for ArgoCD-applied

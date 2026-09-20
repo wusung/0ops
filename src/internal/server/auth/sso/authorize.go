@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/winshare/zeroops/internal/server/apperror"
+	"github.com/wusung/0ops/internal/server/apperror"
 )
 
 // Authorize handles GET /v1/auth/sso/{team_slug}/authorize — the OIDC login

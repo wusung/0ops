@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	sqlcgen "github.com/winshare/zeroops/internal/server/db/sqlc"
+	sqlcgen "github.com/wusung/0ops/internal/server/db/sqlc"
 )
 
 // Repository wraps the database pool and generated queries.

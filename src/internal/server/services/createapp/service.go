@@ -12,12 +12,12 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/server/services/createapp/ingestion"
-	gitopssvc "github.com/winshare/zeroops/internal/server/services/gitops"
-	workflowdispatch "github.com/winshare/zeroops/internal/server/services/workflowdispatch"
-	"github.com/winshare/zeroops/internal/shared/dto"
-	opsruntime "github.com/winshare/zeroops/internal/shared/runtime"
+	"github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/services/createapp/ingestion"
+	gitopssvc "github.com/wusung/0ops/internal/server/services/gitops"
+	workflowdispatch "github.com/wusung/0ops/internal/server/services/workflowdispatch"
+	"github.com/wusung/0ops/internal/shared/dto"
+	opsruntime "github.com/wusung/0ops/internal/shared/runtime"
 )
 
 const previewAction = "create_app"

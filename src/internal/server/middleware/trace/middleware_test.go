@@ -9,8 +9,8 @@ import (
 
 	chimw "github.com/go-chi/chi/v5/middleware"
 
-	tracemw "github.com/winshare/zeroops/internal/server/middleware/trace"
-	"github.com/winshare/zeroops/internal/server/services/audit"
+	tracemw "github.com/wusung/0ops/internal/server/middleware/trace"
+	"github.com/wusung/0ops/internal/server/services/audit"
 )
 
 func discardLogger(t *testing.T) *slog.Logger {

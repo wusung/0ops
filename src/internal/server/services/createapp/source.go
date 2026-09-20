@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/winshare/zeroops/internal/shared/dto"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 // ErrSourceUnsupported is returned when SourceToInspectURL receives a Source

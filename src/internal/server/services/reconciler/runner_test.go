@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/winshare/zeroops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/db"
 )
 
 // recordingObserver captures Observer calls so tests can assert on

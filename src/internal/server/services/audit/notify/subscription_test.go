@@ -7,9 +7,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	dbpkg "github.com/winshare/zeroops/internal/server/db"
-	"github.com/winshare/zeroops/internal/server/services/audit"
-	"github.com/winshare/zeroops/internal/shared/dto"
+	dbpkg "github.com/wusung/0ops/internal/server/db"
+	"github.com/wusung/0ops/internal/server/services/audit"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 func newSubService(t *testing.T, pool *pgxpool.Pool) *Service {

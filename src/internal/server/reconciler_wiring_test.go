@@ -3,8 +3,8 @@ package server
 import (
 	"testing"
 
-	"github.com/winshare/zeroops/internal/server/services/deleteapp"
-	"github.com/winshare/zeroops/internal/server/services/reconciler"
+	"github.com/wusung/0ops/internal/server/services/deleteapp"
+	"github.com/wusung/0ops/internal/server/services/reconciler"
 )
 
 // TestRegisterReconcilerHandlersRegistersCleanupResidue is the regression guard

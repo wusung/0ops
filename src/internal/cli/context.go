@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/winshare/zeroops/internal/shared/authconfig"
+	"github.com/wusung/0ops/internal/shared/authconfig"
 )
 
 type appsContext struct {

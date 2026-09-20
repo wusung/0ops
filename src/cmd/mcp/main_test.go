@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/winshare/zeroops/internal/mcp/lint"
+	"github.com/wusung/0ops/internal/mcp/lint"
 )
 
 func TestReportLintViolationsReturnsZeroWhenClean(t *testing.T) {

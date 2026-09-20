@@ -11,8 +11,8 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/leaderelection"
 
-	"github.com/winshare/zeroops/internal/server/leader"
-	"github.com/winshare/zeroops/internal/server/observability"
+	"github.com/wusung/0ops/internal/server/leader"
+	"github.com/wusung/0ops/internal/server/observability"
 )
 
 // buildLeader resolves an OPS_LEADER_MODE value into a Leader plus an

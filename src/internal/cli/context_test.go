@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/winshare/zeroops/internal/shared/authconfig"
+	"github.com/wusung/0ops/internal/shared/authconfig"
 )
 
 func TestResolveHostUsesDotEnvPort(t *testing.T) {

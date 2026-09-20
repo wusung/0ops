@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/winshare/zeroops/internal/shared/backendclient"
-	"github.com/winshare/zeroops/internal/shared/dto"
+	"github.com/wusung/0ops/internal/shared/backendclient"
+	"github.com/wusung/0ops/internal/shared/dto"
 )
 
 // TestCreateAppEndToEndPreviewConfirmCallback exercises the create_app integration
