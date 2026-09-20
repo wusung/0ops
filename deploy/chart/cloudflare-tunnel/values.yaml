@@ -50,6 +50,13 @@ traefik:
   service: traefik
   port: 80
 
+# cloudflared edge transport. cloudflared defaults to quic (UDP/7844); on
+# networks where UDP/7844 egress is blocked every connection attempt times out
+# and only falls back to http2 after ~105s, which a tight readiness/liveness
+# budget turns into a crash loop. Set to "" to restore cloudflared's own
+# default (auto).
+protocol: http2
+
 # pod-security.kubernetes.io labels applied to the namespace (spec § 5.1).
 podSecurityLabels:
   enforce: baseline

@@ -11,6 +11,9 @@ data:
   config.yaml: |
     tunnel: {{ .Values.tunnel.id }}
     credentials-file: /etc/cloudflared/creds/credentials.json
+{{- if .Values.protocol }}
+    protocol: {{ .Values.protocol }}
+{{- end }}
     ingress:
       - hostname: {{ .Values.ingress.hostname | quote }}
         service: {{ .Values.ingress.service | quote }}
