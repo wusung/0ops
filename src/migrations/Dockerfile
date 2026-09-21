@@ -11,7 +11,7 @@ WORKDIR /src
 ENV CGO_ENABLED=0 GOOS=linux GOFLAGS="-trimpath"
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    go install github.com/pressly/goose/v3/cmd/goose@v3.22.1
+    go install github.com/pressly/goose/v3/cmd/goose@v3.28.0
 
 # --- runtime：distroless static + goose + migrations/ ---
 FROM gcr.io/distroless/static-debian12:nonroot AS runtime

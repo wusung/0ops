@@ -33,6 +33,10 @@ jobs:
       # SBOM (goreleaser built-in syft) + cosign keyless signature of the
       # checksums file are configured in src/.goreleaser.yaml; cosign must be on
       # PATH for the `signs` block.
+      # .goreleaser.yaml generates an SBOM per archive via syft; without it the
+      # release aborts with `exec: "syft": executable file not found in $PATH`
+      # after the full cross-compile (seen on the first v0.1.4 attempt).
+      - uses: anchore/sbom-action/download-syft@v0
       - uses: sigstore/cosign-installer@v3
 
       - uses: goreleaser/goreleaser-action@v7
@@ -72,7 +76,7 @@ jobs:
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - uses: anchore/sbom-action/download-syft@v0
-      - uses: aquasecurity/setup-trivy@v0.2.0
+      - uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1 — pinned by SHA: the v0.2.0 tag this workflow used was deleted upstream
       - uses: sigstore/cosign-installer@v3
 
       - name: Build, scan, sign, attest server image
