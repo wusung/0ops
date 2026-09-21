@@ -111,7 +111,7 @@ Plan 已標 `goreleaser` + `go install` + Homebrew tap 為候選；本 ADR 把�
    * binary 名稱 = `cli`（go install 之預設）；user 需自行改名為 `0ops`（README 註明）
    * MCP：`go install github.com/wusung/0ops/cmd/mcp@latest` 同樣
 5. **自更新通知（E1）**：
-   * 任一 `0ops` 命令啟動時，主流程結束**後**背景 goroutine 查 GitHub API `GET /repos/winshare/zeroops/releases/latest`
+   * 任一 `0ops` 命令啟動時，主流程結束**後**背景 goroutine 查 GitHub API `GET /repos/wusung/0ops/releases/latest`
    * 比對 `latest_tag` vs `main.Version`；不同即印一行至 stderr：`新版本 v0.5.1 已發佈：brew upgrade 0ops`
    * Cache：`~/.config/0ops/version-check.json`（含 `last_check_at` + `latest_known`）；24h 內不重查
    * `--no-update-check` 全域 flag 關閉
