@@ -46,14 +46,12 @@ cmd_migrate_lint() { go -C src test ./internal/server/db/migrationlint/...; }
 cmd_build_images() {
   podman build --target runtime -f src/cmd/server/Dockerfile -t localhost/0ops-server:runtime --build-arg VERSION="$VERSION" src
   podman build --target runtime -f src/cmd/cli/Dockerfile    -t localhost/0ops-cli:runtime    --build-arg VERSION="$VERSION" src
-  podman build --target runtime -f src/cmd/mcp/Dockerfile    -t localhost/0ops-mcp:runtime    --build-arg VERSION="$VERSION" src
   podman build                  -f src/migrations/Dockerfile -t localhost/0ops-migrations:runtime src
 }
 cmd_build() {
   mkdir -p bin
   ( cd src && CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o ../bin/0ops-server ./cmd/server )
   ( cd src && CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o ../bin/0ops        ./cmd/cli )
-  ( cd src && CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o ../bin/0ops-mcp    ./cmd/mcp )
 }
 
 # --- lint / test ---
@@ -63,11 +61,11 @@ cmd_lint_go()         { ( cd src && golangci-lint run ); }
 cmd_lint_prom_rules() { bash tasks/lint-prom-rules.sh; }
 
 cmd_test()          { go -C src test ./...; }
-cmd_contract_test() { go -C src test ./internal/server ./internal/cli ./internal/mcp/server; }
+cmd_contract_test() { go -C src test ./internal/server ./internal/cli; }
 cmd_tidy()          { go -C src mod tidy; }
 
 # --- end-to-end acceptance ---
-# create_app preview → confirm → callback → public URL probe（CLI 互動式 / CLI --yes / MCP / public URL 四路徑）。
+# create_app preview → confirm → callback → public URL probe（CLI 互動式 / CLI --yes / public URL 三路徑）。
 # 對齊 docs/features/create-app-flow/spec.md § 12「End-to-end happy path」。E2E_MODE=local|staging|production。
 cmd_e2e_create_app()    { bash tasks/e2e-create-app.sh "$@"; }
 # local file:// repo → pack build → registry push → live deploy 端到端（dev compose 必須先 healthy）。
@@ -187,7 +185,7 @@ migrations:
 
 build:
   build                        本機 host 編譯三 binary 至 ./bin
-  build-images                 三 binary runtime image + migrations image
+  build-images                 兩 binary runtime image + migrations image
 
 lint / test:
   lint-compose                 驗證 compose schema
@@ -195,7 +193,7 @@ lint / test:
   lint-go                      golangci-lint
   lint-prom-rules              用 podman + prom/prometheus 跑 promtool check rules
   test                         go test ./... (src/)
-  contract-test                backend / cli / mcp contract path tests
+  contract-test                backend / cli contract path tests
   tidy                         go mod tidy (src/)
 
 sqlc:

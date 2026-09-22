@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # mock-idp — dev/e2e-only minimal OIDC provider. Built by the e2e compose
 # overlay (compose.e2e.yaml); NEVER part of production images.
-# build context is ./src (matches the server/cli/mcp Dockerfiles).
+# build context is ./src (matches the server/cli Dockerfiles).
 
 FROM golang:1.26-alpine AS deps
 WORKDIR /src

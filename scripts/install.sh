@@ -20,7 +20,6 @@
 #
 # Installs:
 #   $INSTALL_DIR/0ops
-#   $INSTALL_DIR/0ops-mcp
 # Then (when OPS_HOST set + interactive TTY + NO_ONBOARD unset):
 #   $INSTALL_DIR/0ops onboard $OPS_HOST
 #
@@ -117,7 +116,7 @@ log "checksum OK"
 mkdir -p "$INSTALL_DIR" || die "cannot create $INSTALL_DIR"
 tar -xzf "$asset_name"
 moved=0
-for bin in 0ops 0ops-mcp; do
+for bin in 0ops; do
   src=""
   for cand in "$bin" "./$bin" "*/$bin"; do
     found="$(find . -maxdepth 3 -type f -name "$bin" 2>/dev/null | head -n1)"
@@ -148,8 +147,8 @@ esac
 
 # --- post-install onboard ---
 # One-liner UX: if OPS_HOST is set + user didn't opt out, run `0ops onboard`.
-# Device-flow login prints a code + URL (no stdin needed); mcp setup runs with
-# --yes default so it doesn't prompt. Works under `curl ... | sh` (no TTY).
+# Device-flow login prints a code + URL (no stdin needed). Works under
+# `curl ... | sh` (no TTY).
 ops_bin="$INSTALL_DIR/0ops"
 should_onboard=1
 [ -z "${OPS_HOST:-}" ]      && should_onboard=0
@@ -163,7 +162,7 @@ if [ "$should_onboard" = "1" ]; then
 
 ================================================================================
 DONE — 0ops $tag installed + onboarded to ${OPS_HOST}.
-Restart your AI CLI to load the 0ops MCP server.
+Run: 0ops apps list
 EOF
   else
     warn "onboard step failed (binary may be an older release without 'onboard'); re-run after upgrading:"
@@ -174,7 +173,6 @@ EOF
 DONE — 0ops $tag installed; onboard FAILED.
 Manual steps:
   $ops_bin auth login --host=$OPS_HOST
-  $ops_bin mcp setup claude-code     # or: codex
 EOF
   fi
 else
@@ -185,9 +183,7 @@ DONE — 0ops $tag installed.
 
 Next:
   0ops auth login --host=<your-0ops-backend>     # eg. https://0ops.jesontech.com
-  0ops mcp setup claude-code                      # 接 Claude Code
-  # 或：
-  0ops mcp setup codex                            # 接 Codex CLI
+  0ops apps list
 
 Hint: set OPS_HOST before piping to skip these steps:
   OPS_HOST=https://0ops.jesontech.com curl -fsSL https://raw.githubusercontent.com/${OPS_REPO}/main/scripts/install.sh | sh
