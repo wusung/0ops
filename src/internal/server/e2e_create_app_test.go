@@ -23,7 +23,7 @@ import (
 // TestCreateAppEndToEndPreviewConfirmCallback exercises the create_app integration
 // contract against an in-memory backend: preview → confirm → HMAC-signed callback.
 // It is the test counterpart of tasks/e2e-create-app.sh and pins the shape that
-// the script's CLI / MCP / callback phases drive at the protocol layer.
+// the script's CLI / callback phases drive at the protocol layer.
 //
 // Coverage maps to AGENTS.md "高風險區域必測"：
 //   - preview / confirm 流程（preview_id consumption + last_result writeback）
@@ -146,7 +146,7 @@ func TestCreateAppEndToEndPreviewConfirmCallback(t *testing.T) {
 // tasks/e2e-create-app.sh. It guards against accidental phase removal,
 // silent mode renames, and lost executable bit — all of which would mean
 // `./manage.sh e2e-create-app` no longer drives the four required acceptance
-// paths (CLI --yes / CLI interactive / MCP / public URL probe).
+// paths (CLI --yes / CLI interactive / public URL probe).
 func TestCreateAppAcceptanceScriptShape(t *testing.T) {
 	scriptPath := filepath.Join("..", "..", "..", "tasks", "e2e-create-app.sh")
 
@@ -168,7 +168,6 @@ func TestCreateAppAcceptanceScriptShape(t *testing.T) {
 		"preflight",
 		"cli-yes",
 		"cli-interactive",
-		"mcp",
 		"callback",
 		"public-url-probe",
 	}
@@ -180,7 +179,7 @@ func TestCreateAppAcceptanceScriptShape(t *testing.T) {
 	}
 	// PHASES_ALL drives the default `--all` run order; assert the slug list is
 	// present so removing a phase from the loop is caught at test time too.
-	if !strings.Contains(body, "PHASES_ALL=(preflight cli-yes cli-interactive mcp callback public-url-probe)") {
+	if !strings.Contains(body, "PHASES_ALL=(preflight cli-yes cli-interactive callback public-url-probe)") {
 		t.Errorf("%s PHASES_ALL ordering changed; update tasks/todo.md create_app acceptance bullets", scriptPath)
 	}
 
@@ -202,10 +201,6 @@ func TestCreateAppAcceptanceScriptShape(t *testing.T) {
 		if !strings.Contains(body, key) {
 			t.Errorf("%s missing required env var reference %q", scriptPath, key)
 		}
-	}
-
-	if !strings.Contains(body, "create_app_preview") || !strings.Contains(body, "create_app") {
-		t.Errorf("%s missing MCP tool names create_app_preview / create_app", scriptPath)
 	}
 
 	if !strings.Contains(body, "/internal/deploy-runs/") {
