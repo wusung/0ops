@@ -298,3 +298,45 @@ func TestObserveArchiveDownload(t *testing.T) {
 		}
 	}
 }
+
+// The ledger's metrics must stay label-free of tenant identifiers: a pod
+// uid or app id as a label would make the series unbounded (spec § 14
+// rule #9).
+func TestUsageMetricsCarryNoTenantLabels(t *testing.T) {
+	m := NewMetrics()
+	m.ObserveUsageIntervalsOpened("reconcile", 2)
+	m.ObserveUsageIntervalsClosed("reconciled_missing", 1)
+	m.SetUsageOpenIntervals(7)
+	m.SetUsageOrphanPods(1)
+	m.SetUsageRollupLagDays(3)
+	m.ObserveUsageIntervalsExpired(10)
+	m.ObserveUsageReconcileDuration(250 * time.Millisecond)
+	m.SetUsageWatchDegraded(true)
+	m.ObserveUsageSamplesWritten(4)
+	m.ObserveUsageSampleFailure("metrics_api_unavailable")
+
+	rec := httptest.NewRecorder()
+	m.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body := rec.Body.String()
+	for _, want := range []string{
+		`zeroops_usage_intervals_opened_total{source="reconcile"} 2`,
+		`zeroops_usage_intervals_closed_total{reason="reconciled_missing"} 1`,
+		"zeroops_usage_intervals_open 7",
+		"zeroops_usage_orphan_pods 1",
+		"zeroops_usage_rollup_lag_days 3",
+		"zeroops_usage_intervals_expired_total 10",
+		"zeroops_usage_reconcile_duration_seconds_count 1",
+		"zeroops_usage_watch_degraded 1",
+		"zeroops_usage_samples_written_total 4",
+		`zeroops_usage_sample_failures_total{reason="metrics_api_unavailable"} 1`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("scrape missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{"pod_uid=", "app_id=", "team_id=", "pod_name="} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("usage metrics must not carry %q", forbidden)
+		}
+	}
+}

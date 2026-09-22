@@ -25,6 +25,9 @@ type Config struct {
 	ArgoSyncScanner       *ArgoSyncScanner
 	UploadGCScanner       *UploadGCScanner
 	AuditPartitionScanner *AuditPartitionScanner
+	UsageScanner          UsageScanner
+	UsageRollupScanner    UsageRollupScanner
+	UsageSampleScanner    UsageSampleScanner
 
 	DeployStatusInterval   time.Duration
 	ArgoSyncInterval       time.Duration
@@ -32,6 +35,9 @@ type Config struct {
 	MetricsInterval        time.Duration
 	UploadGCInterval       time.Duration
 	AuditPartitionInterval time.Duration
+	UsageInterval          time.Duration
+	UsageRollupInterval    time.Duration
+	UsageSampleInterval    time.Duration
 	JobBatchSize           int
 }
 
@@ -77,6 +83,15 @@ func New(cfg Config) *Runner {
 		// catalog SELECT) to leave running everywhere.
 		cfg.AuditPartitionInterval = 6 * time.Hour
 	}
+	if cfg.UsageInterval <= 0 {
+		cfg.UsageInterval = 5 * time.Minute
+	}
+	if cfg.UsageRollupInterval <= 0 {
+		cfg.UsageRollupInterval = time.Hour
+	}
+	if cfg.UsageSampleInterval <= 0 {
+		cfg.UsageSampleInterval = 5 * time.Minute
+	}
 	return &Runner{cfg: cfg}
 }
 
@@ -110,6 +125,21 @@ func (r *Runner) Start(ctx context.Context) {
 	if r.cfg.AuditPartitionScanner != nil {
 		r.spawn("audit_partition", r.cfg.AuditPartitionInterval, func(ctx context.Context) {
 			r.runAuditPartition(ctx)
+		}, ctx)
+	}
+	if r.cfg.UsageScanner != nil {
+		r.spawn("usage_reconcile", r.cfg.UsageInterval, func(ctx context.Context) {
+			r.runUsageReconcile(ctx)
+		}, ctx)
+	}
+	if r.cfg.UsageRollupScanner != nil {
+		r.spawn("usage_rollup", r.cfg.UsageRollupInterval, func(ctx context.Context) {
+			r.runUsageRollup(ctx)
+		}, ctx)
+	}
+	if r.cfg.UsageSampleScanner != nil {
+		r.spawn("usage_sample", r.cfg.UsageSampleInterval, func(ctx context.Context) {
+			r.runUsageSample(ctx)
 		}, ctx)
 	}
 }
@@ -325,6 +355,69 @@ func (r *Runner) runAuditPartition(ctx context.Context) {
 			"min_future_months", r.cfg.AuditPartitionScanner.minFutureMonths())
 	default:
 		r.cfg.Observer.ObserveTick("audit_partition", "ok")
+	}
+}
+
+func (r *Runner) runUsageReconcile(ctx context.Context) {
+	if !r.cfg.Leader.IsLeader() {
+		// Two backends applying the same plan would each try to open the
+		// same pod; the ledger's conflict clauses would absorb it, but
+		// the close path would still race over which end time wins.
+		r.cfg.Observer.ObserveTick("usage_reconcile", "skipped_not_leader")
+		return
+	}
+	opened, closed, err := r.cfg.UsageScanner.Tick(ctx)
+	if err != nil {
+		r.cfg.Observer.ObserveTick("usage_reconcile", "error")
+		r.cfg.Logger.Error("usage_reconcile tick failed", "err", err)
+		return
+	}
+	r.cfg.Observer.ObserveTick("usage_reconcile", "success")
+	if opened > 0 || closed > 0 {
+		r.cfg.Logger.Info("usage_reconcile tick complete",
+			"opened", opened, "closed", closed)
+	}
+}
+
+func (r *Runner) runUsageRollup(ctx context.Context) {
+	if !r.cfg.Leader.IsLeader() {
+		r.cfg.Observer.ObserveTick("usage_rollup", "skipped_not_leader")
+		return
+	}
+	days, err := r.cfg.UsageRollupScanner.Tick(ctx)
+	if err != nil {
+		r.cfg.Observer.ObserveTick("usage_rollup", "error")
+		r.cfg.Logger.Error("usage_rollup tick failed", "err", err)
+		return
+	}
+	r.cfg.Observer.ObserveTick("usage_rollup", "success")
+	if days > 0 {
+		r.cfg.Logger.Info("usage_rollup tick complete", "days", days)
+	}
+}
+
+func (r *Runner) runUsageSample(ctx context.Context) {
+	if !r.cfg.Leader.IsLeader() {
+		r.cfg.Observer.ObserveTick("usage_sample", "skipped_not_leader")
+		return
+	}
+	written, err := r.cfg.UsageSampleScanner.Tick(ctx)
+	if err != nil {
+		r.cfg.Observer.ObserveTick("usage_sample", "error")
+		r.cfg.Logger.Error("usage_sample tick failed", "err", err)
+		return
+	}
+	// A tick that wrote nothing because metrics-server is absent is a
+	// degradation of the observation track only; the ledger is
+	// untouched. Report it as degraded rather than as an error so it
+	// does not compete with metering failures for attention.
+	if failures := r.cfg.UsageSampleScanner.ConsecutiveFailures(); failures > 0 {
+		r.cfg.Observer.ObserveTick("usage_sample", "degraded")
+		return
+	}
+	r.cfg.Observer.ObserveTick("usage_sample", "success")
+	if written > 0 {
+		r.cfg.Logger.Debug("usage_sample tick complete", "rows", written)
 	}
 }
 

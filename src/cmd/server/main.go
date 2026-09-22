@@ -29,6 +29,7 @@ import (
 	"github.com/wusung/0ops/internal/server/services/createapp/ingestion"
 	"github.com/wusung/0ops/internal/server/services/k3s"
 	"github.com/wusung/0ops/internal/server/services/reconciler"
+	"github.com/wusung/0ops/internal/server/services/usage"
 	"github.com/wusung/0ops/internal/shared"
 	"github.com/wusung/0ops/internal/shared/runtime"
 )
@@ -182,7 +183,7 @@ func main() {
 		logger.Info("leader election bypassed", "mode", leaderMode, "identity", identity)
 	}
 
-	startReconciler(ctx, logger, repo, incidentSvc, reconObserver, k3sClient, ldr, ingestStore, auditSvc)
+	startReconciler(ctx, logger, repo, incidentSvc, reconObserver, k3sClient, ldr, ingestStore, auditSvc, metrics)
 
 	// M9.6: background webhook delivery dispatcher (leader-gated). It polls
 	// webhook_delivery (FOR UPDATE SKIP LOCKED), POSTs each with an HMAC
@@ -305,7 +306,7 @@ func (o *reconcilerObserver) RecordUploadGC(processed, failed int) {
 // without a GitHub or ArgoCD client they degrade to a no-op tick. The
 // job processor + leader gate always start; the gate is driven by the
 // supplied leader.Leader (AlwaysLeader in dev, LeaseLeader in M5+ prod).
-func startReconciler(ctx context.Context, logger *slog.Logger, repo *db.Repository, incidentSvc *reconciler.IncidentService, observer reconciler.Observer, k3sClient *k3s.Client, ldr leader.Leader, ingestStore reconciler.UploadGCIngestStore, auditSvc reconciler.UploadGCAuditWriter) {
+func startReconciler(ctx context.Context, logger *slog.Logger, repo *db.Repository, incidentSvc *reconciler.IncidentService, observer reconciler.Observer, k3sClient *k3s.Client, ldr leader.Leader, ingestStore reconciler.UploadGCIngestStore, auditSvc reconciler.UploadGCAuditWriter, metrics *observability.Metrics) {
 	scanners := buildScanners(repo, incidentSvc, observer, k3sClient)
 	uploadGC := &reconciler.UploadGCScanner{
 		Store:  repo,
@@ -326,6 +327,33 @@ func startReconciler(ctx context.Context, logger *slog.Logger, repo *db.Reposito
 	// writes start failing.
 	auditPartitions := &reconciler.AuditPartitionScanner{Store: repo, Logger: logger}
 
+	// The allocation ledger needs a real cluster to read pods from. A dev
+	// backend running without namespace isolation has none, so leave the
+	// loop unwired rather than have it fail on every tick.
+	var usageScanner reconciler.UsageScanner
+	var usageSampler reconciler.UsageSampleScanner
+	if k3sClient.Enabled() {
+		usageScanner = usage.NewReconciler(k3sClient, repo, usageObserver{m: metrics}, logger, nil)
+
+		// The watch records authoritative end times as they happen; the
+		// reconcile loop above is what keeps the ledger correct if it
+		// drops. Losing the watch degrades precision, not correctness,
+		// so it runs detached and never blocks startup.
+		watcher := usage.NewWatcher(k3sClient, repo, usage.RepoAppResolver{Store: repo},
+			reconcilerLeaderGate{l: ldr}, usageObserver{m: metrics}, logger)
+		go watcher.Run(ctx, 0)
+
+		// Observation track (spec § 8): what apps actually consume, as
+		// opposed to what they reserved. Optional by design — it needs
+		// metrics-server, which K3s can be started without, and nothing
+		// in the metering path reads it.
+		usageSampler = usage.NewSampler(k3sClient, repo, usageObserver{m: metrics}, logger, nil)
+	}
+	// The rollup pass only reads the ledger, so it runs regardless of
+	// whether this backend can reach a cluster: days recorded before a
+	// restart still need closing.
+	usageRollup := usage.NewRollupper(repo, usageObserver{m: metrics}, logger, nil, 0, 0)
+
 	cfg := reconciler.Config{
 		Leader:                reconcilerLeaderGate{l: ldr},
 		Store:                 repo,
@@ -338,10 +366,13 @@ func startReconciler(ctx context.Context, logger *slog.Logger, repo *db.Reposito
 		UploadGCScanner:       uploadGC,
 		UploadGCInterval:      30 * time.Minute,
 		AuditPartitionScanner: auditPartitions,
+		UsageScanner:          usageScanner,
+		UsageRollupScanner:    usageRollup,
+		UsageSampleScanner:    usageSampler,
 	}
 	runner := reconciler.New(cfg)
 	runner.Start(ctx)
-	logger.Info("reconciler started", "identity", ldr.Identity(), "loops", scanners.summary())
+	logger.Info("reconciler started", "identity", ldr.Identity(), "loops", scanners.summary(usageScanner != nil))
 }
 
 type scannerSet struct {
@@ -349,7 +380,7 @@ type scannerSet struct {
 	argo   *reconciler.ArgoSyncScanner
 }
 
-func (s scannerSet) summary() string {
+func (s scannerSet) summary(usage bool) string {
 	parts := []string{}
 	if s.deploy != nil {
 		parts = append(parts, "deploy_status")
@@ -358,6 +389,10 @@ func (s scannerSet) summary() string {
 		parts = append(parts, "argo_sync")
 	}
 	parts = append(parts, "job_queue", "metrics", "upload_gc") // upload_gc always wired
+	if usage {
+		parts = append(parts, "usage_reconcile", "usage_sample")
+	}
+	parts = append(parts, "usage_rollup") // ledger-only; always wired
 	return strings.Join(parts, ",")
 }
 
@@ -406,3 +441,25 @@ func logLevel() slog.Level {
 		return slog.LevelInfo
 	}
 }
+
+// usageObserver adapts the allocation ledger's observers onto the
+// Prometheus registry. Every signal is a count: no pod, app or team
+// identifier may become a label (spec § 14 rule #9).
+type usageObserver struct{ m *observability.Metrics }
+
+func (o usageObserver) ObserveIntervalsOpened(source string, n int) {
+	o.m.ObserveUsageIntervalsOpened(source, n)
+}
+func (o usageObserver) ObserveIntervalsClosed(reason string, n int) {
+	o.m.ObserveUsageIntervalsClosed(reason, n)
+}
+func (o usageObserver) ObserveOpenIntervals(n int) { o.m.SetUsageOpenIntervals(n) }
+func (o usageObserver) ObserveOrphanPods(n int)    { o.m.SetUsageOrphanPods(n) }
+func (o usageObserver) ObserveReconcileDuration(d time.Duration) {
+	o.m.ObserveUsageReconcileDuration(d)
+}
+func (o usageObserver) ObserveRollupLagDays(days int)      { o.m.SetUsageRollupLagDays(days) }
+func (o usageObserver) ObserveIntervalsExpired(n int64)    { o.m.ObserveUsageIntervalsExpired(n) }
+func (o usageObserver) ObserveWatchDegraded(down bool)     { o.m.SetUsageWatchDegraded(down) }
+func (o usageObserver) ObserveSamplesWritten(n int)        { o.m.ObserveUsageSamplesWritten(n) }
+func (o usageObserver) ObserveSampleFailure(reason string) { o.m.ObserveUsageSampleFailure(reason) }
