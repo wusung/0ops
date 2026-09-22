@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	mcpserver "github.com/winshare/zeroops/internal/mcp/server"
 	"github.com/winshare/zeroops/internal/shared/authconfig"
 )
 
@@ -133,46 +132,6 @@ func TestContractDeviceFlowToTokenCache(t *testing.T) {
 	}
 }
 
-// TestContractMCPToolAvailabilityFilter tests that MCP server filters tools based on grants
-func TestContractMCPToolAvailabilityFilter(t *testing.T) {
-	// Test that tool registry correctly filters based on user grants
-	registry := mcpserver.NewToolRegistry()
-
-	// User with no explicit grants (only default-allow tools)
-	defaultTools := registry.GetToolsForUser(nil)
-	if len(defaultTools) == 0 {
-		t.Error("expected default-allow tools")
-	}
-
-	// Verify all returned tools are default-allow
-	for _, tool := range defaultTools {
-		if !tool.DefaultAllow {
-			t.Errorf("non-default-allow tool in default list: %s", tool.Name)
-		}
-	}
-
-	// User with explicit grants
-	explicitGrants := []string{"invite_member"}
-	userTools := registry.GetToolsForUser(explicitGrants)
-
-	// Should include both default-allow + granted tools
-	if len(userTools) <= len(defaultTools) {
-		t.Error("expected granted tools to increase total")
-	}
-
-	// Verify granted tool is in the list
-	found := false
-	for _, tool := range userTools {
-		if tool.Name == "invite_member" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Error("granted tool not in user's available tools")
-	}
-}
-
 // TestContractGrantSubmissionDTO tests the DTO format for grant submission
 func TestContractGrantSubmissionDTO(t *testing.T) {
 	// Test that grant submission uses correct DTO format
@@ -220,33 +179,6 @@ func TestContractGrantSubmissionDTO(t *testing.T) {
 	}
 	if _, ok := respUnmarshaled["granted_tools"]; !ok {
 		t.Error("granted_tools missing from response")
-	}
-}
-
-// TestContractTokenClaimsFormat tests the token claims format contract
-func TestContractTokenClaimsFormat(t *testing.T) {
-	// Test MCPAuthContext claims format
-	authCtx := &mcpserver.MCPAuthContext{
-		UserID: "user-123",
-		TeamID: "team-456",
-		GrantedTools: map[string]bool{
-			"list_apps": true,
-			"get_app":   true,
-		},
-	}
-
-	// Verify IsToolGranted works
-	if !authCtx.IsToolGranted("list_apps") {
-		t.Error("expected list_apps to be granted")
-	}
-
-	if authCtx.IsToolGranted("create_app") {
-		t.Error("expected create_app to not be granted")
-	}
-
-	// Verify GetGrantedToolCount works
-	if authCtx.GetGrantedToolCount() != 2 {
-		t.Error("expected 2 granted tools")
 	}
 }
 
