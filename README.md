@@ -8,9 +8,8 @@ the hand an agent reaches for to ship — stays.
 ## TL;DR
 
 ```sh
-# 1. install + login + AI CLI 接線（一條 curl）
-OPS_HOST=https://api.<your-0ops> \
-  curl -fsSL https://raw.githubusercontent.com/wusung/0ops/main/scripts/install.sh | sh
+# 1. install + login + AI CLI 接線（一條 curl，預設連官方 https://0ops.jesontech.com）
+curl -fsSL https://raw.githubusercontent.com/wusung/0ops/main/scripts/install.sh | sh
 # device flow login → 自動偵測 claude / codex CLI → 寫 MCP config
 
 # 2. 重啟 AI CLI
@@ -19,8 +18,9 @@ OPS_HOST=https://api.<your-0ops> \
 #    "幫我把這個 repo deploy 到 0ops，叫 nextdemo"
 ```
 
-不設 `OPS_HOST` → 只裝 binary；事後手動 `0ops auth login` + `0ops mcp setup`，
-或補一條 `0ops onboard https://api.<your-0ops>`。
+自架後端：前面加 `OPS_HOST=https://api.<your-0ops>`。
+只裝 binary 不登入：前面加 `NO_ONBOARD=1`，事後再 `0ops onboard <host>`。
+安裝前先看會做什麼：前面加 `DRY_RUN=1`。
 
 Full walkthrough: [`docs/quickstart.md`](docs/quickstart.md).
 
