@@ -184,7 +184,7 @@ Merge 至主分支，更新 SQL 狀態為 'done'
 - 單元測試：`testing`
 - API handler 測試：`net/http/httptest`
 - DB 整合測試
-- CLI / MCP 與 backend DTO contract test
+- CLI 與 backend DTO contract test
 
 ### e2e 測試（每個 feature 必備）
 
@@ -197,7 +197,7 @@ Merge 至主分支，更新 SQL 狀態為 'done'
 - 外部依賴以 in-repo mock（`src/cmd/devtools/mock-*`）+ `compose.e2e.yaml` overlay 提供；
   production compose 永不含 mock。
 - 硬規約（L001）：e2e 一律經 `OPS_HOST` 打 compose stack / staging；不可在 host 直跑
-  `./bin/0ops-server`；CLI/MCP 以 `podman run` runtime image 驅動。
+  `./bin/0ops-server`；CLI 以 `podman run` runtime image 驅動。
 - 招牌保證本身必須經 live 路徑行使，不可用 SQL 偽造結果；無法在 e2e 行使者（需真 IdP/cluster）
   於 feature 文件明列 deferred 與替代覆蓋層。
 
@@ -213,7 +213,6 @@ Merge 至主分支，更新 SQL 狀態為 'done'
 若修改以下項目，不可只改程式不補測試：
 
 - API request / response DTO
-- MCP tool schema
 - CLI output contract
 - migration
 - middleware 權限邏輯
