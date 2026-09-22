@@ -29,7 +29,7 @@ jobs:
           cache: true
           cache-dependency-path: src/go.sum
 
-      # supply-chain-security spec § 4.1 涵蓋對象 (c): CLI / MCP / server binary
+      # supply-chain-security spec § 4.1 涵蓋對象 (c): CLI / server binary
       # SBOM (goreleaser built-in syft) + cosign keyless signature of the
       # checksums file are configured in src/.goreleaser.yaml; cosign must be on
       # PATH for the `signs` block.
@@ -53,7 +53,7 @@ jobs:
 
   # Production container images for the K8s deploy path
   # (deploy/server chart + deploy/gitops/argocd/apps/server.yaml).
-  # goreleaser above only ships CLI/MCP/server *binaries*; the chart pulls
+  # goreleaser above only ships CLI/server *binaries*; the chart pulls
   # ghcr images, so a release without this job leaves prod ImagePullBackOff.
   #
   # One-time after the FIRST release that publishes these packages: flip

@@ -5,7 +5,7 @@ set -euo pipefail
 # create_app 端到端驗收：preview → confirm → dispatch → callback → sync → public URL 200
 #
 # 對齊 docs/features/create-app-flow/spec.md § 12「驗證準則」之 End-to-end happy path
-# 行；本腳本是 create_app flow 的單一驗收入口（CLI 互動式 / CLI --yes / MCP / public URL）。
+# 行；本腳本是 create_app flow 的單一驗收入口（CLI 互動式 / CLI --yes / public URL）。
 #
 # 工作模式（E2E_MODE）：
 #   local       (default) 只在本機 compose stack 上做結構性驗證；create_app 因
@@ -21,7 +21,7 @@ set -euo pipefail
 #   ./tasks/e2e-create-app.sh [--phase=<name>] [--mode=<mode>] [-h|--help]
 #
 #   --phase=<name>     只跑單一 phase（預設跑全部）
-#                      合法值：preflight | cli-yes | cli-interactive | mcp |
+#                      合法值：preflight | cli-yes | cli-interactive |
 #                              callback | public-url-probe
 #   --mode=<mode>      覆蓋 E2E_MODE 環境變數（local|staging|production）
 #
@@ -36,7 +36,6 @@ set -euo pipefail
 #   E2E_APP_SLUG_PREFIX       app slug 前綴；預設 nextdemo
 #   E2E_PUBLIC_URL            public URL 探測目標；預設 https://nextdemo.jesontech.com
 #   E2E_CLI_IMAGE             CLI runtime image；預設 localhost/0ops-cli:runtime
-#   E2E_MCP_IMAGE             MCP runtime image；預設 localhost/0ops-mcp:runtime
 #   E2E_NETWORK               compose 網路名；預設 0ops_default；OPS_HOST 指外部 host 時自動 bypass
 #   E2E_REQUIRE_PASS          設 1 時，若 PASSED 計數為 0（即所有 phase 都 SKIP），exit 6；
 #                             用於 CI / cron 場景，避免「全 SKIP exit 0」變成假綠
@@ -45,7 +44,7 @@ set -euo pipefail
 #   0  全部 phase 通過或合法 SKIP
 #   2  preflight 缺工具（無 podman / curl / openssl / python3）
 #   3  phase 內部斷言失敗（含任一 phase 失敗的整體結果碼）
-#   4  CLI / MCP / curl 子程序非預期退出
+#   4  CLI / curl 子程序非預期退出
 #   5  HMAC callback 簽章驗證失敗（自我比對）
 #   6  E2E_REQUIRE_PASS=1 但無任何 phase passed
 #  64  CLI 用法錯誤（無效 flag / phase）
@@ -53,11 +52,11 @@ set -euo pipefail
 # 硬性約束（lessons/L001 + AGENTS.md）：
 # - 不可直接在 host 跑 ./bin/0ops-server 取代 compose stack；本腳本所有對 backend
 #   的呼叫一律經 OPS_HOST 指向 compose stack 或 staging 端點。
-# - CLI / MCP 二進位以 podman run 對應 runtime image 的方式驅動，保留 distroless
-#   non-root 邊界；不在 host 直接執行 ./bin/0ops 或 ./bin/0ops-mcp。
+# - CLI 二進位以 podman run 對應 runtime image 的方式驅動，保留 distroless
+#   non-root 邊界；不在 host 直接執行 ./bin/0ops。
 
 MODE_DEFAULT="local"
-PHASES_ALL=(preflight cli-yes cli-interactive mcp callback public-url-probe)
+PHASES_ALL=(preflight cli-yes cli-interactive callback public-url-probe)
 SELECTED_PHASE=""
 
 usage() {
@@ -103,7 +102,6 @@ E2E_REPO_REF="${E2E_REPO_REF:-main}"
 E2E_APP_SLUG_PREFIX="${E2E_APP_SLUG_PREFIX:-nextdemo}"
 E2E_PUBLIC_URL="${E2E_PUBLIC_URL:-https://nextdemo.jesontech.com}"
 E2E_CLI_IMAGE="${E2E_CLI_IMAGE:-localhost/0ops-cli:runtime}"
-E2E_MCP_IMAGE="${E2E_MCP_IMAGE:-localhost/0ops-mcp:runtime}"
 E2E_NETWORK="${E2E_NETWORK:-0ops_default}"
 E2E_REQUIRE_PASS="${E2E_REQUIRE_PASS:-0}"
 
@@ -177,15 +175,6 @@ run_cli_interactive() {
     "$E2E_CLI_IMAGE" "$@"
 }
 
-run_mcp_call() {
-  local payload="$1"
-  # shellcheck disable=SC2046
-  printf '%s\n' "$payload" | podman run --rm -i $(podman_network_args) \
-    -e OPS_HOST="$OPS_HOST" \
-    -e OPS_BEARER_TOKEN="$OPS_BEARER_TOKEN" \
-    "$E2E_MCP_IMAGE"
-}
-
 phase_preflight() {
   phase_header "preflight"
   require_cmd podman
@@ -203,14 +192,12 @@ phase_preflight() {
       echo "  ✗ OPS_BEARER_TOKEN and OPS_TEAM_SLUG are required for mode=$E2E_MODE" >&2
       return $EXIT_PHASE_FAIL
     fi
-    for img in "$E2E_CLI_IMAGE" "$E2E_MCP_IMAGE"; do
-      if ! podman image exists "$img"; then
-        echo "  ✗ container image $img missing; run './manage.sh build-images'" >&2
-        return $EXIT_PHASE_FAIL
-      fi
-    done
+    if ! podman image exists "$E2E_CLI_IMAGE"; then
+      echo "  ✗ container image $E2E_CLI_IMAGE missing; run './manage.sh build-images'" >&2
+      return $EXIT_PHASE_FAIL
+    fi
     if curl -fsS "$OPS_HOST/health" >/dev/null; then
-      phase_pass "backend /health OK at $OPS_HOST; CLI/MCP images present"
+      phase_pass "backend /health OK at $OPS_HOST; CLI image present"
     else
       echo "  ✗ /health probe failed at $OPS_HOST" >&2
       return $EXIT_PHASE_FAIL
@@ -218,7 +205,7 @@ phase_preflight() {
   fi
 }
 
-# 共用：staging+ 模式跑 CLI / MCP create_app 路徑前的條件檢查
+# 共用：staging+ 模式跑 CLI create_app 路徑前的條件檢查
 require_staging_or_skip() {
   local phase="$1"
   if [[ "$E2E_MODE" == "local" ]]; then
@@ -263,77 +250,6 @@ phase_cli_interactive() {
     return $EXIT_SUBPROC_FAIL
   fi
   phase_pass "CLI interactive (y) preview→confirm completed for $slug"
-}
-
-phase_mcp() {
-  phase_header "mcp"
-  if ! require_staging_or_skip "mcp"; then return 0; fi
-
-  local slug="${E2E_APP_SLUG_PREFIX}-mcp-$(date +%s)"
-  local init_req='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"m2-8-e2e","version":"dev"}}}'
-  local preview_req confirm_req
-  preview_req=$(python3 -c "import json,sys; print(json.dumps({'jsonrpc':'2.0','id':2,'method':'tools/call','params':{'name':'create_app_preview','arguments':{'team_slug':sys.argv[1],'slug':sys.argv[2],'repo_url':sys.argv[3],'ref':sys.argv[4]}}}))" "$OPS_TEAM_SLUG" "$slug" "$E2E_REPO_URL" "$E2E_REPO_REF")
-
-  local mcp_out="$E2E_TMPDIR/mcp-preview.out"
-  if ! run_mcp_call "$init_req"$'\n'"$preview_req" >"$mcp_out" 2>&1; then
-    cat "$mcp_out" >&2
-    echo "  ✗ MCP create_app_preview round-trip failed" >&2
-    return $EXIT_SUBPROC_FAIL
-  fi
-
-  # Parse preview_id from JSON-RPC response; fail loudly if absent.
-  local preview_id
-  preview_id=$(python3 -c '
-import json, sys
-for raw in open(sys.argv[1]).read().splitlines():
-    raw = raw.strip()
-    if not raw.startswith("{"):
-        continue
-    try:
-        msg = json.loads(raw)
-    except json.JSONDecodeError:
-        continue
-    if msg.get("id") != 2 or "result" not in msg:
-        continue
-    result = msg["result"]
-    structured = result.get("structuredContent")
-    candidates = []
-    if isinstance(structured, dict):
-        candidates.append(structured)
-    for item in result.get("content", []):
-        if isinstance(item, dict) and item.get("type") == "text":
-            try:
-                candidates.append(json.loads(item.get("text", "")))
-            except json.JSONDecodeError:
-                pass
-    for cand in candidates:
-        pid = cand.get("preview_id")
-        if pid:
-            print(pid)
-            sys.exit(0)
-sys.exit(1)
-' "$mcp_out") || preview_id=""
-
-  if [[ -z "$preview_id" ]]; then
-    cat "$mcp_out" >&2
-    echo "  ✗ could not parse preview_id from MCP create_app_preview response" >&2
-    return $EXIT_PHASE_FAIL
-  fi
-
-  confirm_req=$(python3 -c "import json,sys; print(json.dumps({'jsonrpc':'2.0','id':3,'method':'tools/call','params':{'name':'create_app','arguments':{'team_slug':sys.argv[1],'preview_id':sys.argv[2]}}}))" "$OPS_TEAM_SLUG" "$preview_id")
-
-  local confirm_out="$E2E_TMPDIR/mcp-confirm.out"
-  if ! run_mcp_call "$init_req"$'\n'"$confirm_req" >"$confirm_out" 2>&1; then
-    cat "$confirm_out" >&2
-    echo "  ✗ MCP create_app round-trip failed" >&2
-    return $EXIT_SUBPROC_FAIL
-  fi
-  if ! grep -q '"app_id"\|"deploy_run_id"\|"subdomain_url"' "$confirm_out"; then
-    cat "$confirm_out" >&2
-    echo "  ✗ MCP create_app response missing app_id/deploy_run_id/subdomain_url" >&2
-    return $EXIT_PHASE_FAIL
-  fi
-  phase_pass "MCP create_app_preview → create_app round-trip succeeded (preview_id=$preview_id)"
 }
 
 phase_callback() {
@@ -412,7 +328,6 @@ run_phase() {
     preflight)         phase_preflight        || rc=$? ;;
     cli-yes)           phase_cli_yes          || rc=$? ;;
     cli-interactive)   phase_cli_interactive  || rc=$? ;;
-    mcp)               phase_mcp              || rc=$? ;;
     callback)          phase_callback         || rc=$? ;;
     public-url-probe)  phase_public_url_probe || rc=$? ;;
     *)
