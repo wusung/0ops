@@ -6,11 +6,10 @@
 ## 1. 安裝 + 設定（一條 curl，1 分鐘）
 
 ```sh
-OPS_HOST=https://api.<your-0ops> \
-  curl -fsSL https://raw.githubusercontent.com/wusung/0ops/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/wusung/0ops/main/scripts/install.sh | sh
 ```
 
-`OPS_HOST` 設了就一次做完：
+預設連官方後端 `https://0ops.jesontech.com`，一次做完：
 
 1. 下載 `0ops` + `0ops-mcp` binary（驗 sha256）到 `~/.local/bin`
 2. 跑 `0ops onboard $OPS_HOST`：
@@ -19,16 +18,17 @@ OPS_HOST=https://api.<your-0ops> \
    - 對每個 AI CLI 寫 MCP server config（idempotent；備份原檔）
 3. 印「重啟 AI CLI」指引
 
-不設 `OPS_HOST` → 只裝 binary，後續手動 `0ops auth login` + `0ops mcp setup`，
-或補一條 `0ops onboard https://api.<your-0ops>`。
+自架後端就在前面加 `OPS_HOST=https://api.<your-0ops>`；只想裝 binary 不登入就加
+`NO_ONBOARD=1`，之後再補一條 `0ops onboard <host>`。
 
 進階：
 
 ```sh
-NO_ONBOARD=1 OPS_HOST=... curl ... | sh                       # 只裝 binary，跳過 onboard
+NO_ONBOARD=1 curl ... | sh                                    # 只裝 binary，跳過 onboard
+OPS_HOST=https://api.<your-0ops> curl ... | sh                # 自架後端
 OPS_HOST=http://127.0.0.1:18080 curl ... | sh                 # 對 local dev compose
 OPS_VERSION=v0.1.1 INSTALL_DIR=$HOME/bin curl ... | sh        # 指定版本與路徑
-DRY_RUN=1 curl ... | sh                                       # 只印會做什麼，不真下載
+DRY_RUN=1 curl ... | sh                                       # 只印會做什麼（含會不會 onboard、連哪個 host），不真下載
 ```
 
 裝完跑 `0ops --version` 驗。預設 `~/.local/bin` 若不在 PATH，腳本會印 shell rc 加哪一行。

@@ -2,7 +2,8 @@
 # 0ops one-line installer.
 # spec: docs/features/end-user-onboarding/spec.md § 3
 #
-# Usage (zero-arg defaults the official SaaS):
+# Usage (zero-arg installs and onboards to the official SaaS,
+# https://0ops.jesontech.com):
 #   curl -fsSL https://raw.githubusercontent.com/wusung/0ops/main/scripts/install.sh | sh
 #
 # Point at a self-host / staging / local backend:
@@ -10,18 +11,19 @@
 #   OPS_HOST=http://127.0.0.1:18080     curl ... | sh
 #
 # Env:
-#   OPS_HOST      backend host. Triggers post-install `0ops onboard`
-#                 (device-flow login + AI CLI auto-wire). Unset → install only.
+#   OPS_HOST      backend host for post-install `0ops onboard` (device-flow
+#                 login + AI CLI auto-wire). Default: https://0ops.jesontech.com.
+#                 Use NO_ONBOARD=1 to install without onboarding.
 #   OPS_VERSION   release tag (default: latest)
 #   INSTALL_DIR   install target (default: $HOME/.local/bin)
 #   OPS_REPO      override repo (default: wusung/0ops)
 #   DRY_RUN=1     print actions without downloading/installing
-#   NO_ONBOARD=1  skip post-install onboard even when OPS_HOST is set
+#   NO_ONBOARD=1  install only; skip post-install onboard
 #
 # Installs:
 #   $INSTALL_DIR/0ops
 #   $INSTALL_DIR/0ops-mcp
-# Then (when OPS_HOST set + interactive TTY + NO_ONBOARD unset):
+# Then (unless NO_ONBOARD=1):
 #   $INSTALL_DIR/0ops onboard $OPS_HOST
 #
 # Verifies sha256 from the release's checksums.txt.
@@ -29,6 +31,10 @@
 set -eu
 
 OPS_REPO="${OPS_REPO:-wusung/0ops}"
+# The official SaaS, so the documented zero-arg one-liner actually onboards.
+# Previously an unset OPS_HOST meant install-only, contradicting the usage
+# line above; NO_ONBOARD=1 remains the explicit install-only switch.
+OPS_HOST="${OPS_HOST:-https://0ops.jesontech.com}"
 OPS_VERSION="${OPS_VERSION:-latest}"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 DRY_RUN="${DRY_RUN:-0}"
@@ -87,6 +93,11 @@ log "checksums: $checksum_url"
 if [ "$DRY_RUN" = "1" ]; then
   log "DRY_RUN=1 — would download $asset_url + $checksum_url"
   log "DRY_RUN=1 — would install to $INSTALL_DIR"
+  if [ "${NO_ONBOARD:-0}" = "1" ]; then
+    log "DRY_RUN=1 — would skip onboard (NO_ONBOARD=1)"
+  else
+    log "DRY_RUN=1 — would run: 0ops onboard $OPS_HOST"
+  fi
   exit 0
 fi
 
@@ -147,7 +158,7 @@ case ":$PATH:" in
 esac
 
 # --- post-install onboard ---
-# One-liner UX: if OPS_HOST is set + user didn't opt out, run `0ops onboard`.
+# One-liner UX: run `0ops onboard` against OPS_HOST unless NO_ONBOARD=1.
 # Device-flow login prints a code + URL (no stdin needed); mcp setup runs with
 # --yes default so it doesn't prompt. Works under `curl ... | sh` (no TTY).
 ops_bin="$INSTALL_DIR/0ops"
@@ -189,8 +200,9 @@ Next:
   # 或：
   0ops mcp setup codex                            # 接 Codex CLI
 
-Hint: set OPS_HOST before piping to skip these steps:
-  OPS_HOST=https://0ops.jesontech.com curl -fsSL https://raw.githubusercontent.com/${OPS_REPO}/main/scripts/install.sh | sh
+Hint: drop NO_ONBOARD=1 to have the installer do these steps for you
+(defaults to https://0ops.jesontech.com; set OPS_HOST for another backend):
+  curl -fsSL https://raw.githubusercontent.com/${OPS_REPO}/main/scripts/install.sh | sh
 
 Quickstart: https://github.com/${OPS_REPO}/blob/main/docs/quickstart.md
 EOF
