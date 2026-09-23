@@ -298,3 +298,29 @@ surface 隔壁 handler 同 bug 再補 fix 一次 — 都是延遲修正導致 pl
   （DNS 一致、免 host port / URL 改寫，L001 同源）；host 端只留必要的 CLI 入口。
 - **延伸（OIDC dance 專屬）**：authorize→IdP→callback 跨服務 302 只有網內可解析，故全程 `podman exec server
   curl`；issuer/redirect_uri 用 compose DNS（`mock-idp:9000`/`server:8080`），三方位址一致才不破 iss/aud 驗。
+
+## L020｜`gofmt -w <目錄>` 在非全面格式化的 repo 會夾帶無關改動（resource-usage-metering）
+
+- **情境**：實作 usage feature 時，為確認自己新增的檔案格式正確，對 `internal/server/services/reconciler/`
+  整個目錄跑 `gofmt -w`。該目錄下 8 個既有檔案（classification.go / metrics.go / statemachine.go …）
+  本來就不符 gofmt（欄位註解對齊、單行函式長度），於是被一併改掉並混進提交。
+- **問題**：違反 AGENTS.md「不可提交與當前任務無關的順手修正」。reviewer 得在 33 個檔案的 diff 裡
+  分辨哪些是功能、哪些是格式雜訊；真要修格式也該是獨立一筆 `style:` 提交。
+  同一個坑在 `cmd/server/main.go` 踩了**三次**——每次 `gofmt -w main.go` 都會順手改掉
+  `MaxEntryBytes` 的註解對齊與 `ObserveTick` 的單行寫法，每次都得手動還原。
+- **規則**：
+  1. **只對自己新建的檔案跑 `gofmt -w`**；修改既有檔案時用 `gofmt -l <file>` 檢查，
+     若它本來就被列出（代表原本就不 clean），**不要** `-w`，手動確保自己新增的行符合格式即可。
+  2. 每次 `gofmt -w` 既有檔案後，立刻 `git diff <file>` 確認只有自己的行。
+  3. 提交前跑 `git show --stat HEAD`（或 `git status --short`）逐檔確認，
+     出現預期外的檔案就 `git checkout main -- <file>` 還原再 amend。
+
+## L021｜此環境的 `rg` 會改寫輸出內容，比對文字前必加 `--no-config`
+
+- **情境**：用 `rg -n "KUBECONFIG|serviceAccount" deploy/` 找設定，輸出把所有匹配詞都顯示成單一字母 `n`
+  （`: "${n:?}"`、`PROD_n_LOCAL`），一度以為腳本裡真的有這種變數名。
+- **原因**：環境有 ripgrep 設定檔（`RIPGREP_CONFIG_PATH`）帶了 `--replace`，會改寫輸出的匹配段落。
+  `~/.ripgreprc` 本身不存在，所以不容易察覺。
+- **規則**：凡是要**讀取檔案實際內容**的 rg 呼叫一律加 `--no-config`；只做「有沒有命中」
+  或列檔名（`-l`）時可不加。驗證方式：`rg --no-config -n "KUBECONFIG" file` 與不加旗標比對，
+  輸出不同即代表 config 在作用。
