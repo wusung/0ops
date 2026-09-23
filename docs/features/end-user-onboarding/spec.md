@@ -46,14 +46,23 @@
 ### 3.1 介面
 
 ```bash
-# 預設：抓 latest release，裝到 ~/.local/bin
+# 預設：抓 latest release，裝到 ~/.local/bin，
+# 並對官方後端（OPS_HOST 預設 https://0ops.jesontech.com）跑 onboard
 curl -fsSL https://raw.githubusercontent.com/wusung/0ops/main/scripts/install.sh | sh
 
 # 進階：可設定 env
+OPS_HOST=https://api.my-domain.com \
 OPS_VERSION=v0.1.1 \
 INSTALL_DIR=$HOME/bin \
 curl -fsSL ... | sh
+
+# 只裝 binary，不 onboard
+NO_ONBOARD=1 curl -fsSL ... | sh
 ```
+
+`OPS_HOST` 預設即官方 SaaS 後端；self-host / staging / local 以 env 覆寫。
+唯一的 opt-out 是 `NO_ONBOARD=1`——`OPS_HOST=`（空字串）會被 `:-` 展開回預設值，
+不再等同「只裝 binary」。
 
 ### 3.2 行為
 
@@ -64,7 +73,9 @@ curl -fsSL ... | sh
 5. 下載 tar.gz + checksums.txt → 驗 sha256。
 6. 解壓 → 把 `0ops` 與 `0ops-mcp` 安到 `$INSTALL_DIR`，chmod +x。
 7. 檢查 `$INSTALL_DIR` 在 `$PATH`：若不在，提示 shell rc 加入指令（給 bash / zsh / fish 三條）。
-8. 印「下一步」：`0ops auth login --host=<your-0ops>` + `0ops mcp setup claude-code`。
+8. 除非 `NO_ONBOARD=1`，跑 `0ops onboard $OPS_HOST`（device-flow login + AI CLI 自動接線）；
+   跳過時改印「下一步」：`0ops auth login --host=<your-0ops>` + `0ops mcp setup claude-code`。
+9. `DRY_RUN=1` 在步驟 5 之前中止，並印出會下載什麼、裝到哪、以及會不會跑 onboard。
 
 ### 3.3 安全 / 失敗
 

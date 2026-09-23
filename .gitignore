@@ -32,8 +32,9 @@ compose.override.yml
 *.swo
 *~
 
-# Claude Code / Claire agent 本地工作區狀態
-.claude/
+# Claude Code / Claire agent 本地工作區狀態（skills 隨 repo 分發，不忽略）
+.claude/*
+!.claude/skills/
 .claire/
 
 # Go

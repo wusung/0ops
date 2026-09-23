@@ -2,20 +2,19 @@
 
 **The tool your AI agent natively calls to `ship`.** Claude Code / Codex write the code; 0ops is the
 missing verb in their toolbelt — one prompt takes a repo to a running app on `*.jesontech.com` or your
-own domain. CLI + MCP are *how* it connects, not *what* it is: even if MCP gets commoditized, the role —
-the hand an agent reaches for to ship — stays.
+own domain. The `0ops` CLI is *how* it connects, not *what* it is: the role — the hand an agent
+reaches for to ship — stays.
 
 ## TL;DR
 
 ```sh
-# 1. install + login + AI CLI 接線（一條 curl，預設連官方 https://0ops.jesontech.com）
+# 1. install + login（一條 curl，預設連官方 https://0ops.jesontech.com）
 curl -fsSL https://raw.githubusercontent.com/wusung/0ops/main/scripts/install.sh | sh
-# device flow login → 自動偵測 claude / codex CLI → 寫 MCP config
+# device flow login
 
-# 2. 重啟 AI CLI
-
-# 3. 在 AI CLI 內，直接說：
-#    "幫我把這個 repo deploy 到 0ops，叫 nextdemo"
+# 2. 在 AI CLI 內，直接說：
+#    "用 0ops CLI 把這個 repo deploy 到 0ops，叫 nextdemo"
+#    （agent 呼叫 0ops apps create → 0ops deploys status / logs）
 ```
 
 自架後端：前面加 `OPS_HOST=https://api.<your-0ops>`。
@@ -28,7 +27,7 @@ Full walkthrough: [`docs/quickstart.md`](docs/quickstart.md).
 
 | Path | Purpose |
 |---|---|
-| `src/` | Go binaries：`cmd/server` (backend)、`cmd/cli` (`0ops`)、`cmd/mcp` (`0ops-mcp`) |
+| `src/` | Go binaries：`cmd/server` (backend)、`cmd/cli` (`0ops`) |
 | `scripts/install.sh` | One-line installer（end-user 取用） |
 | `deploy/server` / `deploy/postgres` / `deploy/chart/cloudflare-tunnel` | Helm charts（self-host） |
 | `deploy/bootstrap/` | self-host：`./manage.sh prod-up` 一鍵裝整套到 K3s |
@@ -50,7 +49,7 @@ Full walkthrough: [`docs/quickstart.md`](docs/quickstart.md).
 
 - v1 backbone (M0-M6) shipped；source ingestion、preview/confirm、HA、PITR、reconciler 都在
 - Production rollout 端的 chart / bootstrap / runbook 已封裝完整
-- end-user 安裝 + AI CLI 接線 UX：本檔 + `docs/quickstart.md` + `0ops mcp setup`
+- end-user 安裝 UX：本檔 + `docs/quickstart.md` + `0ops onboard`
 
 詳：`tasks/todo.md` v1 收尾殘留段。
 
