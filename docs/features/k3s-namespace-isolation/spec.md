@@ -353,11 +353,11 @@ ImagePullSecret 必須在 namespace 建立**前**或**同時**就緒，否則第
 - Team archive（透過 `0ops teams archive`，v1.1 範圍）：保留 namespace 但 quota 設 0；現有 pod 持續跑直到自然死亡；新 pod 擋住
 - 物理刪 namespace 屬 v2 範圍（含 `delete_team`）
 
-### 9.4 Backend 的 K8s 權限（單一事實來源）
+### 9.4 Backend 的 K8s 權限（chart 實況）
 
 backend 以 `system-0ops` 內的 in-cluster ServiceAccount 連線（無 `KUBECONFIG` 時
-`k3s/client.go` 退回 `rest.InClusterConfig()`）。它被允許做什麼，由
-`deploy/server/templates/` 的三份 RBAC 物件完整定義，程式不得依賴任何未列於此的權限：
+`k3s/client.go` 退回 `rest.InClusterConfig()`）。chart 實際渲染出來的 RBAC 物件只有以下
+三份，程式不得依賴任何未列於此的權限（其他 spec 另有規範但未落地者，見本節末的歧異段）：
 
 | 物件 | 範圍 | 授予 | 為何是該範圍 |
 |---|---|---|---|
@@ -390,6 +390,16 @@ cluster-admin 等價能力**，此為目前架構接受的風險，不是已緩�
 
 若部署改以其他身分（kubeconfig）執行 namespace provisioning，必須回來改這張表，
 不可讓 chart 與實際部署對「backend 被允許做什麼」各說各話。
+
+**與其他文件的已知歧異（未解，勿當成已對齊）**：本表描述的是 `deploy/server/templates/`
+的實況。`secrets-management` § 6 另行規範了兩個**目前不存在於 chart** 的物件——
+`ops-server-secrets-read`（`system-0ops` 內的 namespaced Role，對 `cloudflare-api-token`、
+`github-app-private-key` 等具名 system secret 給 get/watch/list）與獨立的
+`ops-server-ghcr-pull-write` ClusterRole（含 `patch`）。實際的 ghcr-pull 授權併入了本表的
+provisioner，且不給 `patch`。連帶地，`security-hardening/baseline-matrix.md` 與
+`security-hardening/spec.md` 標記「Secret K8s RBAC resourceNames 限定／backend 僅可讀列舉
+secret／已具備」在兩個方向上都不準確：system secret 的讀取 Role 根本沒被渲染出來，而實際存在
+的 secret 授權不是唯讀。這三份文件要對齊到哪一種設計，是尚未做的決定，不在 issue #163 範圍內。
 
 ## 10. 與其他 spec 接合點
 

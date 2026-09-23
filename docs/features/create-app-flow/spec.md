@@ -321,11 +321,14 @@ return result, nil
 | compensating | execute() reversible 失敗 | 進入 reversible undo |
 | rolled_back | execute() compensate 完成 | undo 全部完成 |
 
-> **狀態查詢不是推進者**：`GET /v1/teams/{team}/deploys/status` 回傳 `deploy_run.status`
-> 的持久化值。它只在 run 已處於 `rendering` / `syncing`——亦即 ArgoCD 確實是本表列出的推進者
-> 的階段——才以 live Application 的 sync/health 覆寫回傳值。`queued`/`preparing`/`building`/
-> `pushing` 階段的 run 尚未產出本次 image，此時 Application 的 Healthy 描述的是**上一版**，
-> 覆寫會讓 API 宣告一個沒有任何推進者執行過的 transition（issue #54）。終態同理不得被重開。
+> **狀態查詢不是推進者**：`GET /v1/teams/{team}/deploys/status` 一律逐字回傳
+> `deploy_run.status` 的持久化值，任何階段皆不覆寫。本表列出的每個 transition 都由
+> execute()、deploy callback 或 reconciler 提交；`syncing → live` 具體由
+> `reconciler.ArgoSyncScanner` 提交，而 `cmd/server` 對它的接線條件（k3s client 非 nil）
+> 與舊版在讀取路徑上探詢 ArgoCD 的條件完全相同——讀取路徑的探詢只是搶在 reconciler 提交
+> 之前回報，代價是 API 宣告一個 DB 尚未持有的狀態（issue #54）。查詢端因此不保有任何
+> 階段判斷邏輯：唯一的規則是「DB 有什麼就回什麼」。代價為一個 reconciler tick 的延遲，
+> 非正確性。
 
 ## 8. CLI / MCP 對應
 

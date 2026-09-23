@@ -40,7 +40,6 @@ import (
 	"github.com/wusung/0ops/internal/server/services/createapp/ingestion"
 	"github.com/wusung/0ops/internal/server/services/githuboauth"
 	gitopssvc "github.com/wusung/0ops/internal/server/services/gitops"
-	k3ssvc "github.com/wusung/0ops/internal/server/services/k3s"
 	"github.com/wusung/0ops/internal/server/services/localbuild"
 	usagesvc "github.com/wusung/0ops/internal/server/services/usage"
 	workflowdispatch "github.com/wusung/0ops/internal/server/services/workflowdispatch"
@@ -177,7 +176,6 @@ var (
 	recordDeployTerminalMetric   = func(string) {}
 	recordDeployLeadTimeMetric   = func(time.Duration) {}
 	recordDeployFailureMetric    = func(string, string) {}
-	newArgoCDStatusProvider      = func() argoCDStatusProvider { return nil }
 
 	// Upload pipeline metric recorders (T21). Wired at startup via BindUploadMetrics.
 	recordUploadSuccessMetric   = func(int64, time.Duration) {}
@@ -185,34 +183,6 @@ var (
 	recordQuotaRejectionMetric  = func(string) {}
 	recordArchiveDownloadMetric = func(string) {}
 )
-
-type argoCDStatusProvider interface {
-	GetApplicationStatus(ctx context.Context, teamSlug, appSlug string) (argoCDApplicationStatus, error)
-}
-
-type argoCDApplicationStatus struct {
-	SyncStatus   string
-	HealthStatus string
-}
-
-type k3sArgoCDClient interface {
-	GetApplicationStatus(ctx context.Context, teamSlug, appSlug string) (k3ssvc.ApplicationStatus, error)
-}
-
-type k3sArgoCDStatusProvider struct {
-	client k3sArgoCDClient
-}
-
-func (p k3sArgoCDStatusProvider) GetApplicationStatus(ctx context.Context, teamSlug, appSlug string) (argoCDApplicationStatus, error) {
-	status, err := p.client.GetApplicationStatus(ctx, teamSlug, appSlug)
-	if err != nil {
-		return argoCDApplicationStatus{}, err
-	}
-	return argoCDApplicationStatus{
-		SyncStatus:   status.SyncStatus,
-		HealthStatus: status.HealthStatus,
-	}, nil
-}
 
 // BindCreateAppMetrics wires create_app-specific metric recorders.
 func BindCreateAppMetrics(
@@ -727,23 +697,15 @@ func getDeployStatusHandler(store appsStore) http.HandlerFunc {
 			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to get deploy status", nil)
 			return
 		}
-		// ArgoCD is consulted only for the stages where it is the actual
-		// 推進者 (create-app-flow spec § 7.2): once the manifests are
-		// rendered and pushed, cluster sync/health is what advances the
-		// run. Before that the build has not produced an image yet, so a
-		// Healthy Application describes the *previous* revision — letting
-		// it overwrite the row reports `live` for a run the DB still has
-		// as `queued` (issue #54). Terminal states are already decided
-		// and must not be reopened either.
-		if argoCDDrivesDeployStatus(row.Status) {
-			if provider := newArgoCDStatusProvider(); provider != nil {
-				if argoStatus, err := provider.GetApplicationStatus(r.Context(), auth.TeamSlug(r.Context()), appSlug); err == nil {
-					if mapped, ok := mapArgoCDDeployStatus(argoStatus.SyncStatus, argoStatus.HealthStatus); ok {
-						row.Status = mapped
-					}
-				}
-			}
-		}
+		// The status endpoint is a reader, never a 推進者. It returns the
+		// persisted deploy_run.status verbatim: every transition in
+		// create-app-flow spec § 7.2 is committed by execute(), the deploy
+		// callback or the reconciler, and syncing → live specifically by
+		// reconciler.ArgoSyncScanner — which cmd/server wires under exactly
+		// the same condition (a non-nil k3s client) that used to wire the
+		// read-path ArgoCD probe here. Consulting ArgoCD from the read path
+		// only front-ran that commit, and reported a transition the DB did
+		// not hold (issue #54).
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(dto.DeployStatusResponse{
@@ -1518,12 +1480,6 @@ func NewRouterWithIngestion(store routerStore, k3sClient infraK3sClient, cfClien
 }
 
 func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient infraK3sClient, cfClient infraCloudflareClient, limiter *ratelimit.Limiter, observer ratelimit.Observer, auditSvc auditQueryService, incidentSvc incidentService, uploadIngest ingestionStoreFull, uploadAuditSvc uploadAuditWriter, archiveSigner *ingestion.TokenSigner, callbackAuditWriter auditWriteService) http.Handler {
-	if argoClient, ok := k3sClient.(k3sArgoCDClient); ok && argoClient != nil {
-		newArgoCDStatusProvider = func() argoCDStatusProvider {
-			return k3sArgoCDStatusProvider{client: argoClient}
-		}
-	}
-
 	mw := auth.NewMiddleware(store)
 	githubSvc, githubWebhookVer := githubServiceFactoryFn(store)
 
@@ -1835,35 +1791,6 @@ func normalizeDeployStatus(raw string) (string, bool) {
 	}
 
 	return "", false
-}
-
-// argoCDDrivesDeployStatus reports whether the live ArgoCD Application is
-// authoritative for a run sitting at the given persisted status. It mirrors
-// reconciler.argoSync, which only transitions syncing → live.
-func argoCDDrivesDeployStatus(persisted string) bool {
-	switch strings.ToLower(strings.TrimSpace(persisted)) {
-	case "rendering", "syncing":
-		return true
-	default:
-		return false
-	}
-}
-
-func mapArgoCDDeployStatus(syncStatus, healthStatus string) (string, bool) {
-	switch {
-	case strings.EqualFold(syncStatus, "synced") && strings.EqualFold(healthStatus, "healthy"):
-		return "live", true
-	case strings.EqualFold(syncStatus, "synced") && strings.EqualFold(healthStatus, "progressing"):
-		return "syncing", true
-	case strings.EqualFold(syncStatus, "outofsync") && strings.EqualFold(healthStatus, "progressing"):
-		return "syncing", true
-	case strings.EqualFold(syncStatus, "synced") && strings.EqualFold(healthStatus, "degraded"):
-		return "failed", true
-	case strings.EqualFold(syncStatus, "unknown") || strings.EqualFold(healthStatus, "unknown"):
-		return "syncing", true
-	default:
-		return "", false
-	}
 }
 
 func validateDeployCallbackSignature(timestamp string, body []byte, signature string, opsToken *string) bool {

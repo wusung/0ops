@@ -92,10 +92,6 @@ type mockGitHubOAuthClient struct {
 	user      githuboauth.UserProfile
 }
 
-type fakeArgoCDStatusProvider struct {
-	status argoCDApplicationStatus
-}
-
 type fakeInfraK3sArgoClient struct {
 	status   k3ssvc.ApplicationStatus
 	called   bool
@@ -113,10 +109,6 @@ func (m mockGitHubOAuthClient) ExchangeDeviceCode(context.Context, string) (gith
 
 func (m mockGitHubOAuthClient) FetchUser(context.Context, string) (githuboauth.UserProfile, error) {
 	return m.user, nil
-}
-
-func (f fakeArgoCDStatusProvider) GetApplicationStatus(context.Context, string, string) (argoCDApplicationStatus, error) {
-	return f.status, nil
 }
 
 func (f *fakeInfraK3sArgoClient) EnsureTeamIsolation(_ context.Context, _, _, _ string) (string, error) {
@@ -800,52 +792,23 @@ func TestNewRouterGetDeployStatus(t *testing.T) {
 	}
 }
 
-func TestNewRouterGetDeployStatusUsesArgoCDProvider(t *testing.T) {
-	store, token := newFakeStore()
-	// "rendering" is a stage where ArgoCD is the 推進者, so the live
-	// Application may advance the reported status (issue #54).
-	store.deploys[0].Status = "rendering"
-	prev := newArgoCDStatusProvider
-	newArgoCDStatusProvider = func() argoCDStatusProvider {
-		return fakeArgoCDStatusProvider{status: argoCDApplicationStatus{
-			SyncStatus:   "Synced",
-			HealthStatus: "Progressing",
-		}}
+// TestNewRouterGetDeployStatusReturnsPersistedStatusVerbatim — issue #54.
+// The endpoint is a reader, never a 推進者 (create-app-flow spec § 7.2):
+// whatever deploy_run holds is what it reports, at every stage. It used to
+// overwrite the row with the live ArgoCD Application status, which reported
+// `live` for a run the DB still had as `queued` — the Application described
+// the previous revision. syncing → live is committed by
+// reconciler.ArgoSyncScanner, not by a GET.
+func TestNewRouterGetDeployStatusReturnsPersistedStatusVerbatim(t *testing.T) {
+	stages := []string{
+		"queued", "preparing", "building", "pushing",
+		"rendering", "syncing", "live", "failed", "canceled", "rolled_back",
 	}
-	t.Cleanup(func() { newArgoCDStatusProvider = prev })
-
-	srv := httptest.NewServer(NewRouter(store))
-	t.Cleanup(srv.Close)
-
-	out, err := backendclient.New(srv.URL, token).GetDeployStatus(context.Background(), store.team.Slug, "alpha")
-	if err != nil {
-		t.Fatalf("GetDeployStatus() error = %v", err)
-	}
-	if out.Status != "syncing" {
-		t.Fatalf("Status = %q, want syncing", out.Status)
-	}
-}
-
-// TestNewRouterGetDeployStatusKeepsEarlyStageOverArgoCD — issue #54. A run
-// that the DB still has as `queued` has not produced an image yet, so a
-// Synced/Healthy Application describes the previous revision. The status
-// endpoint must report what is persisted rather than assert a transition
-// no 推進者 performed (create-app-flow spec § 7.1 / § 7.2).
-func TestNewRouterGetDeployStatusKeepsEarlyStageOverArgoCD(t *testing.T) {
-	for _, persisted := range []string{"queued", "preparing", "building", "pushing"} {
+	for _, persisted := range stages {
 		t.Run(persisted, func(t *testing.T) {
 			store, token := newFakeStore()
 			store.deploys[0].Status = persisted
 			store.deploys[0].FinishedAt = nil
-
-			prev := newArgoCDStatusProvider
-			newArgoCDStatusProvider = func() argoCDStatusProvider {
-				return fakeArgoCDStatusProvider{status: argoCDApplicationStatus{
-					SyncStatus:   "Synced",
-					HealthStatus: "Healthy",
-				}}
-			}
-			t.Cleanup(func() { newArgoCDStatusProvider = prev })
 
 			srv := httptest.NewServer(NewRouter(store))
 			t.Cleanup(srv.Close)
@@ -855,43 +818,12 @@ func TestNewRouterGetDeployStatusKeepsEarlyStageOverArgoCD(t *testing.T) {
 				t.Fatalf("GetDeployStatus() error = %v", err)
 			}
 			if out.Status != persisted {
-				t.Fatalf("Status = %q, want %q (persisted value must win)", out.Status, persisted)
+				t.Fatalf("Status = %q, want %q (persisted value must be returned verbatim)", out.Status, persisted)
 			}
 			if out.FinishedAt != nil {
 				t.Fatalf("FinishedAt = %v, want nil", out.FinishedAt)
 			}
 		})
-	}
-}
-
-func TestNewRouterWithInfraGetDeployStatusUsesK3sArgoProvider(t *testing.T) {
-	store, token := newFakeStore()
-	store.deploys[0].Status = "syncing"
-	prev := newArgoCDStatusProvider
-	t.Cleanup(func() { newArgoCDStatusProvider = prev })
-
-	k3sClient := &fakeInfraK3sArgoClient{
-		status: k3ssvc.ApplicationStatus{
-			SyncStatus:   "Synced",
-			HealthStatus: "Healthy",
-		},
-	}
-
-	srv := httptest.NewServer(NewRouterWithInfra(store, k3sClient, nil))
-	t.Cleanup(srv.Close)
-
-	out, err := backendclient.New(srv.URL, token).GetDeployStatus(context.Background(), store.team.Slug, "alpha")
-	if err != nil {
-		t.Fatalf("GetDeployStatus() error = %v", err)
-	}
-	if !k3sClient.called {
-		t.Fatal("expected k3s ArgoCD status provider to be called")
-	}
-	if k3sClient.teamSlug != store.team.Slug || k3sClient.appSlug != "alpha" {
-		t.Fatalf("provider called with team=%q app=%q, want team=%q app=%q", k3sClient.teamSlug, k3sClient.appSlug, store.team.Slug, "alpha")
-	}
-	if out.Status != "live" {
-		t.Fatalf("Status = %q, want live", out.Status)
 	}
 }
 
