@@ -224,6 +224,15 @@
 | PII—audit 內（github_login/email 欄） | customer（PII） | 隨 audit_log 13 個月 | 對齊稽核保留 | 已具備（`audit-log` § 4.1） |
 | PII—user_account（github_login/email） | customer（PII） | 帳號生命週期；刪除流程未釘定 | PDPA 刪除權（§ 6） | 規劃中（帳號/PII 刪除流程 → Open issues） |
 | gitops desired state | internal | 永久（git history 不可變） | GitOps 唯一真相需可回溯 | 已具備（`gitops-render-and-argocd`；ADR-0004） |
+| `usage_allocation_interval` | internal | 13 個月 | 與 audit 對齊，足以回溯帳務爭議；逾期由 rollup loop GC | 已具備（`resource-usage-metering` § 5.3；ADR-0018；migration 00020/00021） |
+| `usage_daily_rollup` | internal | 永存，惟 team / app 刪除時 cascade 一併移除 | 長期用量趨勢；不含自然人識別資訊（僅 team_id / app_id / 數值） | 已具備（同上） |
+| `usage_sample`（觀測輔軌） | internal | 30 天 | 僅供「app 是否開太大」之近期觀測，非帳務底稿 | 已具備（`resource-usage-metering` § 8） |
+
+> 三者皆不含 PII：無 github_login、無 email、無自然人識別欄位。因 `on delete cascade`，
+> 刪除 team 即完整清除其全部用量紀錄，無殘留——PDPA / GDPR 刪除請求可循同一路徑。
+> **注意**：`resource-usage-metering` § 13 列有 v2 open issue「開計費前須改為保留已刪 app 的歷史帳本」；
+> 若屆時改為 `on delete set null` + slug 快照，**必須同步補一條明確的刪除機制**，
+> 否則這條刪除路徑會默默消失。
 
 ## 10. 檔案結構（文件 vs 既有程式機制）
 

@@ -56,14 +56,39 @@ deploy_run(id uuid pk, app_id uuid fk, team_id uuid fk not null,
            image_size_bytes bigint,                      -- pack build output 大小
            started_at timestamptz, finished_at timestamptz, error_summary text)
 
--- 用量採樣（v1 寫入，v2 才暴露 query；計費鋪路）
+-- 觀測輔軌（非計費底稿；計量主軌見 usage_allocation_interval / ADR-0018）
 usage_sample(id bigserial pk, team_id uuid fk not null, app_id uuid fk,
              sampled_at timestamptz default now(),
              cpu_millicores int, memory_bytes bigint,
              active bool,                                -- pod ready & ingress 有流量
              egress_bytes bigint)
 -- 採樣頻率：每 5 min 由 reconciler 從 K8s metrics-server 拉
--- 保留：30 天熱資料 + 物化 daily aggregate 永存（與 deploy_run 一致）
+-- active = pod ready（原註解之「ingress 有流量」v1 無資料來源，不實作）
+-- 保留：30 天熱資料
+-- ADR-0018：本表為觀測用途（判斷 app 開太大 / 逼近 OOM），不得進入計量積分。
+--          計量主軌為下方 allocation ledger，且不依賴 metrics-server 存在。
+
+-- 資源配置帳本（計量主軌；ADR-0018）
+-- 一個 pod 一列，非一次採樣一列。費用基底 = 宣告資源 × 存活秒數，兩個乘數
+-- 皆為定值，故積分為閉式解、精度到秒，與輪詢頻率無關。
+usage_allocation_interval(pod_uid uuid pk, team_id uuid fk not null, app_id uuid fk not null,
+             namespace text, pod_name text,
+             cpu_millicores int, memory_bytes bigint, gpu_count int, gpu_type text,
+             started_at timestamptz not null,       -- pod.status.startTime（K8s 權威）
+             ended_at timestamptz,                  -- NULL = 仍在佔用
+             last_seen_at timestamptz not null,     -- 終止時間不可得時之保守 fallback
+             estimated bool not null default false, -- true = ended_at 為推估，必然少記
+             closed_reason text)                    -- terminated|deleted|reconciled_missing
+-- 保留：13 個月（與 audit 對齊，足以支撐帳務爭議回溯）
+
+-- 日聚合（永存）
+usage_daily_rollup(team_id uuid, app_id uuid, day date,
+             cpu_millicore_seconds bigint, memory_byte_seconds numeric(30,0),
+             gpu_count_seconds bigint, pod_seconds bigint,
+             estimated_seconds bigint,              -- 其中來自推估區間者
+             interval_count int, computed_at timestamptz,
+             primary key (team_id, app_id, day))
+-- 跨日區間於 UTC 日界切割；全量重算 upsert，重跑不改變過去的數字
 
 -- 兩階段寫入 + idempotency
 preview(id uuid pk, team_id uuid fk not null,
@@ -119,7 +144,8 @@ reconciliation_job(id uuid pk, team_id uuid fk not null,
 **保留期**：
 - `audit_log` 保留 13 個月（合規最小值）；之後 partition drop
 - `deploy_run` 保留 90 天熱資料 + 物化 monthly aggregate 永存
-- `usage_sample` 保留 30 天熱資料 + 物化 daily aggregate 永存
+- `usage_sample` 保留 30 天熱資料（觀測輔軌）
+- `usage_allocation_interval` 保留 13 個月；`usage_daily_rollup` 永存（ADR-0018）
 - `webhook_dedup` 24h 滾動清理
 - `preview` 過期 + consumed 後 7 天清
 - `reconciliation_job` completed 後 7 天清；`failed_permanently` 保留 30 天供 root-cause
@@ -144,7 +170,9 @@ reconciliation_job(id uuid pk, team_id uuid fk not null,
 |---|---|---|
 | `audit_log` | internal（取證） | 13 個月；`delete_app` 對應永久移 `audit_log_archive` |
 | `deploy_run` | internal | 90 天熱資料 + monthly aggregate 永存 |
-| `usage_sample` | internal | 30 天熱資料 + daily aggregate 永存 |
+| `usage_sample` | internal | 30 天熱資料（觀測輔軌） |
+| `usage_allocation_interval` | internal | 13 個月 |
+| `usage_daily_rollup` | internal | 永存 |
 | secret（`cli_token` 等） | secret | 不保留明文；TTL `expires_at` / rotation 兩段 |
 | PII—`audit_log` 內（github_login/email 欄） | customer（PII） | 隨 `audit_log` 13 個月 |
 | PII—`user_account`（github_login/email） | customer（PII） | 帳號生命週期；刪除流程未釘定（PDPA 刪除權，compliance spec § 6 / § 14 Open issue） |

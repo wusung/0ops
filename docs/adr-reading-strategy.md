@@ -101,6 +101,7 @@ ADR 為不可違反的架構決策。讀取策略分三層：
 | **0015** | Audit append-only & tamper-evidence | app role 撤 UPDATE/DELETE on audit_log；per-team hash chain；archive 走 audit_ops role | 帳本不可改/刪；hash 對 redact 後內容算；chain 跨 partition 連續 | enterprise 要求防 superuser、寫入吞吐瓶頸、跨 region 複寫 |
 | **0016** | SSO & 外部身分（OIDC-first） | v1 OIDC；team 級 IdP 綁定；JIT provisioning；撤權靠 membership 停用 + token revoke | SSO 不另造權限模型（沿用 0001 RBAC）；不破壞 device flow agent UX；JIT 封頂 admin | design partner 要 SAML、即時 deprovision(SCIM)、service account 需求 |
 | **0017** | 供應鏈簽章 & provenance | CycloneDX SBOM + cosign keyless 簽章 + SLSA(app L2/自身 L3) + K3s admission 驗簽 + gitops digest pin | 部署端強制驗簽；digest pin（非 mutable tag）；誠實分級不宣稱 app L3 | runner 改 ephemeral、資料主權需自架 Sigstore、SOC2 要求 L3 全鏈 |
+| **0018** | Runtime 計量以 allocation 為基準 | 費用基底 = pod 宣告資源 × 存活秒數；時間一律取自 K8s 物件；不確定必 under-bill；metrics-server 降為觀測輔軌 | 精度與輪詢頻率解耦；短命 pod 不可遺漏；誤差方向恆為少收；不綁定可被關閉的元件 | 改為 usage-based pricing、GPU node pool 落地、Prometheus 正式部署、in-place resize 普及 |
 
 ### 產品規劃層
 
