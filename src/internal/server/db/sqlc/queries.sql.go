@@ -54,7 +54,7 @@ type FindCliTokenByIDRow struct {
 	OwnerUserID pgtype.UUID
 	TeamID      pgtype.UUID
 	Kind        string
-	Name        string
+	Name        pgtype.Text
 	TokenHash   string
 	Scopes      []string
 	CreatedAt   pgtype.Timestamptz
@@ -63,8 +63,8 @@ type FindCliTokenByIDRow struct {
 	RevokedAt   pgtype.Timestamptz
 }
 
-func (q *Queries) FindCliTokenByID(ctx context.Context, tokenID string) (FindCliTokenByIDRow, error) {
-	row := q.db.QueryRow(ctx, findCliTokenByID, tokenID)
+func (q *Queries) FindCliTokenByID(ctx context.Context, id pgtype.UUID) (FindCliTokenByIDRow, error) {
+	row := q.db.QueryRow(ctx, findCliTokenByID, id)
 	var i FindCliTokenByIDRow
 	err := row.Scan(
 		&i.ID,
@@ -77,41 +77,6 @@ func (q *Queries) FindCliTokenByID(ctx context.Context, tokenID string) (FindCli
 		&i.CreatedAt,
 		&i.LastUsedAt,
 		&i.ExpiresAt,
-		&i.RevokedAt,
-	)
-	return i, err
-}
-
-const findCliTokenByHash = `-- name: FindCliTokenByHash :one
-SELECT
-  id,
-  owner_user_id,
-  team_id,
-  token_hash,
-  scopes,
-  revoked_at
-FROM cli_token
-WHERE token_hash = $1
-`
-
-type FindCliTokenByHashRow struct {
-	ID          pgtype.UUID
-	OwnerUserID pgtype.UUID
-	TeamID      pgtype.UUID
-	TokenHash   string
-	Scopes      []string
-	RevokedAt   pgtype.Timestamptz
-}
-
-func (q *Queries) FindCliTokenByHash(ctx context.Context, tokenHash string) (FindCliTokenByHashRow, error) {
-	row := q.db.QueryRow(ctx, findCliTokenByHash, tokenHash)
-	var i FindCliTokenByHashRow
-	err := row.Scan(
-		&i.ID,
-		&i.OwnerUserID,
-		&i.TeamID,
-		&i.TokenHash,
-		&i.Scopes,
 		&i.RevokedAt,
 	)
 	return i, err
@@ -230,7 +195,7 @@ type ListAppsByTeamRow struct {
 	RepoDefaultBranch pgtype.Text
 	ImageRef          pgtype.Text
 	Builder           pgtype.Text
-	Status            pgtype.Text
+	Status            string
 	CreatedAt         pgtype.Timestamptz
 	UpdatedAt         pgtype.Timestamptz
 }

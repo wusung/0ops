@@ -250,6 +250,13 @@ surface 隔壁 handler 同 bug 再補 fix 一次 — 都是延遲修正導致 pl
      DEFAULT 合法），否則 seed/既有 handler 的 INSERT 全 23502 NOT NULL violation。
   3. NO TRANSACTION migration 的 `ADD CONSTRAINT` 無 `IF NOT EXISTS`，re-run 會 42710；用
      `DO $$ IF NOT EXISTS(pg_constraint) ... $$` + `-- +goose StatementBegin/End` 包起來才真 idempotent。
+- **已解除（issue #168）**：`sqlc.yaml` 的 `schema:` 改為指向 `migrations` 整個目錄，sqlc 會依序吃完
+  所有 migration（含 goose 標註），regen 恢復可用；規則 1 的「改手寫 wrapper」已不再是預設解。
+  regen 時同時曝出兩處既有漂移，一併修正：queries.sql 的 `FindCliTokenByID` 被改成
+  `WHERE token_hash = $1` 但從未 regen（生成碼仍是 `WHERE id = $1`，而 middleware 傳的是 token id
+  ——以 queries.sql 為準 regen 會直接打爛 bearer auth），以及 `cli_token.name` 實為 nullable 卻被
+  生成為 `string`。**規則**：新增 migration 後跑一次 `./manage.sh sqlc` 並檢查 diff；
+  `queries.sql` 與 `db/sqlc/` 之間任何未 regen 的手改都是靜默的行為漂移。
 
 ## L017｜OIDC 自實作要守 email_verified 與 logout-token 專屬驗證（M9.5 code review）
 

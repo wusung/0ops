@@ -63,7 +63,7 @@ SELECT
   expires_at,
   revoked_at
 FROM cli_token
-WHERE token_hash = $1;
+WHERE id = $1;
 
 -- name: IsToolGranted :one
 SELECT allowed
