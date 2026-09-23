@@ -362,14 +362,33 @@ backend 以 `system-0ops` 內的 in-cluster ServiceAccount 連線（無 `KUBECON
 | 物件 | 範圍 | 授予 | 為何是該範圍 |
 |---|---|---|---|
 | `Role  <sa>-lease` | `system-0ops` | `coordination.k8s.io/leases`：get/watch/update/patch（`resourceNames` 限單一 Lease）+ create/list | leader election（§ 14 硬規則 #2） |
-| `ClusterRole <sa>-provisioner` | cluster | `namespaces` get/create/update/delete；`resourcequotas`/`limitranges`/`secrets` get/create/update；`networking.k8s.io/networkpolicies` get/create/update；`argoproj.io/applications` get | § 9.1 的 saga 寫入。team namespace 為執行期動態建立，無法事先逐一綁 RoleBinding；`namespaces` 本身即 cluster-scoped |
+| `ClusterRole <sa>-provisioner` | cluster | `namespaces` get/create/update/delete；`resourcequotas`/`limitranges` get/update（`resourceNames: default`）、`secrets` get/update（`ghcr-pull`）、`networkpolicies` get/update（`default-deny-ingress`/`default-egress`）；上述四者另有不受 resourceNames 限制的 create；`argoproj.io/applications` get | § 9.1 的 saga 寫入。team namespace 為執行期動態建立，無法事先逐一綁 RoleBinding；`namespaces` 本身即 cluster-scoped |
 | `ClusterRole <sa>-usage-reader` | cluster | `pods` list/watch；`metrics.k8s.io/pods` get/list（`usage.enabled` 才渲染） | allocation ledger 跨 namespace 觀測；恆為唯讀 |
 
 verbs 對齊 `client.go` 實際呼叫（`upsertResource` 走 get → create/update；
-`PatchNamespacePSA` 走 get + update）。provisioner **不得**取得 list/watch：能跨
-namespace 列舉 secret 即等於能讀所有 team 的 registry 憑證，與「在單一 namespace
-建立一份 secret」是不同量級的爆炸半徑。兩者皆由 `src/internal/helmchart/chart_test.go`
-釘住。若部署改以其他身分（kubeconfig）執行 namespace provisioning，必須回來改這張表，
+`PatchNamespacePSA` 走 get + update）。
+
+**收斂方式**：provisioner 綁的是 ClusterRoleBinding，namespaced 資源的權限因此擴及
+所有 namespace。單純不給 list/watch 並不足夠——`client.go` 寫入的物件名稱全部固定
+（`ghcr-pull`、`default`、`default-deny-ingress`、`default-egress`），team slug 又可
+自 0ops 自身 DB 取得，因此名稱可預測、`get` 就足以讀到他團資源。故凡固定名稱者，
+get/update 一律以 `resourceNames` 釘住。`create` 無法以 resourceNames 收斂（K8s RBAC
+限制），單獨成 rule；它對既有物件會 AlreadyExists，爆炸半徑遠小於 get/update。
+list/watch 與 wildcard 一律不給。以上由 `src/internal/helmchart/chart_test.go`
+（`TestProvisionerClusterRoleGrantsNoBroadReads`、`TestProvisionerFixedNameObjectsArePinned`）
+以結構化解析釘住，非字串比對。
+
+**殘留爆炸半徑（誠實記錄，勿在別處改寫成「已最小化」）**：`namespaces` 的名稱為執行期
+產生的 `team-<slug>`，無法以 resourceNames 列舉，故 get/create/update/delete 維持全叢集
+範圍。其後果是實質的：PSA 純由 namespace label 驅動，能 update 任一 namespace 即能把
+`pod-security.kubernetes.io/enforce` 降級或移除，再經既有 GitOps manifest 路徑投放
+特權 pod；能 delete 則可摧毀 `kube-system` / `argocd`。**backend pod 被攻陷 ≈ 取得
+cluster-admin 等價能力**，此為目前架構接受的風險，不是已緩解的風險。租戶 API 無法直接
+觸發——所有 `DeleteNamespace` / `PatchNamespacePSA` call site 傳入的都是後端自算的
+`team-<slug>`，無使用者輸入路徑。若要真正消除，需改走「backend 只建 namespace，其餘
+物件由 namespace 內自建的 Role/RoleBinding 授權」或交由 GitOps 代為 apply，屬 v1.1 議題。
+
+若部署改以其他身分（kubeconfig）執行 namespace provisioning，必須回來改這張表，
 不可讓 chart 與實際部署對「backend 被允許做什麼」各說各話。
 
 ## 10. 與其他 spec 接合點

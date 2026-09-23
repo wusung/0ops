@@ -9,11 +9,20 @@ create_app 就會在 EnsureTeamIsolation 失敗。
 必須是 ClusterRole 而非 Role：team namespace 是執行期動態建立的，無法
 事先為每個 namespace 綁 RoleBinding；namespaces 本身也是 cluster-scoped。
 
+因為是 ClusterRoleBinding，namespaced 資源的權限會擴及**所有** namespace，
+所以凡是 client.go 寫入的物件名稱固定者，get/update 一律以 resourceNames
+收斂——僅「不給 list/watch」不足以防止讀取他人資源：名稱可預測時 get 就夠了
+（team slug 可自 0ops 自身 DB 取得）。resourceNames 對 create 無效（K8s RBAC
+限制），故 create 單獨成 rule；create 對既有物件會 AlreadyExists，爆炸半徑
+遠小於 get/update。此拆法與 templates/role.yaml 對 Lease 的處理一致。
+
 verbs 對齊 client.go 實際呼叫，不多給：
   - upsertResource 走 get → create（NotFound）或 update，故 get/create/update
   - PatchNamespacePSA 走 get + update（非 patch）
   - DeleteNamespace 走 delete，是 saga 回滾與團隊封存的必要動作
   - list/watch 一律不給：本路徑從不列舉他人資源
+namespaces 的名稱為執行期產生的 team-<slug>，無法以 resourceNames 列舉，
+故維持未收斂——其殘留爆炸半徑記於 spec § 9.4，不在此重述。
 argocd applications 只給 get：getDeployStatusHandler 讀 sync/health，
 從不建立或修改 Application（GitOps 由 ArgoCD 自身負責）。
 */ -}}
@@ -32,18 +41,34 @@ rules:
       - create
       - update
       - delete
+  # 名稱固定的物件：get/update 鎖到 client.go 實際使用的那幾個名字。
   - apiGroups: [""]
-    resources: ["resourcequotas", "limitranges", "secrets"]
+    resources: ["resourcequotas", "limitranges"]
+    resourceNames: ["default"]
     verbs:
       - get
-      - create
+      - update
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["ghcr-pull"]
+    verbs:
+      - get
       - update
   - apiGroups: ["networking.k8s.io"]
     resources: ["networkpolicies"]
+    resourceNames: ["default-deny-ingress", "default-egress"]
     verbs:
       - get
-      - create
       - update
+  # create 無法以 resourceNames 收斂（K8s RBAC 限制）。
+  - apiGroups: [""]
+    resources: ["resourcequotas", "limitranges", "secrets"]
+    verbs:
+      - create
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs:
+      - create
   - apiGroups: ["argoproj.io"]
     resources: ["applications"]
     verbs:

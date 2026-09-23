@@ -3,8 +3,11 @@ package helmchart
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // chartDir points at the Helm chart under the repo root. The Go module
@@ -113,11 +116,19 @@ var requiredSubstrings = map[string][]string{
 	"templates/clusterrole-provisioner.yaml": {
 		"kind: ClusterRole",
 		"resources: [\"namespaces\"]",
-		"resources: [\"resourcequotas\", \"limitranges\", \"secrets\"]",
+		"resources: [\"resourcequotas\", \"limitranges\"]",
+		"resources: [\"secrets\"]",
 		"resources: [\"networkpolicies\"]",
 		"- create",
 		"- update",
 		"- delete",
+		// A ClusterRoleBinding spreads namespaced grants across every
+		// namespace, so get/update on fixed-name objects must be pinned
+		// by resourceNames — withholding list/watch is not enough when
+		// the names are predictable.
+		"resourceNames: [\"ghcr-pull\"]",
+		"resourceNames: [\"default\"]",
+		"resourceNames: [\"default-deny-ingress\", \"default-egress\"]",
 	},
 	"templates/clusterrolebinding-provisioner.yaml": {
 		"kind: ClusterRoleBinding",
@@ -311,25 +322,96 @@ func TestValuesDefaultsMatchSpec(t *testing.T) {
 	}
 }
 
-// TestProvisionerClusterRoleGrantsNoBroadReads — the provisioner grant is a
-// write grant scoped to what EnsureTeamIsolation actually calls. It must
-// never pick up list/watch: a SA that can list secrets cluster-wide reads
-// every team's registry credentials, a different blast radius from
-// creating one secret in one namespace.
-func TestProvisionerClusterRoleGrantsNoBroadReads(t *testing.T) {
+// provisionerRules parses the rules block of the provisioner ClusterRole.
+// Everything above `rules:` is Helm-templated; the rules themselves are
+// plain YAML, so they can be read structurally rather than by substring.
+func provisionerRules(t *testing.T) []struct {
+	APIGroups     []string `yaml:"apiGroups"`
+	Resources     []string `yaml:"resources"`
+	ResourceNames []string `yaml:"resourceNames"`
+	Verbs         []string `yaml:"verbs"`
+} {
+	t.Helper()
 	data, err := os.ReadFile(filepath.Join(chartDir, "templates", "clusterrole-provisioner.yaml"))
 	if err != nil {
 		t.Fatalf("read clusterrole-provisioner.yaml: %v", err)
 	}
-	body := string(data)
-	idx := strings.Index(body, "rules:")
+	idx := strings.Index(string(data), "rules:")
 	if idx < 0 {
 		t.Fatalf("clusterrole-provisioner.yaml has no rules block")
 	}
-	rules := body[idx:]
-	for _, forbidden := range []string{"- list", "- watch", "- deletecollection", `"*"`} {
-		if strings.Contains(rules, forbidden) {
-			t.Errorf("provisioner ClusterRole must not grant %q", forbidden)
+	var parsed struct {
+		Rules []struct {
+			APIGroups     []string `yaml:"apiGroups"`
+			Resources     []string `yaml:"resources"`
+			ResourceNames []string `yaml:"resourceNames"`
+			Verbs         []string `yaml:"verbs"`
+		} `yaml:"rules"`
+	}
+	if err := yaml.Unmarshal(data[idx:], &parsed); err != nil {
+		t.Fatalf("parse rules block: %v", err)
+	}
+	if len(parsed.Rules) == 0 {
+		t.Fatal("provisioner ClusterRole has no rules")
+	}
+	return parsed.Rules
+}
+
+// TestProvisionerClusterRoleGrantsNoBroadReads — the provisioner grant is a
+// write grant scoped to what EnsureTeamIsolation actually calls. It must
+// never pick up list/watch or a wildcard.
+func TestProvisionerClusterRoleGrantsNoBroadReads(t *testing.T) {
+	for _, rule := range provisionerRules(t) {
+		for _, verb := range rule.Verbs {
+			switch verb {
+			case "list", "watch", "deletecollection", "*":
+				t.Errorf("provisioner ClusterRole must not grant %q on %v", verb, rule.Resources)
+			}
+		}
+		for _, res := range rule.Resources {
+			if res == "*" {
+				t.Errorf("provisioner ClusterRole must not use a wildcard resource")
+			}
+		}
+	}
+}
+
+// TestProvisionerFixedNameObjectsArePinned — the binding is a
+// ClusterRoleBinding, so a namespaced grant reaches every namespace.
+// Withholding list/watch does not protect objects whose names are
+// predictable: `get` on team-<slug>/ghcr-pull is enough to read every
+// tenant's registry credentials. Every object client.go addresses by a
+// fixed name must therefore be pinned with resourceNames on get/update.
+// `create` is exempt: K8s RBAC cannot scope it by name, and it fails with
+// AlreadyExists against an existing object.
+func TestProvisionerFixedNameObjectsArePinned(t *testing.T) {
+	pinned := map[string][]string{
+		"secrets":         {"ghcr-pull"},
+		"resourcequotas":  {"default"},
+		"limitranges":     {"default"},
+		"networkpolicies": {"default-deny-ingress", "default-egress"},
+	}
+
+	for _, rule := range provisionerRules(t) {
+		for _, verb := range rule.Verbs {
+			if verb == "create" {
+				continue
+			}
+			for _, res := range rule.Resources {
+				want, ok := pinned[res]
+				if !ok {
+					continue
+				}
+				if len(rule.ResourceNames) == 0 {
+					t.Errorf("%q %s must be pinned with resourceNames", res, verb)
+					continue
+				}
+				for _, got := range rule.ResourceNames {
+					if !slices.Contains(want, got) {
+						t.Errorf("%q %s pinned to unexpected name %q", res, verb, got)
+					}
+				}
+			}
 		}
 	}
 }
