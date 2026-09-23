@@ -38,6 +38,9 @@ var requiredSubstrings = map[string][]string{
 		// audit_log 分割輪替 CronJob 的開關與視窗長度
 		"auditRollover:",
 		"lookaheadMonths:",
+		// Metering on by default, but switchable (drops the ClusterRole)
+		"usage:",
+		"enabled: true",
 	},
 	"templates/deployment.yaml": {
 		"kind: Deployment",
@@ -87,6 +90,27 @@ var requiredSubstrings = map[string][]string{
 		"kind: RoleBinding",
 		"kind: ServiceAccount",
 		"kind: Role",
+	},
+	// resource-usage-metering spec § 10 — allocation ledger needs to
+	// observe managed pods across the dynamically created team
+	// namespaces, so the grant has to be cluster-scoped. It must stay
+	// read-only: the ledger never creates or mutates a pod.
+	"templates/clusterrole.yaml": {
+		"kind: ClusterRole",
+		// The widest grant this backend holds must be opt-out.
+		"if .Values.usage.enabled",
+		"resources: [\"pods\"]",
+		"- list",
+		"- watch",
+		// Observed-usage track (spec § 8). Read-only, and the ledger
+		// stays correct without it.
+		"metrics.k8s.io",
+	},
+	"templates/clusterrolebinding.yaml": {
+		"kind: ClusterRoleBinding",
+		"if .Values.usage.enabled",
+		"kind: ServiceAccount",
+		"kind: ClusterRole",
 	},
 	// production-deployment spec § 6（PR #107 曾落在 module 外的死測試檔，
 	// 本檔為唯一活測試 — manage.sh test 只跑 src/ module）
@@ -162,6 +186,36 @@ func TestImageDefaultsPointAtPublishedRegistry(t *testing.T) {
 	}
 	if strings.Contains(content, "ghcr.io/winshare/") {
 		t.Errorf("values.yaml still references unpublished ghcr.io/winshare/ namespace")
+	}
+}
+
+// TestUsageReaderClusterRoleIsReadOnly — resource-usage-metering spec
+// § 14 rule #2 relies on the ledger only ever reading pod objects. A
+// cluster-scoped grant is the widest permission this backend holds, so
+// any write verb sneaking in must break the build rather than a review.
+func TestUsageReaderClusterRoleIsReadOnly(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(chartDir, "templates", "clusterrole.yaml"))
+	if err != nil {
+		t.Fatalf("read clusterrole.yaml: %v", err)
+	}
+	content := string(data)
+	for _, forbidden := range []string{
+		"- create",
+		"- update",
+		"- patch",
+		"- delete",
+		"- deletecollection",
+		`"*"`,
+	} {
+		if strings.Contains(content, forbidden) {
+			t.Errorf("usage-reader ClusterRole must stay read-only; found %q", forbidden)
+		}
+	}
+	// The grant must not widen beyond pods, in either API group.
+	for _, resource := range []string{"secrets", "nodes", "configmaps", "namespaces"} {
+		if strings.Contains(content, `"`+resource+`"`) {
+			t.Errorf("usage-reader ClusterRole must stay scoped to pods; found %q", resource)
+		}
 	}
 }
 

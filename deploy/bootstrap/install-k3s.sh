@@ -25,4 +25,15 @@ for i in \$(seq 1 30); do
   sleep 1
 done
 kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml wait --for=condition=Ready node --all --timeout=120s
+
+# metrics-server ships with K3s unless --disable=metrics-server was passed.
+# It backs the observed-usage track only (what apps actually consume);
+# the allocation ledger that metering runs on reads pod objects and is
+# unaffected either way. So this reports rather than fails.
+if kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get deployment metrics-server -n kube-system >/dev/null 2>&1; then
+  echo "metrics-server present — observed-usage track available."
+else
+  echo "WARN: metrics-server absent. Metering is unaffected (it reads pod objects)," >&2
+  echo "      but '0ops usage --observed' will report no measurements." >&2
+fi
 EOF

@@ -54,6 +54,14 @@ service:
 serviceAccount:
   name: ops-server
 
+# Resource usage metering (ADR-0018 / docs/features/resource-usage-metering).
+# The ledger reads pod objects across team namespaces, which needs a
+# cluster-scoped grant — the widest permission this backend holds. A
+# deployment that does not meter should not carry it, so the ClusterRole
+# and its binding are rendered only when this is true.
+usage:
+  enabled: true
+
 probes:
   readiness:
     path: /health
