@@ -83,6 +83,12 @@ cmd_e2e_sso()           { bash tasks/e2e-sso.sh "$@"; }
 # script header for why this feature's e2e is not a compose-stack run).
 cmd_e2e_usage_metering() { bash tasks/e2e-usage-metering.sh "$@"; }
 
+# issue #54: deploys status must report deploy_run.status truthfully and
+# never assert "live" while the DB still has an early stage. Drives a real
+# local file:// build (see script header for why dev's fake-healthy ArgoCD
+# path is exactly the #54 reproduction condition, no mock cluster needed).
+cmd_e2e_deploy_status_truth() { bash tasks/e2e-deploy-status-truth.sh "$@"; }
+
 # Schema / retention / rollup-integrity checks that the composition e2e
 # cannot reach (migration reversibility, check constraints, FK cascades,
 # GC predicates, an independent SQL oracle over the real integrator).
@@ -219,6 +225,8 @@ end-to-end acceptance (compose 必須先 healthy):
   e2e-usage-metering           資源配置帳本 → 日聚合 → HTTP 契約 (需 DATABASE_URL)
   verify-usage-metering        帳本 schema / 保留期 / rollup 完整性 (--phase=migration|schema|isolation|gc|rollup)
                                (M9.5；E2E_SSO_DOWN=1 收尾拆棧)
+  e2e-deploy-status-truth      issue #54：deploys status 只回報持久化值，早期階段絕不誤報
+                               live (驅動真 local file:// build；--phase=preflight|drive|poll)
 
 production bootstrap (spec docs/features/production-deployment/spec.md):
   prod-up                      一鍵裝 K3s + ArgoCD + sealed-secrets + 套用 root app + smoke
@@ -313,6 +321,7 @@ main() {
     e2e-sso)              cmd_e2e_sso "$@" ;;
     e2e-usage-metering)   cmd_e2e_usage_metering "$@" ;;
     verify-usage-metering) cmd_verify_usage_metering "$@" ;;
+    e2e-deploy-status-truth) cmd_e2e_deploy_status_truth "$@" ;;
 
     prod-up)              cmd_prod_up "$@" ;;
     prod-down)            cmd_prod_down "$@" ;;
