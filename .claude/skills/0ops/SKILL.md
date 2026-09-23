@@ -1,6 +1,6 @@
 ---
 name: 0ops
-description: 用 0ops CLI 把 repo 部署成線上 app、查部署狀態與 log、管理 app / 網域 / 團隊成員 / GitHub App / incident / audit log。當使用者要求「把這個 repo 部署上去」「deploy 到 0ops」「查部署狀態」「看部署 log」「重新部署」「列出我的 app」「刪掉某個 app」「邀請成員到 team」「裝 GitHub App」「查 incident」「查稽核紀錄」，或對應英文請求（deploy this repo, ship it, check deploy status, tail deploy logs, redeploy, list apps, delete app, invite member, install github app）時務必啟用；即使只說「幫我上線」也應觸發。不適用：0ops 後端本身的開發（改 backend/CLI 程式碼）→ 依 AGENTS.md。
+description: 用 0ops CLI 把 repo 部署成線上 app、查部署狀態與 log、管理 app / 網域 / 團隊成員 / GitHub App / incident / audit log / 資源用量。當使用者要求「把這個 repo 部署上去」「deploy 到 0ops」「查部署狀態」「看部署 log」「重新部署」「列出我的 app」「刪掉某個 app」「邀請成員到 team」「裝 GitHub App」「查 incident」「查稽核紀錄」「查資源用量」，或對應英文請求（deploy this repo, ship it, check deploy status, tail deploy logs, redeploy, list apps, delete app, invite member, install github app, check resource usage）時務必啟用；即使只說「幫我上線」也應觸發。不適用：0ops 後端本身的開發（改 backend/CLI 程式碼）→ 依 AGENTS.md。
 ---
 
 # 0ops CLI
@@ -34,7 +34,11 @@ description: 用 0ops CLI 把 repo 部署成線上 app、查部署狀態與 log�
 0ops audit export --since 24h --format json # 匯出含完整性 manifest
 0ops members list --output json
 0ops teams github status
+0ops usage --output json                    # 團隊各 app 的資源配置；--app <slug> 限單一 app
 ```
+
+`0ops usage` 預設涵蓋近 30 天：`--from` / `--to` 改區間，`--interval` 列出每個 pod 的配置區間，
+`--observed` 另附實測用量（僅在有收集 metrics 之處）。
 
 查部署失敗原因的標準順序：`deploys status` → `deploys logs` → 必要時 `repo inspect`、`incidents list`。
 
