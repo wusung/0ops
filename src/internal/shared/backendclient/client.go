@@ -784,6 +784,56 @@ func (c *Client) CloseIncident(ctx context.Context, teamSlug, id string, req dto
 	return out, nil
 }
 
+// UsageParams selects the window and detail level for a usage read.
+type UsageParams struct {
+	From     string // YYYY-MM-DD, UTC
+	To       string // YYYY-MM-DD, UTC
+	Interval bool   // include raw per-pod allocation intervals
+	Observed bool   // also report measured consumption, where available
+}
+
+// GetTeamUsage reads allocation usage for every app in a team.
+//
+//nolint:revive // exported for public API
+func (c *Client) GetTeamUsage(ctx context.Context, teamSlug string, params UsageParams) (dto.UsageResponse, error) {
+	return c.getUsage(ctx, c.BaseURL+"/v1/teams/"+url.PathEscape(teamSlug)+"/usage", params)
+}
+
+// GetAppUsage reads allocation usage for one app.
+//
+//nolint:revive // exported for public API
+func (c *Client) GetAppUsage(ctx context.Context, teamSlug, appSlug string, params UsageParams) (dto.UsageResponse, error) {
+	return c.getUsage(ctx,
+		c.BaseURL+"/v1/teams/"+url.PathEscape(teamSlug)+"/apps/"+url.PathEscape(appSlug)+"/usage", params)
+}
+
+func (c *Client) getUsage(ctx context.Context, raw string, params UsageParams) (dto.UsageResponse, error) {
+	endpoint, err := url.Parse(raw)
+	if err != nil {
+		return dto.UsageResponse{}, err
+	}
+	q := endpoint.Query()
+	if params.From != "" {
+		q.Set("from", params.From)
+	}
+	if params.To != "" {
+		q.Set("to", params.To)
+	}
+	if params.Interval {
+		q.Set("detail", "interval")
+	}
+	if params.Observed {
+		q.Set("include", "observed")
+	}
+	endpoint.RawQuery = q.Encode()
+
+	var out dto.UsageResponse
+	if err := c.doJSON(ctx, http.MethodGet, endpoint.String(), nil, &out); err != nil {
+		return dto.UsageResponse{}, err
+	}
+	return out, nil
+}
+
 func (c *Client) httpClient() *http.Client {
 	if c.HTTP != nil {
 		return c.HTTP

@@ -42,6 +42,7 @@ import (
 	gitopssvc "github.com/wusung/0ops/internal/server/services/gitops"
 	k3ssvc "github.com/wusung/0ops/internal/server/services/k3s"
 	"github.com/wusung/0ops/internal/server/services/localbuild"
+	usagesvc "github.com/wusung/0ops/internal/server/services/usage"
 	workflowdispatch "github.com/wusung/0ops/internal/server/services/workflowdispatch"
 	"github.com/wusung/0ops/internal/shared/dto"
 	"github.com/wusung/0ops/internal/shared/rbac"
@@ -1715,6 +1716,19 @@ func newRouterFull(store routerStore, githubClient githubOAuthClient, k3sClient 
 		sr.With(func(next http.Handler) http.Handler {
 			return mw.CheckTokenScope(rbac.ActionListMembers, next)
 		}).Get("/github/install-status", githubInstallStatusHandler(githubSvc))
+		// Usage is read-only and has no side effects, so it needs no
+		// preview/confirm gate. Gated on apps:read rather than a new
+		// scope: seeing what your own apps were allocated is the same
+		// privilege as seeing the apps.
+		if qs, ok := store.(usagesvc.QueryStore); ok {
+			usageSvc := usagesvc.NewQueryService(qs, nil)
+			sr.With(func(next http.Handler) http.Handler {
+				return mw.CheckTokenScope(rbac.ActionListApps, next)
+			}).Get("/usage", listTeamUsageHandler(usageSvc))
+			sr.With(func(next http.Handler) http.Handler {
+				return mw.CheckTokenScope(rbac.ActionListApps, next)
+			}).Get("/apps/{app_slug}/usage", getAppUsageHandler(store, usageSvc))
+		}
 		if auditSvc != nil {
 			sr.With(func(next http.Handler) http.Handler {
 				return mw.CheckTokenScope(rbac.ActionListSelfAudit, next)

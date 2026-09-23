@@ -218,6 +218,41 @@ v1 範圍（M0-M6）全部 ship。M7 (Web UI) 為 post-v1，不阻擋 v1 上線�
 - [ ] 網域 `0ops.sh` 綁定（CF DNS，與產品同帳號）
 - [ ] 依賴 MKT.3 完成；屬對外動作，gated
 
+### RUM — resource-usage-metering（記錄使用者 app 的 cpu / gpu / ram 用量）
+
+> 來源：使用者需求「記錄用戶開的 cpu/gpu/ram 的使用量」；[ADR-0018](../docs/adrs/0018-runtime-metering-basis.md)；
+> `docs/features/resource-usage-metering/spec.md` / `plan.md`。**PR #172 已 merge**（c4e6df9）。
+
+- [x] **F0 ADR-0018**：計量基準定為 allocation 而非 utilization；時間取自 K8s 物件；不確定必 under-bill
+- [x] **F1 ClusterRole**：backend SA 增 cluster-scoped pod `list`/`watch`（唯讀；`usage.enabled` 可關）
+- [x] **F2 schema**：migration `00020`（帳本 + 日聚合）、`00021`（`closed_at`，支撐過時 rollup 重算）
+- [x] **F3 reconcile**：`usage_reconcile` loop（5 min，leader-only）；ledger 決策為純函式
+- [x] **F4 watch**：pod informer 取權威終止時間；tombstone 交回 reconcile 走保守路徑
+- [x] **F5 rollup**：`usage_rollup` loop（1 h）；閉式積分、UTC 日界切割、全量重算 upsert
+- [x] **F6 read API**：`GET /v1/teams/{slug}/usage`、`/apps/{slug}/usage`（viewer + apps:read）
+- [x] **F7 CLI**：`0ops usage`（`--app` / `--from` / `--to` / `--interval` / `--observed`）
+- [x] **F8 e2e**：`./manage.sh e2e-usage-metering`（5 條）＋ `verify-usage-metering`（36 項）
+- [x] **F9 觀測輔軌**：`usage_sample` loop 寫入實際消耗；獨立 `observed` 區塊、opt-in
+- [x] **四路對抗審查**：正確性 / 規格偏離 / security / e2e —— 10 項缺陷（2 blocker）全數修正並補迴歸；
+  詳 `docs/features/resource-usage-metering/plan.md` § 6
+
+**驗證**：`go test ./...` 於乾淨 DB 全綠（42 套件）；`verify-usage-metering` 36/36；CI 三項全綠後 merge。
+
+**已知缺口（皆已開 issue，非本次引入）**：
+
+| Issue | 內容 | 為何重要 |
+|---|---|---|
+| [#163](https://github.com/wusung/0ops/issues/163) | chart 從未授予 `EnsureNamespace` 所需的 namespace 寫權 | production 建 namespace 路徑應會失敗 |
+| [#164](https://github.com/wusung/0ops/issues/164) | 帳本與 `audit_log` 同樣可被 app DB role 竄改 | **開計費前必須解決**——屆時帳本即金流依據 |
+| [#168](https://github.com/wusung/0ops/issues/168) | `sqlc.yaml` schema 清單漂移（承 L016） | 「跑 sqlc generate」是下一個人的陷阱 |
+| [#169](https://github.com/wusung/0ops/issues/169) | `TestResolveHostUsesDotEnvPort` 偶發失敗 | 無法穩定重現，疑 `t.Chdir` 競爭 |
+
+**deferred（已開 issue）**：[#165](https://github.com/wusung/0ops/issues/165) MCP `get_usage`（無 MCP server 可掛載）、
+[#166](https://github.com/wusung/0ops/issues/166) watch 降級 alert rule、
+[#167](https://github.com/wusung/0ops/issues/167) pending-day 查詢效能、
+[#170](https://github.com/wusung/0ops/issues/170) 開計費前待決問題、
+[#171](https://github.com/wusung/0ops/issues/171) interval 明細權限層級。
+
 ## Governance Guide
 
 > 本區不是進度追蹤，不用 checkbox。

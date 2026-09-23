@@ -173,6 +173,7 @@ spec:
 | re-render 與 ArgoCD sync | `gitops-render-and-argocd` spec |
 | `quota_exceeded` 失敗分類 | `reconciler-and-incident` spec |
 | spec 變更之 audit | `audit-log` spec（記 before/after spec） |
+| 實際資源**用量**（相對於本 spec 的宣告值） | `resource-usage-metering` spec；ADR-0018。該 feature 之分配值恆自 `pod.spec.containers[].resources` 讀取（LimitRange 預設值於 admission 階段即寫入 pod spec），故本 spec 落地後計量端**無須任何改動**，會自動反映新的 request 值 |
 
 ## 9. 驗證準則
 

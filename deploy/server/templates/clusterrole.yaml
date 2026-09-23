@@ -1,0 +1,31 @@
+{{- /*
+resource-usage-metering spec § 10：allocation ledger 以 pod 物件為唯一
+事實來源。backend 需要跨 namespace 觀察 managed pod 的生命週期
+（list 供 relist 對帳，watch 供精確終止時間），故此權限必須是
+ClusterRole——team namespace 是動態建立的，無法事先逐一 RoleBinding。
+
+刻意只給 list + watch：本 feature 從不建立、修改或刪除 pod。
+metrics.k8s.io 為觀測輔軌（spec § 8）所需：回報 app 實際消耗，供判斷是否
+開太大或逼近 limit。該 API 不影響計量——metrics-server 不存在時帳本照常
+正確，只是少了這層觀測。
+*/ -}}
+{{- if .Values.usage.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s-usage-reader" .Values.serviceAccount.name | quote }}
+  labels:
+    app: ops-server
+    app.0ops.io/managed-by: 0ops
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs:
+      - list
+      - watch
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods"]
+    verbs:
+      - get
+      - list
+{{- end }}

@@ -347,5 +347,5 @@ ADR-0002 已釘住「callback 為主、polling 為輔」與「副作用 reversib
 4. **Ephemeral token JWT-like 規格**：用標準 JWT（HS256）還是自訂 payload？對 audit log 反序列化的影響。
 5. **`OPS_CALLBACK_SECRET` 與 `OPS_TOKEN_SIGNING_SECRET` 是否同源**：同源簡單但 blast radius 重疊；獨立則 rotation 各自管。本 ADR 暫定獨立。
 6. **GHCR 標籤策略**：`<commit_sha>` 為主 tag，是否同時 tag `:branch-{branch_name}` / `:latest`？影響回滾語意。
-7. **Build minutes / image size 採樣精度**：plan 已落地 `usage_sample` 表，但 build_minutes / image_size_bytes 落入 `deploy_run` 還是 `usage_sample`？v1 計費未啟動，但寫入路徑需先固化。
+7. ~~**Build minutes / image size 採樣精度**~~：**已結案**（2026-09-22，ADR-0018）。build 用量留在 `deploy_run`（即時、對應單次 deploy）；runtime 用量另立 `usage_allocation_interval` 帳本，兩軌不合併。`usage_sample` 由原本規劃的「計費資料源」降為觀測輔軌，不進入任何計量積分。詳 `docs/features/resource-usage-metering/spec.md` § 2.2。
 8. **Trivy ignore-unfixed 默認值**：v1 設 `true`（忽略無 patch CVE）；v1.1 強制時是否改 `false`？影響 block rate。

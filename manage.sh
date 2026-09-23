@@ -79,6 +79,15 @@ cmd_e2e_source_upload() { bash tasks/e2e-source-upload.sh; }
 # 對齊 docs/features/sso-saml/release/2026-06-30-oidc-login-and-e2e.md § 5；E2E_SSO_DOWN=1 收尾拆棧。
 cmd_e2e_sso()           { bash tasks/e2e-sso.sh "$@"; }
 
+# resource-usage-metering: allocation ledger e2e (composition test; see the
+# script header for why this feature's e2e is not a compose-stack run).
+cmd_e2e_usage_metering() { bash tasks/e2e-usage-metering.sh "$@"; }
+
+# Schema / retention / rollup-integrity checks that the composition e2e
+# cannot reach (migration reversibility, check constraints, FK cascades,
+# GC predicates, an independent SQL oracle over the real integrator).
+cmd_verify_usage_metering() { bash tasks/verify-usage-metering.sh "$@"; }
+
 # --- production bootstrap ---
 # docs/features/production-deployment/spec.md — 一鍵 production 部署 / 卸載 / smoke。
 cmd_prod_up()     { bash deploy/bootstrap/up.sh "$@"; }
@@ -207,6 +216,8 @@ end-to-end acceptance (compose 必須先 healthy):
   e2e-source-upload            upload-source ingestion → preview → confirm → JWT archive fetch
                                (ADR-0013；dev mode 不觸發實際 GHA workflow)
   e2e-sso                      SSO/OIDC 登入 dance + 集中撤權端到端 (mock IdP overlay)
+  e2e-usage-metering           資源配置帳本 → 日聚合 → HTTP 契約 (需 DATABASE_URL)
+  verify-usage-metering        帳本 schema / 保留期 / rollup 完整性 (--phase=migration|schema|isolation|gc|rollup)
                                (M9.5；E2E_SSO_DOWN=1 收尾拆棧)
 
 production bootstrap (spec docs/features/production-deployment/spec.md):
@@ -300,6 +311,8 @@ main() {
     e2e-local-build)      cmd_e2e_local_build "$@" ;;
     e2e-source-upload)    cmd_e2e_source_upload "$@" ;;
     e2e-sso)              cmd_e2e_sso "$@" ;;
+    e2e-usage-metering)   cmd_e2e_usage_metering "$@" ;;
+    verify-usage-metering) cmd_verify_usage_metering "$@" ;;
 
     prod-up)              cmd_prod_up "$@" ;;
     prod-down)            cmd_prod_down "$@" ;;

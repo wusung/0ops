@@ -116,6 +116,24 @@ func TeamBucket(teamID string) string {
 
 > `install_id_bucket` 與 `team_bucket` 同模式（CRC32 mod 64），避免 install_id 直接作 label
 
+**已補入（`resource-usage-metering`，ADR-0018）**——全部無租戶識別 label：
+
+| Metric | Type | Labels | 說明 |
+|---|---|---|---|
+| `zeroops_usage_intervals_open` | gauge | — | 目前計費中之 pod 數 |
+| `zeroops_usage_intervals_opened_total` | counter | source | `watch` / `reconcile` / `watch_reopen` / `reconcile_reopen` |
+| `zeroops_usage_intervals_closed_total` | counter | reason | `terminated` / `deleted` / `reconciled_missing` |
+| `zeroops_usage_intervals_expired_total` | counter | — | 逾保留期刪除之區間數 |
+| `zeroops_usage_orphan_pods` | gauge | — | label 指向不存在 app 之 pod 數 |
+| `zeroops_usage_reconcile_duration_seconds` | histogram | — | 單次全 cluster 對帳耗時 |
+| `zeroops_usage_rollup_lag_days` | gauge | — | 最舊未結算封閉日距今天數 |
+| `zeroops_usage_watch_degraded` | gauge | — | 1 = pod watch 中斷，退化為週期性對帳 |
+| `zeroops_usage_samples_written_total` | counter | — | 觀測輔軌寫入列數 |
+| `zeroops_usage_sample_failures_total` | counter | reason | 觀測 tick 零寫入之原因 |
+
+> 前綴為 `zeroops_` 而非本文件其他處的 `0ops_`：Prometheus metric 名不得以數字開頭，
+> code 中既有 30+ 條 metric 皆為 `zeroops_`。本文件的 `0ops_` 寫法為文件層漂移，未一併整理。
+
 ### 4.5 Cardinality 守門員
 
 - 註冊 metric 時 `MustRegister`；同名重註 panic

@@ -97,6 +97,14 @@ func loadKubeConfig(kubeconfigPath, apiServerURL string) (*rest.Config, error) {
 	return cfg, nil
 }
 
+// Enabled reports whether this client can talk to a cluster. A dev
+// client built with DisableNamespaceIsolation has no connection at all,
+// so callers that would otherwise log a failure every tick can stay
+// silent instead.
+func (c *Client) Enabled() bool {
+	return c != nil && c.dynamicClient != nil
+}
+
 // EnsureNamespace creates or verifies existence of a team namespace.
 // Returns namespace name on success.
 func (c *Client) EnsureNamespace(ctx context.Context, teamID, teamSlug, planTier string) (string, error) {

@@ -27,21 +27,21 @@ const (
 
 // Metrics holds the Prometheus registry and HTTP collectors.
 type Metrics struct {
-	registry          *prometheus.Registry
-	httpTotal         *prometheus.CounterVec
-	httpDuration      *prometheus.HistogramVec
-	httpInflight      prometheus.Gauge
-	previewCreated    *prometheus.CounterVec
-	previewConsumed   *prometheus.CounterVec
-	previewConsumeDur *prometheus.HistogramVec
-	deployRunTerminal *prometheus.CounterVec
-	deployRunLeadTime prometheus.Histogram
-	deployRunFailures *prometheus.CounterVec
-	cloudflareAPICall *prometheus.CounterVec
-	cloudflareAPIDur  *prometheus.HistogramVec
-	tunnelConnectors  prometheus.Gauge
-	domainVerify      *prometheus.CounterVec
-	reconPending      *prometheus.GaugeVec
+	registry            *prometheus.Registry
+	httpTotal           *prometheus.CounterVec
+	httpDuration        *prometheus.HistogramVec
+	httpInflight        prometheus.Gauge
+	previewCreated      *prometheus.CounterVec
+	previewConsumed     *prometheus.CounterVec
+	previewConsumeDur   *prometheus.HistogramVec
+	deployRunTerminal   *prometheus.CounterVec
+	deployRunLeadTime   prometheus.Histogram
+	deployRunFailures   *prometheus.CounterVec
+	cloudflareAPICall   *prometheus.CounterVec
+	cloudflareAPIDur    *prometheus.HistogramVec
+	tunnelConnectors    prometheus.Gauge
+	domainVerify        *prometheus.CounterVec
+	reconPending        *prometheus.GaugeVec
 	createAppPreviews   *prometheus.CounterVec
 	createAppConfirms   *prometheus.CounterVec
 	rateLimitTriggered  *prometheus.CounterVec
@@ -56,12 +56,25 @@ type Metrics struct {
 	leaderLeaseRenew    *prometheus.CounterVec
 
 	// Upload pipeline metrics (T21).
-	appSourceUploadTotal       *prometheus.CounterVec  // labels: result, reject_reason
-	appSourceUploadSize        prometheus.Histogram    // bytes; exponential 1KB..~16GB
-	appSourceUploadDuration    prometheus.Histogram    // seconds; default buckets
-	appSourceQuotaRejection    *prometheus.CounterVec  // label: reason (pinned|daily|inert_bytes)
-	appSourceGCDeleted         *prometheus.CounterVec  // label: outcome (success|failure)
-	appSourceArchiveDownloaded *prometheus.CounterVec  // label: outcome (success|failure)
+	appSourceUploadTotal       *prometheus.CounterVec // labels: result, reject_reason
+	appSourceUploadSize        prometheus.Histogram   // bytes; exponential 1KB..~16GB
+	appSourceUploadDuration    prometheus.Histogram   // seconds; default buckets
+	appSourceQuotaRejection    *prometheus.CounterVec // label: reason (pinned|daily|inert_bytes)
+	appSourceGCDeleted         *prometheus.CounterVec // label: outcome (success|failure)
+	appSourceArchiveDownloaded *prometheus.CounterVec // label: outcome (success|failure)
+
+	// resource-usage-metering spec § 9. Counts only: no pod, app or team
+	// identifier may appear as a label.
+	usageIntervalsOpen     prometheus.Gauge
+	usageIntervalsOpened   *prometheus.CounterVec // label: source (watch|reconcile)
+	usageIntervalsClosed   *prometheus.CounterVec // label: reason (terminated|deleted|reconciled_missing)
+	usageOrphanPods        prometheus.Gauge
+	usageReconcileDuration prometheus.Histogram
+	usageRollupLagDays     prometheus.Gauge
+	usageIntervalsExpired  prometheus.Counter
+	usageWatchDegraded     prometheus.Gauge
+	usageSamplesWritten    prometheus.Counter
+	usageSampleFailures    *prometheus.CounterVec // label: reason
 }
 
 // NewMetrics creates the default HTTP metrics registry.
@@ -224,6 +237,56 @@ func NewMetrics() *Metrics {
 			Name:      "app_source_archive_downloaded_total",
 			Help:      "Archive download attempts by GHA workflow. outcome in {success, unauthorized, forbidden, not_found, expired, internal_error}.",
 		}, []string{"outcome"}),
+		usageIntervalsOpen: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "zeroops",
+			Name:      "usage_intervals_open",
+			Help:      "Allocation intervals currently open, i.e. pods being billed.",
+		}),
+		usageIntervalsOpened: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "zeroops",
+			Name:      "usage_intervals_opened_total",
+			Help:      "Allocation intervals opened. source in {watch, reconcile}.",
+		}, []string{"source"}),
+		usageIntervalsClosed: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "zeroops",
+			Name:      "usage_intervals_closed_total",
+			Help:      "Allocation intervals closed. reason=reconciled_missing means the end time was inferred and under-bills; a sustained share of it indicates the watch path is not working.",
+		}, []string{"reason"}),
+		usageOrphanPods: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "zeroops",
+			Name:      "usage_orphan_pods",
+			Help:      "Managed pods whose labels point at an app that no longer exists. Their usage is attributed to nobody.",
+		}),
+		usageReconcileDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Namespace: "zeroops",
+			Name:      "usage_reconcile_duration_seconds",
+			Help:      "Duration of one cluster-wide ledger reconcile pass.",
+		}),
+		usageRollupLagDays: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "zeroops",
+			Name:      "usage_rollup_lag_days",
+			Help:      "Age in days of the oldest closed day still awaiting rollup. 0 when caught up.",
+		}),
+		usageIntervalsExpired: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "zeroops",
+			Name:      "usage_intervals_expired_total",
+			Help:      "Allocation intervals deleted after passing the 13-month retention window.",
+		}),
+		usageSamplesWritten: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "zeroops",
+			Name:      "usage_samples_written_total",
+			Help:      "Observed-usage rows written. Observation only; never an input to metering (ADR-0018).",
+		}),
+		usageSampleFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "zeroops",
+			Name:      "usage_sample_failures_total",
+			Help:      "Observation ticks that recorded nothing. reason=metrics_api_unavailable usually means metrics-server is absent; the allocation ledger is unaffected either way.",
+		}, []string{"reason"}),
+		usageWatchDegraded: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "zeroops",
+			Name:      "usage_watch_degraded",
+			Help:      "1 when the pod watch is down. The ledger stays correct via periodic reconcile, but end times are inferred and under-bill.",
+		}),
 	}
 	reg.MustRegister(
 		m.httpTotal,
@@ -258,6 +321,16 @@ func NewMetrics() *Metrics {
 		m.appSourceQuotaRejection,
 		m.appSourceGCDeleted,
 		m.appSourceArchiveDownloaded,
+		m.usageIntervalsOpen,
+		m.usageIntervalsOpened,
+		m.usageIntervalsClosed,
+		m.usageOrphanPods,
+		m.usageReconcileDuration,
+		m.usageRollupLagDays,
+		m.usageIntervalsExpired,
+		m.usageWatchDegraded,
+		m.usageSamplesWritten,
+		m.usageSampleFailures,
 	)
 	return m
 }
@@ -640,4 +713,104 @@ func (s *statusRecorder) Write(b []byte) (int, error) {
 		s.WriteHeader(http.StatusOK)
 	}
 	return s.ResponseWriter.Write(b)
+}
+
+// ObserveUsageIntervalsOpened counts intervals opened by one path.
+func (m *Metrics) ObserveUsageIntervalsOpened(source string, n int) {
+	if m == nil || n <= 0 {
+		return
+	}
+	if source == "" {
+		source = "unknown"
+	}
+	m.usageIntervalsOpened.WithLabelValues(source).Add(float64(n))
+}
+
+// ObserveUsageIntervalsClosed counts intervals closed for one reason.
+func (m *Metrics) ObserveUsageIntervalsClosed(reason string, n int) {
+	if m == nil || n <= 0 {
+		return
+	}
+	if reason == "" {
+		reason = "unknown"
+	}
+	m.usageIntervalsClosed.WithLabelValues(reason).Add(float64(n))
+}
+
+// SetUsageOpenIntervals records how many pods are currently on the books.
+func (m *Metrics) SetUsageOpenIntervals(n int) {
+	if m == nil {
+		return
+	}
+	m.usageIntervalsOpen.Set(float64(n))
+}
+
+// SetUsageOrphanPods records pods that could not be attributed to an app.
+func (m *Metrics) SetUsageOrphanPods(n int) {
+	if m == nil {
+		return
+	}
+	m.usageOrphanPods.Set(float64(n))
+}
+
+// ObserveUsageReconcileDuration records one reconcile pass.
+func (m *Metrics) ObserveUsageReconcileDuration(d time.Duration) {
+	if m == nil {
+		return
+	}
+	if d < 0 {
+		d = 0
+	}
+	m.usageReconcileDuration.Observe(d.Seconds())
+}
+
+// SetUsageRollupLagDays records how far behind the rollup pass is.
+func (m *Metrics) SetUsageRollupLagDays(days int) {
+	if m == nil {
+		return
+	}
+	if days < 0 {
+		days = 0
+	}
+	m.usageRollupLagDays.Set(float64(days))
+}
+
+// ObserveUsageIntervalsExpired counts intervals dropped past retention.
+func (m *Metrics) ObserveUsageIntervalsExpired(n int64) {
+	if m == nil || n <= 0 {
+		return
+	}
+	m.usageIntervalsExpired.Add(float64(n))
+}
+
+// SetUsageWatchDegraded records whether the pod watch is currently down.
+func (m *Metrics) SetUsageWatchDegraded(degraded bool) {
+	if m == nil {
+		return
+	}
+	v := 0.0
+	if degraded {
+		v = 1
+	}
+	m.usageWatchDegraded.Set(v)
+}
+
+// ObserveUsageSamplesWritten counts observed-usage rows written.
+func (m *Metrics) ObserveUsageSamplesWritten(n int) {
+	if m == nil || n <= 0 {
+		return
+	}
+	m.usageSamplesWritten.Add(float64(n))
+}
+
+// ObserveUsageSampleFailure counts an observation tick that recorded
+// nothing, by reason.
+func (m *Metrics) ObserveUsageSampleFailure(reason string) {
+	if m == nil {
+		return
+	}
+	if reason == "" {
+		reason = "unknown"
+	}
+	m.usageSampleFailures.WithLabelValues(reason).Inc()
 }
