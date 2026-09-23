@@ -11,13 +11,14 @@
 三條互不耦合的成品，組成「prompt → deploy」路徑：
 
 1. **One-line installer**：`curl -fsSL https://raw.githubusercontent.com/wusung/0ops/main/scripts/install.sh | sh`
-   一條指令把 `0ops` + `0ops-mcp` 兩個 binary 從 GitHub Release 抓到 `~/.local/bin`。
-2. **`0ops mcp setup <host>`** CLI 子命令：偵測 / 建立 / 補對應 AI CLI 的 MCP server config，
-   一行接好 claude code / codex。idempotent；`--print-only` 可只 dump 不寫檔。
+   一條指令把 `0ops` binary 從 GitHub Release 抓到 `~/.local/bin`，並接著跑 `0ops onboard`。
+2. **`0ops skill install`** CLI 子命令：把編進 binary 的 skill 寫到使用者層
+   `~/.claude/skills/0ops/SKILL.md`（`--project` 改寫專案層）。idempotent；
+   `--print-only` 可只 dump 不寫檔。細節見 `docs/features/agent-skill/skill-distribution-spec.md`。
 3. **Quickstart 文件**：`docs/quickstart.md` 三段（install → auth login → AI CLI 內 deploy），
    `README.md` 給 30 秒 TL;DR + link。
 
-成功定義：使用者跑一條 curl 後，5 分鐘內可在自己的 AI CLI 內以自然語言觸發 `create_app`。
+成功定義：使用者跑一條 curl 後，5 分鐘內可在自己的 AI CLI 內以自然語言觸發 `0ops apps create`。
 
 ## 2. 需求範圍
 
@@ -26,20 +27,19 @@
 | 元件 | 路徑 |
 |---|---|
 | installer | `scripts/install.sh` |
-| `0ops mcp setup` CLI | `src/internal/cli/mcpsetup.go` + 對應 root.go 註冊 |
-| Claude Code config 寫入器 | 同上，target `$XDG_CONFIG_HOME/claude-code/.claude.json` 或 `~/.claude.json` |
-| Codex CLI config 寫入器 | 同上，target `$HOME/.codex/config.toml` |
+| `0ops skill install` CLI | `src/internal/cli/skill.go` + 對應 root.go 註冊 |
+| 嵌入的 skill 內容 | `src/internal/cli/skillasset/`（canonical 在 `.claude/skills/0ops/SKILL.md`） |
+| `0ops onboard` 串接 | `src/internal/cli/onboard.go`（login → skill install） |
 | Quickstart | `docs/quickstart.md` |
-| MCP host references | `docs/features/end-user-onboarding/mcp-hosts/{claude-code,codex,copilot-cli}.md` |
-| Root README | `README.md`（新建） |
+| Root README | `README.md` |
 
 ### 2.2 不包含（YAGNI）
 
 1. Homebrew formula / apt repo / AUR：留待社群採用率上來再做。
 2. Windows installer（PowerShell）：v1 透過 release zip + 手動解壓。
-3. GitHub Copilot CLI 自動寫入：MCP 支援尚未穩定（v1 知識範圍），給文件 + 手動步驟。
+3. Codex / GitHub Copilot CLI 的等價安裝：兩者的 skill 機制未定型，給 `--print-only` + 手動步驟。
 4. Auto-update（installer 偵測新版本提示）：v2。
-5. 反向解除（`0ops mcp uninstall`）：v2；手動編輯 config 即可。
+5. 反向解除（`0ops skill uninstall`）：刪一個檔案，手動即可。
 
 ## 3. installer 細節
 
@@ -71,10 +71,10 @@ NO_ONBOARD=1 curl -fsSL ... | sh
 3. 解析 release `assets`，取對應 `0ops_<version>_<os>_<arch>.tar.gz` 與 `checksums.txt`。
 4. mkdir -p `$INSTALL_DIR`（預設 `$HOME/.local/bin`）。
 5. 下載 tar.gz + checksums.txt → 驗 sha256。
-6. 解壓 → 把 `0ops` 與 `0ops-mcp` 安到 `$INSTALL_DIR`，chmod +x。
+6. 解壓 → 把 `0ops` 安到 `$INSTALL_DIR`，chmod +x。
 7. 檢查 `$INSTALL_DIR` 在 `$PATH`：若不在，提示 shell rc 加入指令（給 bash / zsh / fish 三條）。
-8. 除非 `NO_ONBOARD=1`，跑 `0ops onboard $OPS_HOST`（device-flow login + AI CLI 自動接線）；
-   跳過時改印「下一步」：`0ops auth login --host=<your-0ops>` + `0ops mcp setup claude-code`。
+8. 除非 `NO_ONBOARD=1`，跑 `0ops onboard $OPS_HOST`（device-flow login + `skill install`）；
+   跳過時改印「下一步」：`0ops auth login --host=<your-0ops>` + `0ops skill install`。
 9. `DRY_RUN=1` 在步驟 5 之前中止，並印出會下載什麼、裝到哪、以及會不會跑 onboard。
 
 ### 3.3 安全 / 失敗
@@ -84,67 +84,43 @@ NO_ONBOARD=1 curl -fsSL ... | sh
 - network 失敗 → exit 4，提示走 GitHub Release 頁面手動下載。
 - `--dry-run`（env `DRY_RUN=1`）：印會做什麼但不執行。
 
-## 4. `0ops mcp setup` 細節
+## 4. `0ops skill install` 細節
 
-### 4.1 介面
+介面與行為的單一事實來源是 `docs/features/agent-skill/skill-distribution-spec.md` § 4。
+本 spec 只記 onboarding 觀點的約定：
 
-```
-0ops mcp setup <host>
-  [--ops-host=<url>]      backend host；不傳則讀 auth.json
-  [--mcp-binary=<path>]   0ops-mcp binary path；預設搜 $PATH 內 0ops-mcp
-  [--print-only]          只印對應 config 片段，不寫檔
-  [--config=<path>]       覆寫目標 config 檔路徑
-
-host:
-  claude-code | claude   寫 ~/.claude.json mcpServers."0ops"
-  codex                  寫 ~/.codex/config.toml [mcp_servers.0ops]
-  copilot-cli            目前不支援自動寫入；改印手動步驟與檔路徑（exit 0）
-```
-
-### 4.2 行為
-
-1. 解析 host → 對應 default config 路徑。
-2. 讀 auth.json 拿 `OPS_HOST`（若 `--ops-host` 沒傳）。
-3. 偵測 `0ops-mcp` binary 路徑（`--mcp-binary` > `which 0ops-mcp` > 與 `0ops` binary 同目錄）。
-4. 讀現有 config（若存在）→ deep-merge / set `mcpServers.0ops`（claude-code）或 `mcp_servers.0ops`（codex）。
-5. 寫回；備份原檔到 `<config>.bak.<timestamp>`。
-6. 印確認訊息 + 下一步（restart MCP host）。
-
-### 4.3 Idempotency
-
-- 重跑：原 entry 已是相同值 → 不寫檔，印「already up-to-date」。
-- 原 entry 不同 → prompt 是否覆蓋；`--yes` 旁路 prompt。
-
-### 4.4 不可變約定
-
-- 不修改 0ops 範圍外的 key（claude-code 的 `claude.json` 可能含 user 自己的 settings）。
-- 寫入失敗（權限 / disk full）→ 不留半成品，原檔保持原樣。
+- 預設目標是使用者層 `~/.claude/skills/0ops/SKILL.md`，因此使用者在**任何** repo 都能觸發 skill。
+- `0ops onboard <host>` 在 login 成功後自動跑一次；`--skip-skill` 可略過。
+- skill 安裝失敗不讓 onboard 失敗（登入已完成），但必須印出補跑指令。
+- 寫檔後需重啟 AI CLI 才生效，訊息須明講。
 
 ## 5. Quickstart 結構
 
 `docs/quickstart.md`：
 
-1. 安裝（curl one-liner）
-2. login（`0ops auth login --host=...`）
-3. 接 AI CLI（`0ops mcp setup claude-code`，restart）
+1. 安裝（curl one-liner，內含 onboard）
+2. login（`0ops auth login --host=...`，已含在第 1 步）
+3. 接 AI CLI（`0ops skill install`，restart）
 4. 在 AI CLI 內試「幫我把這個 repo deploy 到 0ops」
-5. 故障：連到 reference snippets + runbook
+5. 故障排除表
 
 `README.md`（root）：30 秒版本 + link 到 quickstart。
 
 ## 6. 驗收
 
 1. 在 clean 新 Linux user 帳號跑 curl one-liner → `0ops --version` PASS。
-2. `0ops mcp setup claude-code --print-only` 印合法 JSON snippet。
-3. `0ops mcp setup claude-code` 跑兩次：第二次回 already up-to-date。
-4. 故意把 `~/.claude.json` 寫成壞 JSON → setup 報 parse error 不覆蓋。
-5. `0ops mcp setup copilot-cli` 印手動指引並 exit 0。
+2. `0ops skill install --print-only` 印出 skill 內容與目標路徑，不落檔。
+3. `0ops skill install` 跑兩次：第二次回 `already up-to-date`，不產生備份。
+4. 手改 `~/.claude/skills/0ops/SKILL.md` 後再跑 → 產生 `.bak.<ts>`，目標回到 canonical 內容。
+5. `0ops onboard <host> --skip-login` → skill 仍完成安裝。
 
 ## 7. 測試要求
 
 | 範圍 | 形式 |
 |---|---|
-| `mcpsetup.go` | unit test：新建 config / merge 既有 config / 偵測 idempotency / 拒覆蓋壞 JSON |
+| `skill.go` | unit test：使用者層安裝 / idempotency / 備份既有檔 / `--project` 不碰 HOME / `--print-only` 不寫檔 |
+| `onboard.go` | unit test：onboard 安裝 skill；`--skip-skill` 不寫檔 |
+| 嵌入內容 | `TestEmbeddedSkillMatchesRepoSkill` 斷言與 canonical byte-identical |
 | `install.sh` | `bash -n` syntax；`DRY_RUN=1` 跑 happy path 不真下載 |
 | 文件 | quickstart link 不死連 |
 
@@ -152,4 +128,4 @@ host:
 
 - end-user 端 OAuth App 註冊：屬 self-hosted ops，非 SaaS 終端 user 工作流；走 `docs/runbooks/production-oauth-setup.md`。
 - `0ops` CLI 與 backend 之既有 contract：unchanged。
-- MCP server 內部 tool：unchanged。
+- skill 內容本身（觸發條件、指令對照、護欄）：屬 `docs/features/agent-skill/spec.md`。

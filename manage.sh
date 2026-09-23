@@ -55,6 +55,11 @@ cmd_build() {
   ( cd src && CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o ../bin/0ops-audit-rollover ./cmd/audit-rollover )
 }
 
+# --- skill ---
+# canonical skill 是 .claude/skills/0ops/SKILL.md；go:embed 取不到 src/ 之外的檔，
+# 故同步一份到 skillasset/（spec: docs/features/agent-skill/skill-distribution-spec.md § 3）。
+cmd_skill_sync() { cp .claude/skills/0ops/SKILL.md src/internal/cli/skillasset/SKILL.md; }
+
 # --- lint / test ---
 cmd_lint_compose()    { podman compose config -q; }
 cmd_lint_docker()     { hadolint src/cmd/*/Dockerfile src/migrations/Dockerfile; }
@@ -196,6 +201,7 @@ migrations:
 build:
   build                        本機 host 編譯三 binary 至 ./bin
   build-images                 兩 binary runtime image + migrations image
+  skill-sync                   把 canonical SKILL.md 同步到 go:embed 副本
 
 lint / test:
   lint-compose                 驗證 compose schema
@@ -295,6 +301,8 @@ main() {
 
     build)           cmd_build "$@" ;;
     build-images)    cmd_build_images "$@" ;;
+
+    skill-sync)      cmd_skill_sync "$@" ;;
 
     lint-compose)    cmd_lint_compose "$@" ;;
     lint-docker)     cmd_lint_docker "$@" ;;

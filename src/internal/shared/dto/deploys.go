@@ -1,6 +1,6 @@
 package dto
 
-// RedeployRequest is the preview/confirm input shared by CLI, MCP, and the
+// RedeployRequest is the preview/confirm input shared by the CLI and the
 // HTTP layer. Both fields are optional; backend resolves defaults from the
 // app row when omitted (spec § 6.1 RedeployArgs).
 type RedeployRequest struct {

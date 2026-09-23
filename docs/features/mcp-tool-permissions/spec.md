@@ -1,6 +1,8 @@
 # Feature Spec：mcp-tool-permissions
 
-> **狀態**：draft → in-progress
+> **狀態**：superseded（MCP 入口已於 PR #174 移除）
+> **接手者**：`docs/features/agent-skill/spec.md`（agent 護欄）、`docs/features/auth-and-rbac/spec.md`（授權模型）
+> **保留理由**：tool-grant 的 ID 與風險分級仍是 `0ops auth grant/revoke` 與 backend 共用的詞彙
 > **對應需求**：CLI / MCP 登入後授權 tools；GitHub OAuth2 Device Flow + MCP tool permissions selection
 > **對應 Milestone**：M1（與 auth-and-rbac 同步）
 

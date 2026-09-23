@@ -14,7 +14,7 @@ import (
 type Source string
 
 const (
-	// SourceUser is the default — a human-initiated action via CLI / MCP.
+	// SourceUser is the default — a human-initiated action via the CLI.
 	SourceUser Source = "user"
 	// SourceWebhook tags rows whose actor is a GitHub webhook.
 	SourceWebhook Source = "webhook"

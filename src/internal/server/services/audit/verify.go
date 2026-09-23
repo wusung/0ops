@@ -11,7 +11,8 @@ import (
 // given only the exported rows (each carrying prev_hash / row_hash) and the
 // anchor (genesis / tip / row_count), it independently re-derives every
 // row_hash and confirms linkage, count, and tip — no database access required.
-// Deliberately CLI-only; never exposed via MCP (spec § 7.3, hard rule #9).
+// Deliberately human-only; the skill may explain it but never run it
+// (spec § 7.3, hard rule #9).
 
 // VerifyRow is one row to verify: its hash-covered Core plus the stored
 // prev_hash / row_hash to check against the recomputation.

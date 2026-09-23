@@ -47,7 +47,7 @@ func newDeleteAppService(store appsStore) *deleteappsvc.Service {
 
 // RegisterReconcilerHandlers binds every reconciliation_job kind this package
 // owns onto the runner's registry. cmd/server calls it once at startup so the
-// job_queue loop can dispatch the jobs the HTTP/MCP write paths enqueue.
+// job_queue loop can dispatch the jobs the HTTP write paths enqueue.
 //
 // Keeping the wiring here (next to the producers) instead of inline in
 // cmd/server makes it unit-testable: a missing registration — the bug that

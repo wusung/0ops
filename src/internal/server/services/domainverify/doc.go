@@ -24,7 +24,7 @@
 //   - 0ops-gitops ingress.yaml render for verified hostnames;
 //   - audit_log adapter implementation;
 //   - CLI `0ops domains verify ... --extend`;
-//   - MCP `add_domain_preview` / `verify_domain` tools.
+//   - CLI `0ops domains add` / `0ops domains verify`.
 //
 // All side-effect surfaces above are exposed as interfaces (Store, Resolver,
 // CloudflareHostnameAPI, Auditor, LeaderProbe) so the wiring task can plug

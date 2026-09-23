@@ -10,7 +10,7 @@ reaches for to ship — stays.
 ```sh
 # 1. install + login（一條 curl，預設連官方 https://0ops.jesontech.com）
 curl -fsSL https://raw.githubusercontent.com/wusung/0ops/main/scripts/install.sh | sh
-# device flow login
+# device flow login → 裝 0ops skill 到 ~/.claude/skills/
 
 # 2. 在 AI CLI 內，直接說：
 #    "用 0ops CLI 把這個 repo deploy 到 0ops，叫 nextdemo"

@@ -172,8 +172,7 @@ Merge 至主分支，更新 SQL 狀態為 'done'
 | `team-scope-model` | Team Scope 資料模型 | 無 | 定義 scope 與權限等級，含 migration |
 | `team-scope-queries` | Team Scope 查詢層 | `team-scope-model` | 實作 GetTeamScopes、ListTeamMembers |
 | `api-scope-middleware` | API Scope 檢驗中間件 | `team-scope-queries` | 在 HTTP handler 層驗證 scope |
-| `mcp-scope-contract` | MCP Tool Scope 規格 | `api-scope-middleware` | 定義並驗證 MCP tool schema |
-| `scope-rbac-tests` | RBAC 全整合測試 | `mcp-scope-contract` | 跨 API、MCP、DB 層級的權限矩陣測試 |
+| `scope-rbac-tests` | RBAC 全整合測試 | `api-scope-middleware` | 跨 API、CLI、DB 層級的權限矩陣測試 |
 
 各功能優先依序執行 Agent Loop，完成後更新 todo 狀態。
 
@@ -229,7 +228,7 @@ Merge 至主分支，更新 SQL 狀態為 'done'
 
 - `feat: add app create preview flow`
 - `fix: enforce team scope in app queries`
-- `docs: clarify MCP confirm contract`
+- `docs: clarify preview/confirm contract`
 - `test: cover deploy callback signature validation`
 
 避免：
