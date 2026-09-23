@@ -321,6 +321,12 @@ return result, nil
 | compensating | execute() reversible 失敗 | 進入 reversible undo |
 | rolled_back | execute() compensate 完成 | undo 全部完成 |
 
+> **狀態查詢不是推進者**：`GET /v1/teams/{team}/deploys/status` 回傳 `deploy_run.status`
+> 的持久化值。它只在 run 已處於 `rendering` / `syncing`——亦即 ArgoCD 確實是本表列出的推進者
+> 的階段——才以 live Application 的 sync/health 覆寫回傳值。`queued`/`preparing`/`building`/
+> `pushing` 階段的 run 尚未產出本次 image，此時 Application 的 Healthy 描述的是**上一版**，
+> 覆寫會讓 API 宣告一個沒有任何推進者執行過的 transition（issue #54）。終態同理不得被重開。
+
 ## 8. CLI / MCP 對應
 
 ### 8.1 CLI

@@ -727,10 +727,20 @@ func getDeployStatusHandler(store appsStore) http.HandlerFunc {
 			apperror.Write(w, "internal_error", apperror.ClassInternal, "failed to get deploy status", nil)
 			return
 		}
-		if provider := newArgoCDStatusProvider(); provider != nil {
-			if argoStatus, err := provider.GetApplicationStatus(r.Context(), auth.TeamSlug(r.Context()), appSlug); err == nil {
-				if mapped, ok := mapArgoCDDeployStatus(argoStatus.SyncStatus, argoStatus.HealthStatus); ok {
-					row.Status = mapped
+		// ArgoCD is consulted only for the stages where it is the actual
+		// 推進者 (create-app-flow spec § 7.2): once the manifests are
+		// rendered and pushed, cluster sync/health is what advances the
+		// run. Before that the build has not produced an image yet, so a
+		// Healthy Application describes the *previous* revision — letting
+		// it overwrite the row reports `live` for a run the DB still has
+		// as `queued` (issue #54). Terminal states are already decided
+		// and must not be reopened either.
+		if argoCDDrivesDeployStatus(row.Status) {
+			if provider := newArgoCDStatusProvider(); provider != nil {
+				if argoStatus, err := provider.GetApplicationStatus(r.Context(), auth.TeamSlug(r.Context()), appSlug); err == nil {
+					if mapped, ok := mapArgoCDDeployStatus(argoStatus.SyncStatus, argoStatus.HealthStatus); ok {
+						row.Status = mapped
+					}
 				}
 			}
 		}
@@ -1825,6 +1835,18 @@ func normalizeDeployStatus(raw string) (string, bool) {
 	}
 
 	return "", false
+}
+
+// argoCDDrivesDeployStatus reports whether the live ArgoCD Application is
+// authoritative for a run sitting at the given persisted status. It mirrors
+// reconciler.argoSync, which only transitions syncing → live.
+func argoCDDrivesDeployStatus(persisted string) bool {
+	switch strings.ToLower(strings.TrimSpace(persisted)) {
+	case "rendering", "syncing":
+		return true
+	default:
+		return false
+	}
 }
 
 func mapArgoCDDeployStatus(syncStatus, healthStatus string) (string, bool) {

@@ -802,7 +802,9 @@ func TestNewRouterGetDeployStatus(t *testing.T) {
 
 func TestNewRouterGetDeployStatusUsesArgoCDProvider(t *testing.T) {
 	store, token := newFakeStore()
-	store.deploys[0].Status = "queued"
+	// "rendering" is a stage where ArgoCD is the 推進者, so the live
+	// Application may advance the reported status (issue #54).
+	store.deploys[0].Status = "rendering"
 	prev := newArgoCDStatusProvider
 	newArgoCDStatusProvider = func() argoCDStatusProvider {
 		return fakeArgoCDStatusProvider{status: argoCDApplicationStatus{
@@ -824,9 +826,47 @@ func TestNewRouterGetDeployStatusUsesArgoCDProvider(t *testing.T) {
 	}
 }
 
+// TestNewRouterGetDeployStatusKeepsEarlyStageOverArgoCD — issue #54. A run
+// that the DB still has as `queued` has not produced an image yet, so a
+// Synced/Healthy Application describes the previous revision. The status
+// endpoint must report what is persisted rather than assert a transition
+// no 推進者 performed (create-app-flow spec § 7.1 / § 7.2).
+func TestNewRouterGetDeployStatusKeepsEarlyStageOverArgoCD(t *testing.T) {
+	for _, persisted := range []string{"queued", "preparing", "building", "pushing"} {
+		t.Run(persisted, func(t *testing.T) {
+			store, token := newFakeStore()
+			store.deploys[0].Status = persisted
+			store.deploys[0].FinishedAt = nil
+
+			prev := newArgoCDStatusProvider
+			newArgoCDStatusProvider = func() argoCDStatusProvider {
+				return fakeArgoCDStatusProvider{status: argoCDApplicationStatus{
+					SyncStatus:   "Synced",
+					HealthStatus: "Healthy",
+				}}
+			}
+			t.Cleanup(func() { newArgoCDStatusProvider = prev })
+
+			srv := httptest.NewServer(NewRouter(store))
+			t.Cleanup(srv.Close)
+
+			out, err := backendclient.New(srv.URL, token).GetDeployStatus(context.Background(), store.team.Slug, "alpha")
+			if err != nil {
+				t.Fatalf("GetDeployStatus() error = %v", err)
+			}
+			if out.Status != persisted {
+				t.Fatalf("Status = %q, want %q (persisted value must win)", out.Status, persisted)
+			}
+			if out.FinishedAt != nil {
+				t.Fatalf("FinishedAt = %v, want nil", out.FinishedAt)
+			}
+		})
+	}
+}
+
 func TestNewRouterWithInfraGetDeployStatusUsesK3sArgoProvider(t *testing.T) {
 	store, token := newFakeStore()
-	store.deploys[0].Status = "queued"
+	store.deploys[0].Status = "syncing"
 	prev := newArgoCDStatusProvider
 	t.Cleanup(func() { newArgoCDStatusProvider = prev })
 
