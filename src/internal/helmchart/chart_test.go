@@ -106,6 +106,25 @@ var requiredSubstrings = map[string][]string{
 		// stays correct without it.
 		"metrics.k8s.io",
 	},
+	// k3s-namespace-isolation spec § 9.1 — EnsureTeamIsolation writes
+	// Namespace / ResourceQuota / LimitRange / NetworkPolicy / Secret in
+	// dynamically created team namespaces, so the grant must be
+	// cluster-scoped and must actually exist in the chart (issue #163).
+	"templates/clusterrole-provisioner.yaml": {
+		"kind: ClusterRole",
+		"resources: [\"namespaces\"]",
+		"resources: [\"resourcequotas\", \"limitranges\", \"secrets\"]",
+		"resources: [\"networkpolicies\"]",
+		"- create",
+		"- update",
+		"- delete",
+	},
+	"templates/clusterrolebinding-provisioner.yaml": {
+		"kind: ClusterRoleBinding",
+		"kind: ServiceAccount",
+		"kind: ClusterRole",
+		"-provisioner",
+	},
 	"templates/clusterrolebinding.yaml": {
 		"kind: ClusterRoleBinding",
 		"if .Values.usage.enabled",
@@ -288,6 +307,29 @@ func TestValuesDefaultsMatchSpec(t *testing.T) {
 	} {
 		if !strings.Contains(content, want) {
 			t.Errorf("values.yaml missing default %q", want)
+		}
+	}
+}
+
+// TestProvisionerClusterRoleGrantsNoBroadReads — the provisioner grant is a
+// write grant scoped to what EnsureTeamIsolation actually calls. It must
+// never pick up list/watch: a SA that can list secrets cluster-wide reads
+// every team's registry credentials, a different blast radius from
+// creating one secret in one namespace.
+func TestProvisionerClusterRoleGrantsNoBroadReads(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(chartDir, "templates", "clusterrole-provisioner.yaml"))
+	if err != nil {
+		t.Fatalf("read clusterrole-provisioner.yaml: %v", err)
+	}
+	body := string(data)
+	idx := strings.Index(body, "rules:")
+	if idx < 0 {
+		t.Fatalf("clusterrole-provisioner.yaml has no rules block")
+	}
+	rules := body[idx:]
+	for _, forbidden := range []string{"- list", "- watch", "- deletecollection", `"*"`} {
+		if strings.Contains(rules, forbidden) {
+			t.Errorf("provisioner ClusterRole must not grant %q", forbidden)
 		}
 	}
 }

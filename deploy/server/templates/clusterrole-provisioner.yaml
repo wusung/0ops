@@ -1,0 +1,50 @@
+{{- /*
+k3s-namespace-isolation spec § 9.1：團隊 namespace 的建立是全有全無的
+saga——Namespace、ResourceQuota、LimitRange、NetworkPolicy、PSA label、
+ImagePullSecret 任一步失敗即回滾。backend 以 in-cluster ServiceAccount
+連線（internal/server/services/k3s/client.go 在無 KUBECONFIG 時退回
+rest.InClusterConfig），因此這些寫入權限必須由本 chart 授予，否則第一次
+create_app 就會在 EnsureTeamIsolation 失敗。
+
+必須是 ClusterRole 而非 Role：team namespace 是執行期動態建立的，無法
+事先為每個 namespace 綁 RoleBinding；namespaces 本身也是 cluster-scoped。
+
+verbs 對齊 client.go 實際呼叫，不多給：
+  - upsertResource 走 get → create（NotFound）或 update，故 get/create/update
+  - PatchNamespacePSA 走 get + update（非 patch）
+  - DeleteNamespace 走 delete，是 saga 回滾與團隊封存的必要動作
+  - list/watch 一律不給：本路徑從不列舉他人資源
+argocd applications 只給 get：getDeployStatusHandler 讀 sync/health，
+從不建立或修改 Application（GitOps 由 ArgoCD 自身負責）。
+*/ -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s-provisioner" .Values.serviceAccount.name | quote }}
+  labels:
+    app: ops-server
+    app.0ops.io/managed-by: 0ops
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs:
+      - get
+      - create
+      - update
+      - delete
+  - apiGroups: [""]
+    resources: ["resourcequotas", "limitranges", "secrets"]
+    verbs:
+      - get
+      - create
+      - update
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs:
+      - get
+      - create
+      - update
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    verbs:
+      - get

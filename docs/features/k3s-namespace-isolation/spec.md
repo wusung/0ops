@@ -353,6 +353,25 @@ ImagePullSecret 必須在 namespace 建立**前**或**同時**就緒，否則第
 - Team archive（透過 `0ops teams archive`，v1.1 範圍）：保留 namespace 但 quota 設 0；現有 pod 持續跑直到自然死亡；新 pod 擋住
 - 物理刪 namespace 屬 v2 範圍（含 `delete_team`）
 
+### 9.4 Backend 的 K8s 權限（單一事實來源）
+
+backend 以 `system-0ops` 內的 in-cluster ServiceAccount 連線（無 `KUBECONFIG` 時
+`k3s/client.go` 退回 `rest.InClusterConfig()`）。它被允許做什麼，由
+`deploy/server/templates/` 的三份 RBAC 物件完整定義，程式不得依賴任何未列於此的權限：
+
+| 物件 | 範圍 | 授予 | 為何是該範圍 |
+|---|---|---|---|
+| `Role  <sa>-lease` | `system-0ops` | `coordination.k8s.io/leases`：get/watch/update/patch（`resourceNames` 限單一 Lease）+ create/list | leader election（§ 14 硬規則 #2） |
+| `ClusterRole <sa>-provisioner` | cluster | `namespaces` get/create/update/delete；`resourcequotas`/`limitranges`/`secrets` get/create/update；`networking.k8s.io/networkpolicies` get/create/update；`argoproj.io/applications` get | § 9.1 的 saga 寫入。team namespace 為執行期動態建立，無法事先逐一綁 RoleBinding；`namespaces` 本身即 cluster-scoped |
+| `ClusterRole <sa>-usage-reader` | cluster | `pods` list/watch；`metrics.k8s.io/pods` get/list（`usage.enabled` 才渲染） | allocation ledger 跨 namespace 觀測；恆為唯讀 |
+
+verbs 對齊 `client.go` 實際呼叫（`upsertResource` 走 get → create/update；
+`PatchNamespacePSA` 走 get + update）。provisioner **不得**取得 list/watch：能跨
+namespace 列舉 secret 即等於能讀所有 team 的 registry 憑證，與「在單一 namespace
+建立一份 secret」是不同量級的爆炸半徑。兩者皆由 `src/internal/helmchart/chart_test.go`
+釘住。若部署改以其他身分（kubeconfig）執行 namespace provisioning，必須回來改這張表，
+不可讓 chart 與實際部署對「backend 被允許做什麼」各說各話。
+
 ## 10. 與其他 spec 接合點
 
 | 接合 | spec |
