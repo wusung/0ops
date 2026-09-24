@@ -45,7 +45,9 @@ type TeamInfo struct {
 	Name string `json:"name"`
 }
 
-// ToolGrant represents an MCP tool that can be granted
+// ToolGrant represents an agent-invokable capability that can be granted.
+// The IDs predate the MCP removal and are now the grant vocabulary the CLI
+// and the backend share; they are not MCP tool names any more.
 type ToolGrant struct {
 	ID             string `json:"id"`
 	Name           string `json:"name"`
@@ -100,7 +102,7 @@ func (m *DeviceFlowManager) PollAuthorization(_ context.Context, _ string) (Devi
 	return DevicePollResponse{}, errors.New("device flow not yet fully implemented")
 }
 
-// AvailableTools returns the list of all available MCP tools
+// AvailableTools returns every grantable capability.
 func AvailableTools() []ToolGrant {
 	return []ToolGrant{
 		// Read-only tools (auto-selected)

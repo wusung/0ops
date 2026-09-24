@@ -4,7 +4,7 @@
 // Two entry points share the same downstream side-effect path:
 //
 //  1. Service.Preview / Service.Confirm — preview/confirm gate that backs the
-//     CLI `0ops deploys redeploy` and MCP `redeploy_preview`/`redeploy` tools.
+//     CLI `0ops deploys redeploy` (preview → confirm).
 //     Confirm replays last_result on idempotent retry (ADR-0002 B1).
 //
 //  2. Trigger.Trigger — webhook-driven entry. Skips preview/confirm because

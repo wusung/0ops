@@ -16,7 +16,7 @@ import (
 type Source string
 
 const (
-	// SourceUser indicates a CLI/MCP-initiated redeploy that traversed the
+	// SourceUser indicates a CLI-initiated redeploy that traversed the
 	// preview-confirm gate.
 	SourceUser Source = "user"
 	// SourceWebhook indicates a `push` webhook delivered by GitHub.

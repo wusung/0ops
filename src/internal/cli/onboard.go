@@ -4,6 +4,7 @@
 // 0ops onboard <host> 把 install 後的登入串成一條指令：
 //
 //	確認 auth.json 對 <host> 已有有效 token；無則跑 device-flow login
+//	把 skill 裝到使用者層，讓 agent 認得 0ops（--skip-skill 可略過）
 package cli
 
 import (
@@ -11,11 +12,13 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/wusung/0ops/internal/cli/skillasset"
 	"github.com/wusung/0ops/internal/shared/authconfig"
 )
 
 func newOnboardCommand() *cobra.Command {
 	var skipLogin bool
+	var skipSkill bool
 	cmd := &cobra.Command{
 		Use:   "onboard <host>",
 		Short: "One-shot setup: login to this 0ops backend",
@@ -23,8 +26,10 @@ func newOnboardCommand() *cobra.Command {
 
   - Checks auth.json for an existing token for <host>.
   - If missing, runs the device-flow login against <host>.
+  - Installs the 0ops skill at the user level so your AI CLI knows these
+    commands (skip with --skip-skill; re-runnable as: 0ops skill install).
 
-Idempotent: re-run is a no-op when login is fresh.`,
+Idempotent: re-run is a no-op when login is fresh and the skill is current.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			host := normalizeOpsHost(args[0])
@@ -44,10 +49,25 @@ Idempotent: re-run is a no-op when login is fresh.`,
 				}
 			}
 
+			// --- 2. skill ---
+			// A failed install must not fail onboard: the login already
+			// succeeded and the skill can be added afterwards.
+			if !skipSkill {
+				target, err := skillTargetPath(cmd, "")
+				if err == nil {
+					err = writeSkill(out, target, skillasset.Markdown())
+				}
+				if err != nil {
+					fmt.Fprintf(out, "skill: install failed (%v)\n", err)
+					fmt.Fprintf(out, "skill: run `0ops skill install` to retry\n")
+				}
+			}
+
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&skipLogin, "skip-login", false, "skip device-flow login step")
+	cmd.Flags().BoolVar(&skipSkill, "skip-skill", false, "skip installing the 0ops skill")
 	return cmd
 }
 

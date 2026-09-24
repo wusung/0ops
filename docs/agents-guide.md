@@ -20,12 +20,12 @@
 
 ## 2. 專案目標邊界
 
-`0ops` v1 是 **AI coding agent 原生用來「出貨」的工具**——agent（claude code / codex）把程式寫完後原生呼叫它部署。CLI 與 MCP 是接入**機制（how）**,非身份（who）。
+`0ops` v1 是 **AI coding agent 原生用來「出貨」的工具**——agent（claude code / codex）把程式寫完後原生呼叫它部署。CLI 與 skill 是接入**機制（how）**,非身份（who）。
 
 允許的主要介面：
 
-- `0ops` CLI
-- `0ops-mcp` stdio MCP server
+- `0ops` CLI（agent 的唯一入口）
+- `.claude/skills/0ops/SKILL.md`（agent 行為規約；由 `0ops skill install` 分發）
 - `0ops-server` REST/SSE backend
 
 v1 明確不做：
@@ -46,14 +46,13 @@ v1 明確不做：
 - 後端語言固定為 Go
 - HTTP framework 固定為 `chi`
 - CLI 固定為 `cobra`
-- MCP server 使用 stdio transport
 - 資料庫固定為 Postgres
 - SQL 存取以 `sqlc + pgx` 為主
 
 ### 3.2 命名約束
 
-- Go module path 不可用數字開頭；專案內部名稱使用 `zeroops` / `server` / `cli` / `mcp` / `shared`
-- binary 輸出名稱才使用 `0ops`、`0ops-mcp`、`0ops-server`
+- Go module path 不可用數字開頭；專案內部名稱使用 `server` / `cli` / `shared`
+- binary 輸出名稱才使用 `0ops`、`0ops-server`
 - app slug 在 team 內唯一，不可假設全域唯一
 - 所有 team 範圍資源必須以 `team_slug` 或 `team_id` 作為第一層邊界
 
@@ -63,10 +62,8 @@ v1 明確不做：
 
 - `cmd/server`：backend binary 入口
 - `cmd/cli`：CLI binary 入口
-- `cmd/mcp`：MCP server binary 入口
 - `internal/server`：API、middleware、service、preview gate、auth、db
 - `internal/cli`：CLI command、interactive confirm、輸出格式
-- `internal/mcp`：tool registry、backend client、auth cache
 - `internal/shared`：共用 DTO 與 preview schema
 - `migrations`：schema migration
 - `deploy`：chart、gitops、workflow
@@ -88,7 +85,7 @@ v1 明確不做：
 
 - 直接在單一 endpoint 執行破壞性操作
 - CLI 用 `--yes` 繞過 preview
-- MCP tool 將 preview/confirm 合併為單一步驟
+- skill 指示 agent 把 preview/confirm 合併為單一回合
 
 允許：
 
@@ -121,7 +118,7 @@ v1 明確不做：
 - token scope 與 role 是正交關係
 - 實際權限是 `role × scope` 的交集
 
-## 6. CLI 與 MCP 規範
+## 6. CLI 與 skill 規範
 
 ### 6.1 CLI
 
@@ -129,12 +126,13 @@ v1 明確不做：
 - 輸出支援 `table / json / yaml`
 - `0ops teams use <slug>` 只改本地 context，不應觸發 server 寫入
 
-### 6.2 MCP
+### 6.2 skill
 
-- 每個 write action 必須拆成 `<action>_preview` 與 `<action>`
-- write tool 的 `team_slug` 必填
-- 無 token 時，tool 應明確引導先執行 `0ops auth login`
-- logging 走 `stderr`，避免污染 stdio protocol
+- 每個寫入命令都要先 `--dry-run` 取 preview，呈報後才執行實際命令
+- 破壞性命令（`apps delete`、`members remove`、`teams github uninstall`）不得在同一回合完成
+- agent 不得用 `--yes` 略過確認
+- 無 token 時，先引導使用者執行 `0ops auth login`
+- 規約全文在 `.claude/skills/0ops/SKILL.md`，由 `skill_contract_test.go` 釘住
 
 禁止把「由 LLM 呈現 preview 給使用者」這件事省略掉。
 
@@ -178,7 +176,7 @@ M2 起必須具備，不可視為「之後再補」：
 - `testing` 單元測試
 - `httptest` API handler 測試
 - DB 整合測試
-- CLI / MCP 與 backend DTO contract test
+- CLI 與 backend DTO contract test；skill 與真實 command tree 的 contract test
 
 高風險區域必測：
 
@@ -215,7 +213,7 @@ M2 起必須具備，不可視為「之後再補」：
 1. 是否破壞 team 邊界
 2. 是否繞過 preview/confirm
 3. 是否引入無法補償的副作用
-4. 是否讓 CLI、MCP、backend 三者 contract 漂移
+4. 是否讓 CLI、skill、backend 三者 contract 漂移
 5. 是否把 v2 範圍偷渡進 v1
 
 若答案是「會」，停止實作並先修正設計。
@@ -228,7 +226,7 @@ M2 起必須具備，不可視為「之後再補」：
 2. 再拆 implementation plan
 3. 先定義 shared DTO / schema
 4. 再實作 backend contract
-5. 再接 CLI 與 MCP
+5. 再接 CLI 與 skill
 6. 最後補 observability、測試、文件
 
 不要先做 CLI 假流程，再補 backend；這會製造雙重規格來源。

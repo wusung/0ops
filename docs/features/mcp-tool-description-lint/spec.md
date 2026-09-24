@@ -1,6 +1,7 @@
 # Feature Spec：mcp-tool-description-lint
 
-> **狀態**：draft
+> **狀態**：superseded（MCP 入口已於 PR #174 移除；R1/R2/R3 的職責改由
+> `docs/features/agent-skill/spec.md` § 5 的規約與 `skill_contract_test.go` 承擔）
 > **來源**：`docs/0ops-plan.md`「MCP server」「Tool description 強制約定」「Skill packs」段；ADR-0003（MCP SDK 選型）；ADR-0002（兩階段寫入強制）
 > **適用範圍**：`0ops-mcp` binary 啟動時對自身 tool description 的 lint、SKILL.md 範本與 verbatim 同步、三家 AI CLI 相容性矩陣產出格式
 > **對應 Milestone**：M1（read-only tools 上線時即必須有 lint；M0 spike 結果決定 streaming 路徑）

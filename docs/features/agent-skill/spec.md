@@ -7,7 +7,9 @@
 
 ## 1. 結論（先讀本段）
 
-- skill 落於 repo 內 `.claude/skills/0ops/SKILL.md`，隨 repo 分發；不寫使用者層，避免與他人機器設定衝突。
+- skill 落於 repo 內 `.claude/skills/0ops/SKILL.md`，隨 repo 分發；**這一份**不自動寫使用者層，
+  避免與他人機器設定衝突。end user 端的分發另由 `0ops skill install` 承擔，
+  見 `docs/features/agent-skill/skill-distribution-spec.md`（修訂本條的適用範圍）。
 - skill 只描述「何時觸發、該下哪條 `0ops` 指令、哪些指令禁止 agent 執行、preview/confirm 如何取得人類同意」。不含任何 API 實作、不含 token。
 - 護欄由三層承擔：**backend**（preview TTL、actor 綁定、typed-slug guard）、**CLI**（互動 prompt、`--dry-run`）、**skill**（agent 行為規約）。skill 是最弱的一層，因此不得成為唯一防線——任何破壞性能力都必須在 backend 側已具備 preview/confirm。
 - MCP 版的 description lint（R1/R2/R3）無對應自動檢查；改以本 spec § 5 的規約與 § 7 的 skill 內容測試固化。
@@ -23,7 +25,7 @@
 ### 2.2 不包含
 - CLI 本身的旗標與輸出格式（屬各 feature spec）
 - 後端授權模型（`0ops auth grant/revoke` 的 tool 名稱仍沿用 MCP 時期命名，另案處理）
-- 使用者層 skill 或其他 agent（Codex / Copilot）的等價設定
+- 其他 agent（Codex / Copilot）的等價設定；使用者層安裝見 skill-distribution-spec.md
 
 ## 3. 觸發條件
 

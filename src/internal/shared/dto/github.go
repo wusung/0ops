@@ -3,7 +3,7 @@ package dto
 import "time"
 
 // GitHubInstallResponse is the confirm-install last_result envelope returned
-// to CLI/MCP callers (github-app-install-flow spec § 4.3).
+// to CLI callers (github-app-install-flow spec § 4.3).
 type GitHubInstallResponse struct {
 	InstallURL string    `json:"install_url"`
 	ExpiresAt  time.Time `json:"expires_at"`

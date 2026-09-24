@@ -114,7 +114,7 @@ func newAuthCommand() *cobra.Command {
 
 	cmd.AddCommand(&cobra.Command{
 		Use:   "grant <tool>",
-		Short: "Grant permission for an MCP tool",
+		Short: "Grant permission for an agent tool",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return handleAuthGrant(cmd, hostFlag, tokenFlag, args[0])
@@ -123,7 +123,7 @@ func newAuthCommand() *cobra.Command {
 
 	cmd.AddCommand(&cobra.Command{
 		Use:   "revoke <tool>",
-		Short: "Revoke permission for an MCP tool",
+		Short: "Revoke permission for an agent tool",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return handleAuthRevoke(cmd, hostFlag, tokenFlag, args[0])
@@ -514,7 +514,7 @@ func patchToolGrants(ctx context.Context, host, token string, grant, revoke []st
 	return &respBody, nil
 }
 
-// handleAuthGrant grants permission for an MCP tool
+// handleAuthGrant grants permission for an agent tool
 func handleAuthGrant(cmd *cobra.Command, baseURL string, tokenFlag string, tool string) error {
 	ctxInfo, err := resolveBackendContext(baseURL, tokenFlag)
 	if err != nil {
@@ -539,7 +539,7 @@ func handleAuthGrant(cmd *cobra.Command, baseURL string, tokenFlag string, tool 
 	return nil
 }
 
-// handleAuthRevoke revokes permission for an MCP tool
+// handleAuthRevoke revokes permission for an agent tool
 func handleAuthRevoke(cmd *cobra.Command, baseURL string, tokenFlag string, tool string) error {
 	ctxInfo, err := resolveBackendContext(baseURL, tokenFlag)
 	if err != nil {

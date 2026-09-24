@@ -15,7 +15,7 @@ import (
 )
 
 // PreviewAction is the canonical preview.action value persisted on the
-// preview row for user-initiated redeploys (spec § 6 + MCP lint § 4.3).
+// preview row for user-initiated redeploys (spec § 6).
 const PreviewAction = "redeploy"
 
 // Sentinel errors surfaced to the handler layer for class mapping. Kept

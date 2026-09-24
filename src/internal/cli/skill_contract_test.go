@@ -39,6 +39,7 @@ var humanOnly = map[string]bool{
 	"auth tokens create":    true,
 	"auth tokens list":      true,
 	"auth tokens revoke":    true,
+	"skill install":         true,
 	"sso status":            true,
 	"sso deprovision":       true,
 }

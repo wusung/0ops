@@ -23,7 +23,7 @@
 # Installs:
 #   $INSTALL_DIR/0ops
 # Then (unless NO_ONBOARD=1):
-#   $INSTALL_DIR/0ops onboard $OPS_HOST
+#   $INSTALL_DIR/0ops onboard $OPS_HOST   (device-flow login + skill install)
 #
 # Verifies sha256 from the release's checksums.txt.
 
@@ -194,6 +194,7 @@ DONE — 0ops $tag installed.
 
 Next:
   0ops auth login --host=<your-0ops-backend>     # eg. https://0ops.jesontech.com
+  0ops skill install                             # 讓你的 AI CLI 認得 0ops
   0ops apps list
 
 Hint: drop NO_ONBOARD=1 to have the installer do these steps for you

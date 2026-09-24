@@ -45,7 +45,7 @@ type QueryResult struct {
 	NextCursor string
 }
 
-// Row mirrors the columns exposed via the HTTP / MCP query API. Args
+// Row mirrors the columns exposed via the HTTP query API. Args
 // and result are the post-redaction JSON payloads stored at write time;
 // the reader does not redact a second time.
 type Row struct {

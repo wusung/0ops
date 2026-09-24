@@ -116,7 +116,8 @@ func monthStartFromLabel(label string) time.Time {
 
 // newAuditVerifyCommand wires `0ops audit verify` — the operator / auditor tool
 // that fetches the export for a range and recomputes every chain, exiting
-// non-zero on any break (spec § 7.1). Never exposed via MCP (hard rule #9).
+// non-zero on any break (spec § 7.1). Human-only: the skill lists it as a
+// command agents may explain but never run (hard rule #9).
 func newAuditVerifyCommand(teamSlug, baseURL, token, _ *string) *cobra.Command {
 	var since, until string
 
