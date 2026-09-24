@@ -353,6 +353,54 @@ ImagePullSecret 必須在 namespace 建立**前**或**同時**就緒，否則第
 - Team archive（透過 `0ops teams archive`，v1.1 範圍）：保留 namespace 但 quota 設 0；現有 pod 持續跑直到自然死亡；新 pod 擋住
 - 物理刪 namespace 屬 v2 範圍（含 `delete_team`）
 
+### 9.4 Backend 的 K8s 權限（chart 實況）
+
+backend 以 `system-0ops` 內的 in-cluster ServiceAccount 連線（無 `KUBECONFIG` 時
+`k3s/client.go` 退回 `rest.InClusterConfig()`）。chart 實際渲染出來的 RBAC 物件只有以下
+三份，程式不得依賴任何未列於此的權限（其他 spec 另有規範但未落地者，見本節末的歧異段）：
+
+| 物件 | 範圍 | 授予 | 為何是該範圍 |
+|---|---|---|---|
+| `Role  <sa>-lease` | `system-0ops` | `coordination.k8s.io/leases`：get/watch/update/patch（`resourceNames` 限單一 Lease）+ create/list | leader election（§ 14 硬規則 #2） |
+| `ClusterRole <sa>-provisioner` | cluster | `namespaces` get/create/update/delete；`resourcequotas`/`limitranges` get/update（`resourceNames: default`）、`secrets` get/update（`ghcr-pull`）、`networkpolicies` get/update（`default-deny-ingress`/`default-egress`）；上述四者另有不受 resourceNames 限制的 create；`argoproj.io/applications` get | § 9.1 的 saga 寫入。team namespace 為執行期動態建立，無法事先逐一綁 RoleBinding；`namespaces` 本身即 cluster-scoped |
+| `ClusterRole <sa>-usage-reader` | cluster | `pods` list/watch；`metrics.k8s.io/pods` get/list（`usage.enabled` 才渲染） | allocation ledger 跨 namespace 觀測；恆為唯讀 |
+
+verbs 對齊 `client.go` 實際呼叫（`upsertResource` 走 get → create/update；
+`PatchNamespacePSA` 走 get + update）。
+
+**收斂方式**：provisioner 綁的是 ClusterRoleBinding，namespaced 資源的權限因此擴及
+所有 namespace。單純不給 list/watch 並不足夠——`client.go` 寫入的物件名稱全部固定
+（`ghcr-pull`、`default`、`default-deny-ingress`、`default-egress`），team slug 又可
+自 0ops 自身 DB 取得，因此名稱可預測、`get` 就足以讀到他團資源。故凡固定名稱者，
+get/update 一律以 `resourceNames` 釘住。`create` 無法以 resourceNames 收斂（K8s RBAC
+限制），單獨成 rule；它對既有物件會 AlreadyExists，爆炸半徑遠小於 get/update。
+list/watch 與 wildcard 一律不給。以上由 `src/internal/helmchart/chart_test.go`
+（`TestProvisionerClusterRoleGrantsNoBroadReads`、`TestProvisionerFixedNameObjectsArePinned`）
+以結構化解析釘住，非字串比對。
+
+**殘留爆炸半徑（誠實記錄，勿在別處改寫成「已最小化」）**：`namespaces` 的名稱為執行期
+產生的 `team-<slug>`，無法以 resourceNames 列舉，故 get/create/update/delete 維持全叢集
+範圍。其後果是實質的：PSA 純由 namespace label 驅動，能 update 任一 namespace 即能把
+`pod-security.kubernetes.io/enforce` 降級或移除，再經既有 GitOps manifest 路徑投放
+特權 pod；能 delete 則可摧毀 `kube-system` / `argocd`。**backend pod 被攻陷 ≈ 取得
+cluster-admin 等價能力**，此為目前架構接受的風險，不是已緩解的風險。租戶 API 無法直接
+觸發——所有 `DeleteNamespace` / `PatchNamespacePSA` call site 傳入的都是後端自算的
+`team-<slug>`，無使用者輸入路徑。若要真正消除，需改走「backend 只建 namespace，其餘
+物件由 namespace 內自建的 Role/RoleBinding 授權」或交由 GitOps 代為 apply，屬 v1.1 議題。
+
+若部署改以其他身分（kubeconfig）執行 namespace provisioning，必須回來改這張表，
+不可讓 chart 與實際部署對「backend 被允許做什麼」各說各話。
+
+**與其他文件的已知歧異（未解，勿當成已對齊）**：本表描述的是 `deploy/server/templates/`
+的實況。`secrets-management` § 6 另行規範了兩個**目前不存在於 chart** 的物件——
+`ops-server-secrets-read`（`system-0ops` 內的 namespaced Role，對 `cloudflare-api-token`、
+`github-app-private-key` 等具名 system secret 給 get/watch/list）與獨立的
+`ops-server-ghcr-pull-write` ClusterRole（含 `patch`）。實際的 ghcr-pull 授權併入了本表的
+provisioner，且不給 `patch`。連帶地，`security-hardening/baseline-matrix.md` 與
+`security-hardening/spec.md` 標記「Secret K8s RBAC resourceNames 限定／backend 僅可讀列舉
+secret／已具備」在兩個方向上都不準確：system secret 的讀取 Role 根本沒被渲染出來，而實際存在
+的 secret 授權不是唯讀。這三份文件要對齊到哪一種設計，是尚未做的決定，不在 issue #163 範圍內。
+
 ## 10. 與其他 spec 接合點
 
 | 接合 | spec |

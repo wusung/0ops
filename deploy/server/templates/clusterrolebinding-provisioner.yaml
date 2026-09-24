@@ -1,0 +1,15 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s-provisioner" .Values.serviceAccount.name | quote }}
+  labels:
+    app: ops-server
+    app.0ops.io/managed-by: 0ops
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.serviceAccount.name | quote }}
+    namespace: {{ .Values.namespace | quote }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ printf "%s-provisioner" .Values.serviceAccount.name | quote }}

@@ -18,9 +18,34 @@ type App struct {
 	ImageRef          pgtype.Text
 	Builder           pgtype.Text
 	CreatedBy         pgtype.UUID
-	Status            pgtype.Text
+	Status            string
 	CreatedAt         pgtype.Timestamptz
 	UpdatedAt         pgtype.Timestamptz
+}
+
+type AppSourceUpload struct {
+	ID            string
+	TeamID        pgtype.UUID
+	ActorUserID   pgtype.UUID
+	SizeBytes     int64
+	Sha256        string
+	ArchiveFormat string
+	Status        string
+	PinnedAt      pgtype.Timestamptz
+	ExpiresAt     pgtype.Timestamptz
+	ReceivedAt    pgtype.Timestamptz
+	GcAt          pgtype.Timestamptz
+}
+
+type AuditChainHead struct {
+	TeamID         pgtype.UUID
+	PartitionMonth pgtype.Date
+	GenesisHash    []byte
+	TipHash        []byte
+	RowCount       int64
+	FirstRowID     pgtype.Int8
+	LastRowID      pgtype.Int8
+	UpdatedAt      pgtype.Timestamptz
 }
 
 type AuditLog struct {
@@ -35,6 +60,184 @@ type AuditLog struct {
 	PreviewID   pgtype.UUID
 	TraceID     pgtype.Text
 	CreatedAt   pgtype.Timestamptz
+	Source      string
+	Outcome     string
+	HttpStatus  pgtype.Int4
+	PrevHash    []byte
+	RowHash     []byte
+}
+
+type AuditLog202601 struct {
+	ID          int64
+	TeamID      pgtype.UUID
+	ActorUserID pgtype.UUID
+	SubjectType pgtype.Text
+	SubjectID   pgtype.UUID
+	Action      string
+	Args        []byte
+	Result      []byte
+	PreviewID   pgtype.UUID
+	TraceID     pgtype.Text
+	CreatedAt   pgtype.Timestamptz
+	Source      string
+	Outcome     string
+	HttpStatus  pgtype.Int4
+}
+
+type AuditLog202602 struct {
+	ID          int64
+	TeamID      pgtype.UUID
+	ActorUserID pgtype.UUID
+	SubjectType pgtype.Text
+	SubjectID   pgtype.UUID
+	Action      string
+	Args        []byte
+	Result      []byte
+	PreviewID   pgtype.UUID
+	TraceID     pgtype.Text
+	CreatedAt   pgtype.Timestamptz
+	Source      string
+	Outcome     string
+	HttpStatus  pgtype.Int4
+}
+
+type AuditLog202603 struct {
+	ID          int64
+	TeamID      pgtype.UUID
+	ActorUserID pgtype.UUID
+	SubjectType pgtype.Text
+	SubjectID   pgtype.UUID
+	Action      string
+	Args        []byte
+	Result      []byte
+	PreviewID   pgtype.UUID
+	TraceID     pgtype.Text
+	CreatedAt   pgtype.Timestamptz
+	Source      string
+	Outcome     string
+	HttpStatus  pgtype.Int4
+}
+
+type AuditLog202604 struct {
+	ID          int64
+	TeamID      pgtype.UUID
+	ActorUserID pgtype.UUID
+	SubjectType pgtype.Text
+	SubjectID   pgtype.UUID
+	Action      string
+	Args        []byte
+	Result      []byte
+	PreviewID   pgtype.UUID
+	TraceID     pgtype.Text
+	CreatedAt   pgtype.Timestamptz
+	Source      string
+	Outcome     string
+	HttpStatus  pgtype.Int4
+}
+
+type AuditLog202605 struct {
+	ID          int64
+	TeamID      pgtype.UUID
+	ActorUserID pgtype.UUID
+	SubjectType pgtype.Text
+	SubjectID   pgtype.UUID
+	Action      string
+	Args        []byte
+	Result      []byte
+	PreviewID   pgtype.UUID
+	TraceID     pgtype.Text
+	CreatedAt   pgtype.Timestamptz
+	Source      string
+	Outcome     string
+	HttpStatus  pgtype.Int4
+}
+
+type AuditLog202606 struct {
+	ID          int64
+	TeamID      pgtype.UUID
+	ActorUserID pgtype.UUID
+	SubjectType pgtype.Text
+	SubjectID   pgtype.UUID
+	Action      string
+	Args        []byte
+	Result      []byte
+	PreviewID   pgtype.UUID
+	TraceID     pgtype.Text
+	CreatedAt   pgtype.Timestamptz
+	Source      string
+	Outcome     string
+	HttpStatus  pgtype.Int4
+}
+
+type AuditLog202607 struct {
+	ID          int64
+	TeamID      pgtype.UUID
+	ActorUserID pgtype.UUID
+	SubjectType pgtype.Text
+	SubjectID   pgtype.UUID
+	Action      string
+	Args        []byte
+	Result      []byte
+	PreviewID   pgtype.UUID
+	TraceID     pgtype.Text
+	CreatedAt   pgtype.Timestamptz
+	Source      string
+	Outcome     string
+	HttpStatus  pgtype.Int4
+}
+
+type AuditLog202608 struct {
+	ID          int64
+	TeamID      pgtype.UUID
+	ActorUserID pgtype.UUID
+	SubjectType pgtype.Text
+	SubjectID   pgtype.UUID
+	Action      string
+	Args        []byte
+	Result      []byte
+	PreviewID   pgtype.UUID
+	TraceID     pgtype.Text
+	CreatedAt   pgtype.Timestamptz
+	Source      string
+	Outcome     string
+	HttpStatus  pgtype.Int4
+}
+
+type AuditLogArchive struct {
+	ID          int64
+	TeamID      pgtype.UUID
+	ActorUserID pgtype.UUID
+	SubjectType pgtype.Text
+	SubjectID   pgtype.UUID
+	Action      string
+	Args        []byte
+	Result      []byte
+	PreviewID   pgtype.UUID
+	TraceID     pgtype.Text
+	CreatedAt   pgtype.Timestamptz
+	Source      string
+	Outcome     string
+	HttpStatus  pgtype.Int4
+	ArchivedAt  pgtype.Timestamptz
+	PrevHash    []byte
+	RowHash     []byte
+}
+
+type AuditLogHistory struct {
+	ID          int64
+	TeamID      pgtype.UUID
+	ActorUserID pgtype.UUID
+	SubjectType pgtype.Text
+	SubjectID   pgtype.UUID
+	Action      string
+	Args        []byte
+	Result      []byte
+	PreviewID   pgtype.UUID
+	TraceID     pgtype.Text
+	CreatedAt   pgtype.Timestamptz
+	Source      string
+	Outcome     string
+	HttpStatus  pgtype.Int4
 }
 
 type CliToken struct {
@@ -47,6 +250,10 @@ type CliToken struct {
 	LastUsedAt  pgtype.Timestamptz
 	CreatedAt   pgtype.Timestamptz
 	RevokedAt   pgtype.Timestamptz
+	ExpiresAt   pgtype.Timestamptz
+	Kind        string
+	AuthSource  string
+	IdpConfigID pgtype.UUID
 }
 
 type DeployRun struct {
@@ -65,6 +272,10 @@ type DeployRun struct {
 	StartedAt             pgtype.Timestamptz
 	FinishedAt            pgtype.Timestamptz
 	ErrorSummary          pgtype.Text
+	Source                string
+	WebhookDeliveryID     pgtype.Text
+	ActorUserID           pgtype.UUID
+	ImageDigest           pgtype.Text
 }
 
 type DomainBinding struct {
@@ -82,6 +293,66 @@ type DomainBinding struct {
 	VerifiedAt        pgtype.Timestamptz
 }
 
+type IdpConfig struct {
+	ID              pgtype.UUID
+	TeamID          pgtype.UUID
+	Protocol        string
+	DisplayName     pgtype.Text
+	Issuer          string
+	DiscoveryUrl    pgtype.Text
+	ClientID        string
+	ClientSecretRef string
+	Scopes          []string
+	Enforce         bool
+	JitDefaultRole  string
+	GroupClaim      pgtype.Text
+	GroupRoleMap    []byte
+	PatPolicy       string
+	SessionMaxTtlS  int32
+	MetadataUrl     pgtype.Text
+	SpEntityID      pgtype.Text
+	IdpCert         pgtype.Text
+	CreatedBy       pgtype.UUID
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+type IdpDomain struct {
+	ID                pgtype.UUID
+	IdpConfigID       pgtype.UUID
+	TeamID            pgtype.UUID
+	Domain            string
+	VerificationToken string
+	Verified          bool
+	VerifiedAt        pgtype.Timestamptz
+	CreatedAt         pgtype.Timestamptz
+}
+
+type IdpIdentity struct {
+	IdpConfigID   pgtype.UUID
+	UserID        pgtype.UUID
+	IdpSubject    string
+	Email         pgtype.Text
+	LastLoginAt   pgtype.Timestamptz
+	DeactivatedAt pgtype.Timestamptz
+	CreatedAt     pgtype.Timestamptz
+}
+
+type Incident struct {
+	ID          pgtype.UUID
+	TeamID      pgtype.UUID
+	SubjectType string
+	SubjectID   pgtype.UUID
+	Kind        string
+	Severity    string
+	Description pgtype.Text
+	TraceID     pgtype.Text
+	OpenedAt    pgtype.Timestamptz
+	ClosedAt    pgtype.Timestamptz
+	ClosedBy    pgtype.UUID
+	ClosedNote  pgtype.Text
+}
+
 type Preview struct {
 	ID             pgtype.UUID
 	TeamID         pgtype.UUID
@@ -95,6 +366,9 @@ type Preview struct {
 	ExpiresAt      pgtype.Timestamptz
 	ConsumedAt     pgtype.Timestamptz
 	CreatedAt      pgtype.Timestamptz
+	TraceID        pgtype.Text
+	RiskLevel      pgtype.Text
+	RequiredPhrase pgtype.Text
 }
 
 type ReconciliationJob struct {
@@ -109,6 +383,8 @@ type ReconciliationJob struct {
 	LastError     pgtype.Text
 	CreatedAt     pgtype.Timestamptz
 	CompletedAt   pgtype.Timestamptz
+	Status        string
+	TraceID       pgtype.Text
 }
 
 type Team struct {
@@ -122,12 +398,14 @@ type Team struct {
 }
 
 type TeamMembership struct {
-	TeamID    pgtype.UUID
-	UserID    pgtype.UUID
-	Role      string
-	InvitedAt pgtype.Timestamptz
-	JoinedAt  pgtype.Timestamptz
-	InvitedBy pgtype.UUID
+	TeamID        pgtype.UUID
+	UserID        pgtype.UUID
+	Role          string
+	InvitedAt     pgtype.Timestamptz
+	JoinedAt      pgtype.Timestamptz
+	InvitedBy     pgtype.UUID
+	AuthSource    string
+	DeactivatedAt pgtype.Timestamptz
 }
 
 type ToolGrant struct {
@@ -138,6 +416,39 @@ type ToolGrant struct {
 	Allowed          bool
 	GrantedAt        pgtype.Timestamptz
 	GrantedByActorID pgtype.UUID
+}
+
+type UsageAllocationInterval struct {
+	PodUid        pgtype.UUID
+	TeamID        pgtype.UUID
+	AppID         pgtype.UUID
+	Namespace     string
+	PodName       string
+	CpuMillicores int32
+	MemoryBytes   int64
+	GpuCount      int32
+	GpuType       pgtype.Text
+	StartedAt     pgtype.Timestamptz
+	EndedAt       pgtype.Timestamptz
+	LastSeenAt    pgtype.Timestamptz
+	Estimated     bool
+	ClosedReason  pgtype.Text
+	CreatedAt     pgtype.Timestamptz
+	// When the ledger closed this interval (wall clock), as opposed to ended_at, which is the pod's own timestamp. Used to detect rollups computed before this interval reached its final shape.
+	ClosedAt pgtype.Timestamptz
+}
+
+type UsageDailyRollup struct {
+	TeamID              pgtype.UUID
+	AppID               pgtype.UUID
+	Day                 pgtype.Date
+	CpuMillicoreSeconds int64
+	MemoryByteSeconds   pgtype.Numeric
+	GpuCountSeconds     int64
+	PodSeconds          int64
+	EstimatedSeconds    int64
+	IntervalCount       int32
+	ComputedAt          pgtype.Timestamptz
 }
 
 type UsageSample struct {
@@ -165,4 +476,111 @@ type WebhookDedup struct {
 	Provider   string
 	DeliveryID string
 	ReceivedAt pgtype.Timestamptz
+}
+
+type WebhookDelivery struct {
+	ID             pgtype.UUID
+	SubscriptionID pgtype.UUID
+	TeamID         pgtype.UUID
+	AuditLogID     int64
+	Event          string
+	Payload        []byte
+	Status         string
+	Attempt        int32
+	MaxAttempts    int32
+	NextAttemptAt  pgtype.Timestamptz
+	ResponseStatus pgtype.Int4
+	ResponseMs     pgtype.Int4
+	Error          pgtype.Text
+	CreatedAt      pgtype.Timestamptz
+	DeliveredAt    pgtype.Timestamptz
+}
+
+type WebhookDelivery202606 struct {
+	ID             pgtype.UUID
+	SubscriptionID pgtype.UUID
+	TeamID         pgtype.UUID
+	AuditLogID     int64
+	Event          string
+	Payload        []byte
+	Status         string
+	Attempt        int32
+	MaxAttempts    int32
+	NextAttemptAt  pgtype.Timestamptz
+	ResponseStatus pgtype.Int4
+	ResponseMs     pgtype.Int4
+	Error          pgtype.Text
+	CreatedAt      pgtype.Timestamptz
+	DeliveredAt    pgtype.Timestamptz
+}
+
+type WebhookDelivery202607 struct {
+	ID             pgtype.UUID
+	SubscriptionID pgtype.UUID
+	TeamID         pgtype.UUID
+	AuditLogID     int64
+	Event          string
+	Payload        []byte
+	Status         string
+	Attempt        int32
+	MaxAttempts    int32
+	NextAttemptAt  pgtype.Timestamptz
+	ResponseStatus pgtype.Int4
+	ResponseMs     pgtype.Int4
+	Error          pgtype.Text
+	CreatedAt      pgtype.Timestamptz
+	DeliveredAt    pgtype.Timestamptz
+}
+
+type WebhookDelivery202608 struct {
+	ID             pgtype.UUID
+	SubscriptionID pgtype.UUID
+	TeamID         pgtype.UUID
+	AuditLogID     int64
+	Event          string
+	Payload        []byte
+	Status         string
+	Attempt        int32
+	MaxAttempts    int32
+	NextAttemptAt  pgtype.Timestamptz
+	ResponseStatus pgtype.Int4
+	ResponseMs     pgtype.Int4
+	Error          pgtype.Text
+	CreatedAt      pgtype.Timestamptz
+	DeliveredAt    pgtype.Timestamptz
+}
+
+type WebhookDeliveryDefault struct {
+	ID             pgtype.UUID
+	SubscriptionID pgtype.UUID
+	TeamID         pgtype.UUID
+	AuditLogID     int64
+	Event          string
+	Payload        []byte
+	Status         string
+	Attempt        int32
+	MaxAttempts    int32
+	NextAttemptAt  pgtype.Timestamptz
+	ResponseStatus pgtype.Int4
+	ResponseMs     pgtype.Int4
+	Error          pgtype.Text
+	CreatedAt      pgtype.Timestamptz
+	DeliveredAt    pgtype.Timestamptz
+}
+
+type WebhookSubscription struct {
+	ID                  pgtype.UUID
+	TeamID              pgtype.UUID
+	Url                 string
+	Events              []string
+	SecretRef           string
+	SecretMaterial      string
+	Description         pgtype.Text
+	Active              bool
+	DisabledReason      pgtype.Text
+	ConsecutiveFailures int32
+	LastDeliveryAt      pgtype.Timestamptz
+	CreatedBy           pgtype.UUID
+	CreatedAt           pgtype.Timestamptz
+	UpdatedAt           pgtype.Timestamptz
 }

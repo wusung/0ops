@@ -609,7 +609,12 @@ func (r *Repository) ListDeployLogLines(ctx context.Context, teamID string, appS
 
 // FindCliTokenByID loads a token by primary key.
 func (r *Repository) FindCliTokenByID(ctx context.Context, tokenID string) (CliToken, error) {
-	row, err := r.queries.FindCliTokenByID(ctx, tokenID)
+	parsedTokenID, err := parseUUID(tokenID)
+	if err != nil {
+		return CliToken{}, fmt.Errorf("parse token id: %w", err)
+	}
+
+	row, err := r.queries.FindCliTokenByID(ctx, parsedTokenID)
 	if err != nil {
 		return CliToken{}, err
 	}
@@ -619,7 +624,7 @@ func (r *Repository) FindCliTokenByID(ctx context.Context, tokenID string) (CliT
 		OwnerUserID: row.OwnerUserID.String(),
 		TeamID:      row.TeamID.String(),
 		Kind:        row.Kind,
-		Name:        row.Name,
+		Name:        row.Name.String,
 		TokenHash:   row.TokenHash,
 		Scopes:      append([]string(nil), row.Scopes...),
 		CreatedAt:   row.CreatedAt.Time,

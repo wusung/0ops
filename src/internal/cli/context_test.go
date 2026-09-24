@@ -8,7 +8,12 @@ import (
 )
 
 func TestResolveHostUsesDotEnvPort(t *testing.T) {
+	// Both env vars must be neutralised: resolveHost prefers OPS_HOST_PORT
+	// from the process environment over the .env file, so an ambient value
+	// (make/direnv export it from the repo .env) silently wins and the test
+	// fails only in the environments that happen to set it.
 	t.Setenv("OPS_HOST", "")
+	t.Setenv("OPS_HOST_PORT", "")
 	dir := t.TempDir()
 	t.Chdir(dir)
 	if err := os.WriteFile(".env", []byte("OPS_HOST_PORT=18080\n"), 0o600); err != nil {
