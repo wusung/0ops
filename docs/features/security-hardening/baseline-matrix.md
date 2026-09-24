@@ -45,6 +45,8 @@
 | 跨 namespace 拒絕常態化驗證 | 無 CI cluster；無常態 integration | **規劃中（deferred）**：需 CI cluster；本 spec 標需求，不灌水講成已具備（spec § 13 #4/#8） | `k3s-namespace-isolation` |
 | ResourceQuota / LimitRange | 依 plan tier；建立時同 transaction apply | 已具備 | `k3s-namespace-isolation` § 5 |
 | PSA | `enforce=baseline / warn=restricted` | 已具備 + 規劃中（v2 升 restricted） | `k3s-namespace-isolation` § 7 |
+| backend cluster 身分與可為之事 | in-cluster ServiceAccount `ops-server`；chart 授予 namespace get/create/update/delete，以及 resourcequota / limitrange / networkpolicy / ghcr-pull secret 的 get·create·update（get/update 皆以 `resourceNames` 釘住固定物件名） | 已具備（issue #163 前 chart 從未授予，SA 與 code 不一致） | `deploy/server/templates/clusterrole-provisioner.yaml` / `k3s-namespace-isolation` § 9.4 |
+| namespace 寫入限縮於 `team-*` | RBAC 無名稱前綴語意，故 SA 可對任一 namespace create/update/delete | **規劃中（deferred）**：需 admission policy 收斂（M9.4 policy-controller 目前 `mode: warn`） | `k3s-namespace-isolation` § 9.4 |
 
 > **§ 8 誠實處置**：default-deny-all 顯式化與跨-ns 拒絕 CI 常態驗證是 M9.3 盤出的缺口，
 > 但 manifest 歸 `k3s-namespace-isolation`、CI 常態跑需 CI cluster，故 v1 標 **deferred**，
@@ -56,7 +58,7 @@
 |---|---|---|---|
 | redactor 共用 instance | secret/token/webhook payload 不落 log/audit/error | 已具備 | `error-model` § 9 / `audit-log` § 8 |
 | secret rotation（A–D 類） | 雙 window / 週期化 | 已具備 | `secrets-management` § 5 |
-| Secret K8s RBAC `resourceNames` 限定 | backend 僅可讀列舉 secret | 已具備 | `secrets-management` § 6 |
+| Secret K8s RBAC `resourceNames` 限定 | backend 對 cluster secret 僅 `ghcr-pull` 可 get/update；create 另立不具名規則（RBAC 無法以 resourceNames 過濾 create），故可建不可讀 | 已具備（issue #163 落地；此前 chart 無任何 secret 規則，該 claim 未被任何 manifest 支撐） | `secrets-management` § 6 / `deploy/server/templates/clusterrole-provisioner.yaml` |
 | at-rest 加密金鑰管理 / 輪替 | runbook + EncryptionConfiguration 模板 | 本 spec 引入（§ 9） | `docs/runbooks/at-rest-encryption-key.md` |
 | webhook/callback 簽章驗證 | HMAC 驗章 | 已具備 | `webhook-and-redeploy` / `build-pipeline-and-callback` |
 

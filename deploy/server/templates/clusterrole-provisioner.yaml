@@ -1,0 +1,72 @@
+{{- /*
+k3s-namespace-isolation spec § 9.1：team namespace 由 backend 以 in-cluster
+ServiceAccount 直接 apply（deployment.yaml 不設 KUBECONFIG，故 k3s.Client
+走 rest.InClusterConfig）。該 SA 先前只有 role.yaml 的單一 Lease 權限，
+`EnsureTeamIsolation` 呼叫的每一個 verb 都未被授予——對新 team 的首次
+create_app 會在 namespace 這步 403（issue #163）。
+
+為何必須是 ClusterRole：namespace 本身是 cluster-scoped，且 team namespace
+是動態建立的，無法事先逐一 RoleBinding。
+
+收斂手法（與 role.yaml 對 Lease 的作法一致）：物件名稱在 client.go 中全部
+固定，故 get/update 一律用 resourceNames 釘住；create 無法以 resourceNames
+過濾（名稱在 request body 內），因此另立一條不具名的 create-only 規則——
+可建立但不可回頭讀取任意既有物件，尤其 secrets。
+
+殘餘風險（誠實記錄，非本 template 可解）：RBAC 不支援名稱前綴，故
+namespaces 的 create/update/delete 無法限縮在 `team-*`。此 SA 理論上可刪
+任一 namespace。收斂需 admission policy（M9.4 已引入 policy-controller，
+目前 mode: warn），列為 deferred；見 security-hardening baseline-matrix。
+*/ -}}
+{{- if .Values.namespaceProvisioning.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s-namespace-provisioner" .Values.serviceAccount.name | quote }}
+  labels:
+    app: ops-server
+    app.0ops.io/managed-by: 0ops
+rules:
+  # EnsureNamespace / PatchNamespacePSA / DeleteNamespace。delete 為
+  # EnsureTeamIsolation 的 rollback 路徑所需（spec § 15 hard rule #3：
+  # 失敗時不得留下半隔離的 namespace），拿掉會讓回滾自己 403。
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs:
+      - get
+      - create
+      - update
+      - delete
+  # EnsureResourceQuota / EnsureLimitRange —— client.go 固定寫 "default"。
+  - apiGroups: [""]
+    resources: ["resourcequotas", "limitranges"]
+    resourceNames: ["default"]
+    verbs:
+      - get
+      - update
+  # EnsureNetworkPolicy —— client.go 固定寫這兩個名字。
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    resourceNames: ["default-deny-ingress", "default-egress"]
+    verbs:
+      - get
+      - update
+  # PatchGHCRImagePullSecret —— 只讀得到自己那顆 ghcr-pull，讀不到
+  # 同 namespace 內任何其他 secret。
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["ghcr-pull"]
+    verbs:
+      - get
+      - update
+  # create 無法以 resourceNames 過濾；單獨一條 create-only 規則補上
+  # upsertResource 的「不存在就建」分支。沒有 get，故不具讀取能力。
+  - apiGroups: [""]
+    resources: ["resourcequotas", "limitranges", "secrets"]
+    verbs:
+      - create
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs:
+      - create
+{{- end }}
