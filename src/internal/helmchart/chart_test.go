@@ -41,6 +41,9 @@ var requiredSubstrings = map[string][]string{
 		// Metering on by default, but switchable (drops the ClusterRole)
 		"usage:",
 		"enabled: true",
+		// Namespace provisioning grant (issue #163) — on by default, and
+		// only switchable together with K3S_DISABLE_ISOLATION.
+		"namespaceProvisioning:",
 	},
 	"templates/deployment.yaml": {
 		"kind: Deployment",
@@ -111,6 +114,21 @@ var requiredSubstrings = map[string][]string{
 		"if .Values.usage.enabled",
 		"kind: ServiceAccount",
 		"kind: ClusterRole",
+	},
+	// issue #163 — the in-cluster SA must actually be allowed to do what
+	// EnsureTeamIsolation calls. Kept in its own file so the read-only
+	// invariant on clusterrole.yaml stays a real invariant.
+	"templates/clusterrole-provisioner.yaml": {
+		"kind: ClusterRole",
+		"if .Values.namespaceProvisioning.enabled",
+		"namespace-provisioner",
+	},
+	"templates/clusterrolebinding-provisioner.yaml": {
+		"kind: ClusterRoleBinding",
+		"if .Values.namespaceProvisioning.enabled",
+		"kind: ServiceAccount",
+		"kind: ClusterRole",
+		"namespace-provisioner",
 	},
 	// production-deployment spec § 6（PR #107 曾落在 module 外的死測試檔，
 	// 本檔為唯一活測試 — manage.sh test 只跑 src/ module）

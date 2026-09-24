@@ -45,6 +45,23 @@ helm upgrade --install ops-server . -n system-0ops --create-namespace
 （spec § 14 hard rule #2）。`create` 與 `list` 必須是 cluster-scoped
 RBAC 規則無法用 resourceName 縮限的部分，分離出第二條 rule。
 
+## Namespace provisioning RBAC
+
+backend 以 in-cluster ServiceAccount 連 cluster（Deployment 不注入
+`KUBECONFIG`），`EnsureTeamIsolation` 會 apply namespace、ResourceQuota、
+LimitRange、NetworkPolicy 與 `ghcr-pull` Secret。
+`templates/clusterrole-provisioner.yaml` 授予這些 verb；缺了它，對新 team 的
+首次 `create_app` 會在建 namespace 這步 403（issue #163）。
+
+必須是 ClusterRole：namespace 本身 cluster-scoped，且 team namespace 動態
+建立，無法事先逐一 RoleBinding。get/update 一律以 `resourceNames` 釘住固定
+物件名；`create` 無法以名稱過濾，故分離為不具名的 create-only 規則——與
+Lease RBAC 同一手法。
+
+以 `namespaceProvisioning.enabled=false` 關閉，僅適用同時設
+`K3S_DISABLE_ISOLATION=true` 的部署。權限清單之單一事實來源為
+`docs/features/k3s-namespace-isolation/spec.md` § 9.4。
+
 ## Dev vs Production
 
 - **Dev compose**（root `compose.yaml`）：single replica，無 K8s。`cmd/server`

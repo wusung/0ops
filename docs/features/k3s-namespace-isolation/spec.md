@@ -353,6 +353,32 @@ ImagePullSecret 必須在 namespace 建立**前**或**同時**就緒，否則第
 - Team archive（透過 `0ops teams archive`，v1.1 範圍）：保留 namespace 但 quota 設 0；現有 pod 持續跑直到自然死亡；新 pod 擋住
 - 物理刪 namespace 屬 v2 範圍（含 `delete_team`）
 
+### 9.4 Backend 的 cluster 身分與權限（單一事實來源）
+
+backend 以 **in-cluster ServiceAccount** `ops-server` 連 cluster：`deploy/server/templates/deployment.yaml`
+只設 `serviceAccountName`、不注入 `KUBECONFIG`，故 `services/k3s.loadKubeConfig` 落在
+`rest.InClusterConfig()`。本節是「backend 被允許對 cluster 做什麼」的唯一陳述，
+manifest 為 `deploy/server/templates/clusterrole-provisioner.yaml`（由
+`namespaceProvisioning.enabled` 開關），由 `internal/helmchart` 的測試對照
+`services/k3s/client.go` 的呼叫點逐一守住。
+
+| 資源 | verbs | 收斂方式 |
+|---|---|---|
+| `namespaces` | get, create, update, delete | 不可收斂（見下）；delete 為 § 9.1 rollback 所需 |
+| `resourcequotas` / `limitranges` | get, update | `resourceNames: ["default"]` |
+| `networkpolicies` | get, update | `resourceNames: ["default-deny-ingress", "default-egress"]` |
+| `secrets` | get, update | `resourceNames: ["ghcr-pull"]` |
+| 上列四者 | create | 無法以 `resourceNames` 過濾（名稱在 request body），故另立不具名 create-only 規則：可建立、但不具讀取任意既有物件之能力 |
+
+另有一條唯讀 `ClusterRole`（`clusterrole.yaml`，`usage.enabled` 開關）給
+allocation ledger 觀察 pod，與本節職責不重疊。
+
+**殘餘風險（不宣稱已收斂）**：K8s RBAC 沒有名稱前綴語意，`namespaces` 的
+create/update/delete 無法限縮在 `team-*`，此 SA 理論上可刪 cluster 內任一
+namespace。收斂需 admission policy（M9.4 已引入 policy-controller，首輪
+`mode: warn`），列為 deferred。
+
+
 ## 10. 與其他 spec 接合點
 
 | 接合 | spec |

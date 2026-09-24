@@ -62,6 +62,15 @@ serviceAccount:
 usage:
   enabled: true
 
+# Team namespace provisioning (k3s-namespace-isolation / issue #163).
+# The backend applies namespace, ResourceQuota, LimitRange, NetworkPolicy and
+# the ghcr-pull Secret with its in-cluster ServiceAccount, which needs a
+# cluster-scoped grant because team namespaces are created on demand. Turn
+# this off only for a deployment that also sets K3S_DISABLE_ISOLATION=true —
+# without the grant the first create_app for a new team fails with 403.
+namespaceProvisioning:
+  enabled: true
+
 probes:
   readiness:
     path: /health
